@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str
-    admin_user_ids_str: str = ""
+    admin_user_id: int = 0
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./gym_bot.db"
@@ -43,7 +43,9 @@ class Settings(BaseSettings):
     @property
     def admin_user_ids(self) -> list[int]:
         """Get admin user IDs as list."""
-        return _parse_int_list(self.admin_user_ids_str)
+        if self.admin_user_id:
+            return [self.admin_user_id]
+        return []
 
     @property
     def reminder_hours_before(self) -> list[int]:

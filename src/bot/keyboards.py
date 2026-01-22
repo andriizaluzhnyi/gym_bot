@@ -41,6 +41,10 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="📊 Статистика"),
             ],
             [
+                KeyboardButton(text="💪 Програма тренувань"),
+                KeyboardButton(text="📋 Переглянути програми"),
+            ],
+            [
                 KeyboardButton(text="👤 Профіль"),
                 KeyboardButton(text="ℹ️ Допомога"),
             ],
@@ -48,6 +52,69 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
     )
     return keyboard
+
+
+# Muscle groups for workout program
+MUSCLE_GROUPS = ["🦴 Спина", "💪 Руки", "🎯 Плечі", "🏋️ Груди", "🦵 Ноги"]
+
+
+def get_muscle_group_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for muscle group selection."""
+    buttons = []
+    for group in MUSCLE_GROUPS:
+        buttons.append(
+            [InlineKeyboardButton(text=group, callback_data=f"muscle:{group}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="muscle:cancel")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_reps_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for repetitions selection."""
+    buttons = [
+        [InlineKeyboardButton(text="🔢 Оберіть кількість повторень:", callback_data="ignore")],
+        [
+            InlineKeyboardButton(text="5", callback_data="reps:5"),
+            InlineKeyboardButton(text="8", callback_data="reps:8"),
+            InlineKeyboardButton(text="10", callback_data="reps:10"),
+            InlineKeyboardButton(text="12", callback_data="reps:12"),
+        ],
+        [
+            InlineKeyboardButton(text="15", callback_data="reps:15"),
+            InlineKeyboardButton(text="20", callback_data="reps:20"),
+            InlineKeyboardButton(text="25", callback_data="reps:25"),
+            InlineKeyboardButton(text="30", callback_data="reps:30"),
+        ],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="reps:cancel")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_sets_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for sets selection."""
+    buttons = [
+        [InlineKeyboardButton(text="📊 Оберіть кількість підходів:", callback_data="ignore")],
+        [
+            InlineKeyboardButton(text="1", callback_data="sets:1"),
+            InlineKeyboardButton(text="2", callback_data="sets:2"),
+            InlineKeyboardButton(text="3", callback_data="sets:3"),
+            InlineKeyboardButton(text="4", callback_data="sets:4"),
+            InlineKeyboardButton(text="5", callback_data="sets:5"),
+        ],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="sets:cancel")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_add_more_exercise_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard to add more exercises or finish."""
+    buttons = [
+        [InlineKeyboardButton(text="➕ Додати ще вправу", callback_data="program:add_more")],
+        [InlineKeyboardButton(text="✅ Завершити програму", callback_data="program:finish")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_phone_request_keyboard() -> ReplyKeyboardMarkup:

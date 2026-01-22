@@ -63,7 +63,7 @@ class GoogleSheetsService:
                 sheet["properties"]["title"] for sheet in spreadsheet.get("sheets", [])
             }
 
-            required_sheets = ["Тренування", "Записи", "Відвідування"]
+            required_sheets = ["Тренування", "Записи", "Відвідування", "Програми"]
             sheets_to_create = [s for s in required_sheets if s not in existing_sheets]
 
             if sheets_to_create:
@@ -107,6 +107,9 @@ class GoogleSheetsService:
             ],
             "Відвідування": [
                 ["Дата", "Тренування", "Учасник", "Telegram", "Присутність"]
+            ],
+            "Програми": [
+                ["Дата", "Група м'язів", "Вправа", "Підходи", "Повторення", "Коментар"]
             ],
         }
 
@@ -370,3 +373,107 @@ class GoogleSheetsService:
         except Exception as e:
             print(f"Error adding attendance record: {e}")
             return False
+
+    async def add_workout_program(self, exercises: list[dict]) -> bool:
+        """Add workout program exercises to the Programs sheet.
+
+        Args:
+            exercises: List of exercise dictionaries
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id:
+            return False
+
+        try:
+            await self._ensure_sheets_exist()
+
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            rows = []
+            for ex in exercises:
+                row = [
+                    ex.get("created_at", datetime.now().strftime("%d.%m.%Y %H:%M")),
+                    ex.get("muscle_group", ""),
+                    ex.get("exercise", ""),
+                    str(ex.get("sets", "")),
+                    str(ex.get("reps", "")),
+                    ex.get("comment", ""),
+                ]
+                rows.append(row)
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .append(
+                    spreadsheetId=self.spreadsheet_id,
+                    range="Програми!A:F",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": rows},
+                )
+                .execute(),
+            )
+
+            return True
+
+        except HttpError as e:
+            print(f"Google Sheets API error: {e}")
+            return False
+        except Exception as e:
+            print(f"Error adding workout program: {e}")
+            return False
+
+    async def get_workout_programs(self, limit: int = 50) -> list[dict]:
+        """Get workout programs from the Programs sheet.
+
+        Args:
+            limit: Maximum number of records to return
+
+        Returns:
+            List of program dictionaries
+        """
+        if not self.spreadsheet_id:
+            return []
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:F")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+
+            # Skip header row
+            if len(values) <= 1:
+                return []
+
+            programs = []
+            for row in values[1:]:  # Skip header
+                if len(row) >= 5:
+                    programs.append({
+                        "created_at": row[0] if len(row) > 0 else "",
+                        "muscle_group": row[1] if len(row) > 1 else "",
+                        "exercise": row[2] if len(row) > 2 else "",
+                        "sets": row[3] if len(row) > 3 else "",
+                        "reps": row[4] if len(row) > 4 else "",
+                        "comment": row[5] if len(row) > 5 else "",
+                    })
+
+            return programs[-limit:] if limit else programs
+
+        except HttpError as e:
+            print(f"Google Sheets API error: {e}")
+            return []
+        except Exception as e:
+            print(f"Error getting workout programs: {e}")
+            return []

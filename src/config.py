@@ -3,7 +3,6 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,13 +40,11 @@ class Settings(BaseSettings):
     # Notifications
     reminder_hours_before_str: str = "24,2"
 
-    @computed_field
     @property
     def admin_user_ids(self) -> list[int]:
         """Get admin user IDs as list."""
         return _parse_int_list(self.admin_user_ids_str)
 
-    @computed_field
     @property
     def reminder_hours_before(self) -> list[int]:
         """Get reminder hours as list."""

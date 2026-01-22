@@ -109,7 +109,7 @@ class GoogleSheetsService:
                 ["Дата", "Тренування", "Учасник", "Telegram", "Присутність"]
             ],
             "Програми": [
-                ["Дата", "Група м'язів", "Вправа", "Підходи", "Повторення", "Коментар"]
+                ["День", "Група м'язів", "Вправа", "Підходи", "Повторення", "Коментар", "Дата"]
             ],
         }
 
@@ -378,7 +378,7 @@ class GoogleSheetsService:
         """Add workout program exercises to the Programs sheet.
 
         Args:
-            exercises: List of exercise dictionaries
+            exercises: List of exercise dictionaries with 'day' field
 
         Returns:
             True if successful, False otherwise
@@ -395,12 +395,13 @@ class GoogleSheetsService:
             rows = []
             for ex in exercises:
                 row = [
-                    ex.get("created_at", datetime.now().strftime("%d.%m.%Y %H:%M")),
+                    str(ex.get("day", 1)),
                     ex.get("muscle_group", ""),
                     ex.get("exercise", ""),
                     str(ex.get("sets", "")),
                     str(ex.get("reps", "")),
                     ex.get("comment", ""),
+                    ex.get("created_at", datetime.now().strftime("%d.%m.%Y %H:%M")),
                 ]
                 rows.append(row)
 
@@ -410,7 +411,7 @@ class GoogleSheetsService:
                 .values()
                 .append(
                     spreadsheetId=self.spreadsheet_id,
-                    range="Програми!A:F",
+                    range="Програми!A:G",
                     valueInputOption="RAW",
                     insertDataOption="INSERT_ROWS",
                     body={"values": rows},
@@ -447,7 +448,7 @@ class GoogleSheetsService:
                 None,
                 lambda: service.spreadsheets()
                 .values()
-                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:F")
+                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:G")
                 .execute(),
             )
 
@@ -459,14 +460,15 @@ class GoogleSheetsService:
 
             programs = []
             for row in values[1:]:  # Skip header
-                if len(row) >= 5:
+                if len(row) >= 4:
                     programs.append({
-                        "created_at": row[0] if len(row) > 0 else "",
+                        "day": row[0] if len(row) > 0 else "1",
                         "muscle_group": row[1] if len(row) > 1 else "",
                         "exercise": row[2] if len(row) > 2 else "",
                         "sets": row[3] if len(row) > 3 else "",
                         "reps": row[4] if len(row) > 4 else "",
                         "comment": row[5] if len(row) > 5 else "",
+                        "created_at": row[6] if len(row) > 6 else "",
                     })
 
             return programs[-limit:] if limit else programs
@@ -477,3 +479,49 @@ class GoogleSheetsService:
         except Exception as e:
             print(f"Error getting workout programs: {e}")
             return []
+
+    async def get_last_program_day(self) -> int:
+        """Get the last day number from Programs sheet.
+
+        Returns:
+            Last day number or 0 if no programs exist
+        """
+        if not self.spreadsheet_id:
+            return 0
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:A")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+
+            # Skip header, find max day number
+            if len(values) <= 1:
+                return 0
+
+            max_day = 0
+            for row in values[1:]:
+                if row and row[0]:
+                    try:
+                        day = int(row[0])
+                        if day > max_day:
+                            max_day = day
+                    except ValueError:
+                        continue
+
+            return max_day
+
+        except HttpError as e:
+            print(f"Google Sheets API error: {e}")
+            return 0
+        except Exception as e:
+            print(f"Error getting last program day: {e}")
+            return 0

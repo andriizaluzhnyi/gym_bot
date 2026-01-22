@@ -117,6 +117,43 @@ def get_add_more_exercise_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_day_selection_keyboard(last_day: int = 0) -> InlineKeyboardMarkup:
+    """Get keyboard for day selection.
+
+    Args:
+        last_day: Last existing day number (0 if no days exist)
+
+    Returns:
+        Inline keyboard with day options
+    """
+    buttons = []
+
+    # Show existing days to continue
+    if last_day > 0:
+        buttons.append(
+            [InlineKeyboardButton(
+                text=f"📝 Продовжити День {last_day}",
+                callback_data=f"day:continue:{last_day}"
+            )]
+        )
+
+    # New day option
+    new_day = last_day + 1
+    buttons.append(
+        [InlineKeyboardButton(
+            text=f"➕ Створити День {new_day}",
+            callback_data=f"day:new:{new_day}"
+        )]
+    )
+
+    # Cancel
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="day:cancel")]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_phone_request_keyboard() -> ReplyKeyboardMarkup:
     """Get keyboard for phone number request."""
     keyboard = ReplyKeyboardMarkup(

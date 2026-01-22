@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from src.bot.keyboards import (
     get_add_more_exercise_keyboard,
     get_admin_menu_keyboard,
+    get_day_selection_keyboard,
     get_muscle_group_keyboard,
     get_reps_keyboard,
     get_sets_keyboard,
@@ -24,6 +25,7 @@ settings = get_settings()
 class WorkoutProgramStates(StatesGroup):
     """States for creating workout program."""
 
+    select_day = State()
     muscle_group = State()
     exercise_name = State()
     sets = State()
@@ -44,16 +46,49 @@ async def start_workout_program(message: Message, state: FSMContext) -> None:
         await message.answer("❌ У вас немає прав для цієї дії")
         return
 
-    await state.set_state(WorkoutProgramStates.muscle_group)
+    await state.set_state(WorkoutProgramStates.select_day)
     await state.update_data(exercises=[])
 
-    keyboard = get_muscle_group_keyboard()
+    # Get last day from sheets
+    try:
+        sheets_service = GoogleSheetsService()
+        last_day = await sheets_service.get_last_program_day()
+    except Exception:
+        last_day = 0
+
+    keyboard = get_day_selection_keyboard(last_day)
     await message.answer(
-        "💪 *Створення програми тренувань*\n\n"
+        "💪 *Програма тренувань*\n\n"
+        "Оберіть день для програми:",
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data.startswith("day:"))
+async def process_day_selection(callback: CallbackQuery, state: FSMContext) -> None:
+    """Process day selection."""
+    parts = callback.data.split(":")
+    action = parts[1]
+
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Створення програми скасовано")
+        await callback.answer()
+        return
+
+    day_num = int(parts[2])
+    await state.update_data(day_number=day_num, is_new_day=(action == "new"))
+    await state.set_state(WorkoutProgramStates.muscle_group)
+
+    keyboard = get_muscle_group_keyboard()
+    await callback.message.edit_text(
+        f"📅 *День {day_num}*\n\n"
         "Оберіть групу м'язів:",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("muscle:"))
@@ -71,8 +106,11 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
     await state.update_data(current_muscle_group=muscle_group)
     await state.set_state(WorkoutProgramStates.exercise_name)
 
+    data = await state.get_data()
+    day_num = data.get("day_number", 1)
+
     await callback.message.edit_text(
-        f"✅ Група м'язів: *{muscle_group}*\n\n"
+        f"📅 *День {day_num}* | {muscle_group}\n\n"
         "Введіть назву вправи:",
         parse_mode="Markdown",
     )
@@ -86,9 +124,14 @@ async def process_exercise_name(message: Message, state: FSMContext) -> None:
     await state.update_data(current_exercise=exercise_name)
     await state.set_state(WorkoutProgramStates.sets)
 
+    data = await state.get_data()
+    day_num = data.get("day_number", 1)
+    muscle = data.get("current_muscle_group", "")
+
     keyboard = get_sets_keyboard()
     await message.answer(
-        f"✅ Вправа: *{exercise_name}*\n\n"
+        f"📅 *День {day_num}* | {muscle}\n"
+        f"💪 Вправа: *{exercise_name}*\n\n"
         "Оберіть кількість підходів:",
         reply_markup=keyboard,
         parse_mode="Markdown",
@@ -110,8 +153,12 @@ async def process_sets(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(current_sets=sets)
     await state.set_state(WorkoutProgramStates.reps)
 
+    data = await state.get_data()
+    day_num = data.get("day_number", 1)
+
     keyboard = get_reps_keyboard()
     await callback.message.edit_text(
+        f"📅 *День {day_num}*\n"
         f"✅ Підходів: *{sets}*\n\n"
         "Оберіть кількість повторень:",
         reply_markup=keyboard,
@@ -135,7 +182,11 @@ async def process_reps(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(current_reps=reps)
     await state.set_state(WorkoutProgramStates.comment)
 
+    data = await state.get_data()
+    day_num = data.get("day_number", 1)
+
     await callback.message.edit_text(
+        f"📅 *День {day_num}*\n"
         f"✅ Повторень: *{reps}*\n\n"
         "Додайте коментар до вправи\n"
         "(або надішліть '-' щоб пропустити):",
@@ -153,6 +204,7 @@ async def process_comment(message: Message, state: FSMContext) -> None:
 
     # Create exercise record
     exercise = {
+        "day": data.get("day_number", 1),
         "muscle_group": data["current_muscle_group"],
         "exercise": data["current_exercise"],
         "sets": data["current_sets"],
@@ -169,14 +221,15 @@ async def process_comment(message: Message, state: FSMContext) -> None:
     await state.set_state(WorkoutProgramStates.add_more)
 
     # Show summary
-    summary = f"✅ *Вправа додана!*\n\n"
+    day_num = data.get("day_number", 1)
+    summary = f"✅ *Вправа додана до Дня {day_num}!*\n\n"
     summary += f"🦴 Група: {exercise['muscle_group']}\n"
     summary += f"💪 Вправа: {exercise['exercise']}\n"
     summary += f"📊 Підходи × Повторення: {exercise['sets']} × {exercise['reps']}\n"
     if comment:
         summary += f"💬 Коментар: {comment}\n"
 
-    summary += f"\n📝 Всього вправ у програмі: {len(exercises)}"
+    summary += f"\n📝 Всього вправ сьогодні: {len(exercises)}"
 
     keyboard = get_add_more_exercise_keyboard()
     await message.answer(summary, reply_markup=keyboard, parse_mode="Markdown")
@@ -189,11 +242,15 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
 
     if action == "add_more":
         await state.set_state(WorkoutProgramStates.muscle_group)
+        data = await state.get_data()
+        day_num = data.get("day_number", 1)
+
         keyboard = get_muscle_group_keyboard()
         await callback.message.edit_text(
-            "💪 Додайте ще одну вправу\n\n"
+            f"📅 *День {day_num}* - додаємо вправу\n\n"
             "Оберіть групу м'язів:",
             reply_markup=keyboard,
+            parse_mode="Markdown",
         )
         await callback.answer()
         return
@@ -201,6 +258,7 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
     if action == "finish":
         data = await state.get_data()
         exercises = data.get("exercises", [])
+        day_num = data.get("day_number", 1)
 
         if not exercises:
             await callback.message.edit_text("❌ Програма порожня!")
@@ -218,7 +276,7 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
             sheets_saved = False
 
         # Show final summary
-        summary = "✅ *Програма тренувань збережена!*\n\n"
+        summary = f"✅ *День {day_num} збережено!*\n\n"
 
         # Group by muscle group
         by_group = {}
@@ -253,40 +311,67 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
 
 @router.message(F.text == "📋 Переглянути програми")
 async def view_programs(message: Message) -> None:
-    """View saved workout programs."""
+    """View saved workout programs grouped by days."""
     if not is_admin(message.from_user.id):
         await message.answer("❌ У вас немає прав для цієї дії")
         return
 
     try:
         sheets_service = GoogleSheetsService()
-        programs = await sheets_service.get_workout_programs()
+        programs = await sheets_service.get_workout_programs(limit=100)
 
         if not programs:
             await message.answer(
-                "📋 *Програми тренувань*\n\n"
+                "📋 *Програма тренувань*\n\n"
                 "_Поки немає збережених програм_",
                 parse_mode="Markdown",
             )
             return
 
-        # Group by date
-        text = "📋 *Останні програми тренувань:*\n\n"
+        # Group by day
+        by_day = {}
+        for p in programs:
+            day = p.get("day", "?")
+            if day not in by_day:
+                by_day[day] = []
+            by_day[day].append(p)
 
-        for i, program in enumerate(programs[-10:], 1):  # Last 10 records
-            text += (
-                f"{i}. {program.get('muscle_group', '-')} | "
-                f"{program.get('exercise', '-')} | "
-                f"{program.get('sets', '-')}×{program.get('reps', '-')}"
-            )
-            if program.get("comment"):
-                text += f" | {program['comment']}"
-            text += "\n"
+        text = "📋 *Програма тренувань*\n"
+        text += "━" * 20 + "\n"
+
+        for day in sorted(by_day.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+            text += f"\n📅 *День {day}*\n"
+
+            # Group by muscle in this day
+            by_muscle = {}
+            for ex in by_day[day]:
+                muscle = ex.get("muscle_group", "Інше")
+                if muscle not in by_muscle:
+                    by_muscle[muscle] = []
+                by_muscle[muscle].append(ex)
+
+            for muscle, exercises in by_muscle.items():
+                text += f"\n  *{muscle}*\n"
+                for ex in exercises:
+                    line = f"    • {ex.get('exercise', '-')}"
+                    sets = ex.get("sets", "")
+                    reps = ex.get("reps", "")
+                    if sets and reps:
+                        line += f" ({sets}×{reps})"
+                    comment = ex.get("comment", "")
+                    if comment:
+                        line += f" - _{comment}_"
+                    text += line + "\n"
+
+            text += "\n" + "─" * 15 + "\n"
+
+        # Split if too long
+        if len(text) > 4000:
+            text = text[:3900] + "\n\n_...і ще записи_"
 
         await message.answer(text, parse_mode="Markdown")
 
     except Exception as e:
         await message.answer(
             f"❌ Помилка при завантаженні програм: {str(e)}",
-            parse_mode="Markdown",
         )

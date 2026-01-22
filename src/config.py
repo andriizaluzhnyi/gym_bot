@@ -2,9 +2,27 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import BeforeValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def parse_int_list(v: str | list[int] | None) -> list[int]:
+    """Parse comma-separated integers or return list as-is."""
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return v
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            return []
+        return [int(x.strip()) for x in v.split(",") if x.strip()]
+    return []
+
+
+IntList = Annotated[list[int], BeforeValidator(parse_int_list)]
 
 
 class Settings(BaseSettings):
@@ -18,7 +36,7 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str
-    admin_user_ids: list[int] = []
+    admin_user_ids: IntList = []
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./gym_bot.db"
@@ -32,27 +50,7 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Kyiv"
 
     # Notifications
-    reminder_hours_before: list[int] = [24, 2]
-
-    @field_validator("admin_user_ids", mode="before")
-    @classmethod
-    def parse_admin_ids(cls, v: str | list[int]) -> list[int]:
-        """Parse comma-separated admin IDs."""
-        if isinstance(v, str):
-            if not v.strip():
-                return []
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
-
-    @field_validator("reminder_hours_before", mode="before")
-    @classmethod
-    def parse_reminder_hours(cls, v: str | list[int]) -> list[int]:
-        """Parse comma-separated reminder hours."""
-        if isinstance(v, str):
-            if not v.strip():
-                return [24, 2]
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+    reminder_hours_before: IntList = [24, 2]
 
 
 @lru_cache

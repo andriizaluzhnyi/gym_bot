@@ -2,27 +2,16 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
 
-from pydantic import BeforeValidator
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def parse_int_list(v: str | list[int] | None) -> list[int]:
-    """Parse comma-separated integers or return list as-is."""
-    if v is None:
-        return []
-    if isinstance(v, list):
-        return v
-    if isinstance(v, str):
-        v = v.strip()
-        if not v:
-            return []
-        return [int(x.strip()) for x in v.split(",") if x.strip()]
-    return []
-
-
-IntList = Annotated[list[int], BeforeValidator(parse_int_list)]
+def _parse_int_list(value: str, default: list[int] | None = None) -> list[int]:
+    """Parse comma-separated integers."""
+    if not value or not value.strip():
+        return default or []
+    return [int(x.strip()) for x in value.split(",") if x.strip()]
 
 
 class Settings(BaseSettings):
@@ -36,7 +25,7 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str
-    admin_user_ids: IntList = []
+    admin_user_ids_str: str = ""
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./gym_bot.db"
@@ -50,7 +39,19 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Kyiv"
 
     # Notifications
-    reminder_hours_before: IntList = [24, 2]
+    reminder_hours_before_str: str = "24,2"
+
+    @computed_field
+    @property
+    def admin_user_ids(self) -> list[int]:
+        """Get admin user IDs as list."""
+        return _parse_int_list(self.admin_user_ids_str)
+
+    @computed_field
+    @property
+    def reminder_hours_before(self) -> list[int]:
+        """Get reminder hours as list."""
+        return _parse_int_list(self.reminder_hours_before_str, [24, 2])
 
 
 @lru_cache

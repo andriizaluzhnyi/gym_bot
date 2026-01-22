@@ -8,6 +8,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
+from src.bot.calendar_picker import (
+    create_calendar,
+    create_duration_picker,
+    create_participants_picker,
+    create_time_picker,
+    get_next_month,
+    get_prev_month,
+    process_calendar_callback,
+)
 from src.bot.keyboards import (
     get_admin_menu_keyboard,
     get_admin_training_keyboard,
@@ -50,7 +59,7 @@ async def add_training_handler(message: Message, state: FSMContext) -> None:
     await state.set_state(AddTrainingStates.title)
     await message.answer(
         "🏋️ *Створення нового тренування*\n\n"
-        "Крок 1/7: Введіть назву тренування:",
+        "Крок 1/5: Введіть назву тренування:",
         parse_mode="Markdown",
     )
 
@@ -60,88 +69,140 @@ async def process_title(message: Message, state: FSMContext) -> None:
     """Process training title."""
     await state.update_data(title=message.text)
     await state.set_state(AddTrainingStates.date)
+
+    calendar_kb = create_calendar()
     await message.answer(
-        "📅 Крок 2/7: Введіть дату тренування\n"
-        "Формат: ДД.ММ.РРРР (наприклад, 25.01.2025):"
+        "📅 Крок 2/5: Оберіть дату тренування:",
+        reply_markup=calendar_kb,
     )
 
 
-@router.message(AddTrainingStates.date)
-async def process_date(message: Message, state: FSMContext) -> None:
-    """Process training date."""
-    try:
-        date = datetime.strptime(message.text.strip(), "%d.%m.%Y")
-        await state.update_data(date=date)
+# Calendar navigation callbacks
+@router.callback_query(F.data.startswith("calendar:"))
+async def calendar_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle calendar navigation and date selection."""
+    current_state = await state.get_state()
+
+    action, params = process_calendar_callback(callback.data)
+
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Створення тренування скасовано")
+        await callback.answer()
+        return
+
+    if action == "prev":
+        year, month = get_prev_month(params["year"], params["month"])
+        calendar_kb = create_calendar(year, month)
+        await callback.message.edit_reply_markup(reply_markup=calendar_kb)
+        await callback.answer()
+        return
+
+    if action == "next":
+        year, month = get_next_month(params["year"], params["month"])
+        calendar_kb = create_calendar(year, month)
+        await callback.message.edit_reply_markup(reply_markup=calendar_kb)
+        await callback.answer()
+        return
+
+    if action == "back":
+        calendar_kb = create_calendar(params["year"], params["month"])
+        await callback.message.edit_text(
+            "📅 Крок 2/5: Оберіть дату тренування:",
+            reply_markup=calendar_kb,
+        )
+        await callback.answer()
+        return
+
+    if action == "day":
+        selected_date = datetime(params["year"], params["month"], params["day"])
+        await state.update_data(selected_date=selected_date)
         await state.set_state(AddTrainingStates.time)
-        await message.answer("🕐 Крок 3/7: Введіть час тренування\nФормат: ГГ:ХХ (наприклад, 18:30):")
-    except ValueError:
-        await message.answer("❌ Неправильний формат дати. Спробуйте ще раз (ДД.ММ.РРРР):")
+
+        time_kb = create_time_picker(selected_date)
+        await callback.message.edit_text(
+            "🕐 Крок 3/5: Оберіть час тренування:",
+            reply_markup=time_kb,
+        )
+        await callback.answer()
+        return
+
+    await callback.answer()
 
 
-@router.message(AddTrainingStates.time)
-async def process_time(message: Message, state: FSMContext) -> None:
-    """Process training time."""
-    try:
-        time_parts = message.text.strip().split(":")
-        hour = int(time_parts[0])
-        minute = int(time_parts[1])
+# Time selection callbacks
+@router.callback_query(F.data.startswith("time:"))
+async def time_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle time selection."""
+    action, params = process_calendar_callback(callback.data)
 
-        data = await state.get_data()
-        scheduled_at = data["date"].replace(hour=hour, minute=minute)
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Створення тренування скасовано")
+        await callback.answer()
+        return
+
+    if action == "select":
+        scheduled_at = datetime(
+            params["year"],
+            params["month"],
+            params["day"],
+            params["hour"],
+            params["minute"],
+        )
         await state.update_data(scheduled_at=scheduled_at)
         await state.set_state(AddTrainingStates.duration)
-        await message.answer(
-            "⏱️ Крок 4/7: Введіть тривалість тренування в хвилинах\n(наприклад, 60):"
+
+        duration_kb = create_duration_picker()
+        await callback.message.edit_text(
+            "⏱️ Крок 4/5: Оберіть тривалість тренування:",
+            reply_markup=duration_kb,
         )
-    except (ValueError, IndexError):
-        await message.answer("❌ Неправильний формат часу. Спробуйте ще раз (ГГ:ХХ):")
+        await callback.answer()
+        return
+
+    await callback.answer()
 
 
-@router.message(AddTrainingStates.duration)
-async def process_duration(message: Message, state: FSMContext) -> None:
-    """Process training duration."""
-    try:
-        duration = int(message.text.strip())
-        if duration <= 0 or duration > 480:
-            raise ValueError("Invalid duration")
-        await state.update_data(duration=duration)
-        await state.set_state(AddTrainingStates.max_participants)
-        await message.answer("👥 Крок 5/7: Введіть максимальну кількість учасників:")
-    except ValueError:
-        await message.answer("❌ Введіть коректне число від 1 до 480:")
+# Duration selection callbacks
+@router.callback_query(F.data.startswith("duration:"))
+async def duration_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle duration selection."""
+    parts = callback.data.split(":")
+    action = parts[1]
 
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Створення тренування скасовано")
+        await callback.answer()
+        return
 
-@router.message(AddTrainingStates.max_participants)
-async def process_max_participants(message: Message, state: FSMContext) -> None:
-    """Process max participants."""
-    try:
-        max_p = int(message.text.strip())
-        if max_p <= 0 or max_p > 100:
-            raise ValueError("Invalid number")
-        await state.update_data(max_participants=max_p)
-        await state.set_state(AddTrainingStates.location)
-        await message.answer(
-            "📍 Крок 6/7: Введіть місце проведення\n(або надішліть '-' щоб пропустити):"
-        )
-    except ValueError:
-        await message.answer("❌ Введіть коректне число від 1 до 100:")
+    duration = int(action)
+    await state.update_data(duration=duration)
+    await state.set_state(AddTrainingStates.max_participants)
 
-
-@router.message(AddTrainingStates.location)
-async def process_location(message: Message, state: FSMContext) -> None:
-    """Process training location."""
-    location = message.text.strip() if message.text.strip() != "-" else None
-    await state.update_data(location=location)
-    await state.set_state(AddTrainingStates.description)
-    await message.answer(
-        "📝 Крок 7/7: Введіть опис тренування\n(або надішліть '-' щоб пропустити):"
+    participants_kb = create_participants_picker()
+    await callback.message.edit_text(
+        "👥 Крок 5/5: Оберіть максимальну кількість учасників:",
+        reply_markup=participants_kb,
     )
+    await callback.answer()
 
 
-@router.message(AddTrainingStates.description)
-async def process_description(message: Message, state: FSMContext) -> None:
-    """Process training description and create training."""
-    description = message.text.strip() if message.text.strip() != "-" else None
+# Participants selection callbacks
+@router.callback_query(F.data.startswith("participants:"))
+async def participants_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle participants selection and create training."""
+    parts = callback.data.split(":")
+    action = parts[1]
+
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Створення тренування скасовано")
+        await callback.answer()
+        return
+
+    max_participants = int(action)
     data = await state.get_data()
 
     async with async_session_maker() as session:
@@ -151,9 +212,9 @@ async def process_description(message: Message, state: FSMContext) -> None:
             title=data["title"],
             scheduled_at=data["scheduled_at"],
             duration_minutes=data["duration"],
-            max_participants=data["max_participants"],
-            location=data.get("location"),
-            description=description,
+            max_participants=max_participants,
+            location=None,
+            description=None,
         )
 
         # Sync with Google Calendar
@@ -186,12 +247,21 @@ async def process_description(message: Message, state: FSMContext) -> None:
             f"👥 Місць: {training.max_participants}\n"
         )
 
-        if training.location:
-            text += f"📍 Місце: {training.location}\n"
-
-        await message.answer(text, reply_markup=get_admin_menu_keyboard(), parse_mode="Markdown")
+        await callback.message.edit_text(text, parse_mode="Markdown")
+        await callback.message.answer(
+            "Оберіть наступну дію:",
+            reply_markup=get_admin_menu_keyboard(),
+        )
 
     await state.clear()
+    await callback.answer("✅ Тренування створено!")
+
+
+# Ignore callback for non-clickable buttons
+@router.callback_query(F.data == "ignore")
+async def ignore_callback(callback: CallbackQuery) -> None:
+    """Ignore callback for non-clickable buttons."""
+    await callback.answer()
 
 
 @router.message(F.text == "📊 Статистика")

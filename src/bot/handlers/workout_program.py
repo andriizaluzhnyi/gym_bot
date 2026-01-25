@@ -258,15 +258,14 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
     action = callback.data.split(":")[1]
 
     if action == "add_more":
-        await state.set_state(WorkoutProgramStates.muscle_group)
+        await state.set_state(WorkoutProgramStates.exercise_name)
         data = await state.get_data()
         day_num = data.get("day_number", 1)
+        muscle_group = data.get("current_muscle_group", "")
 
-        keyboard = get_muscle_group_keyboard()
         await callback.message.edit_text(
-            f"📅 *День {day_num}* - додаємо вправу\n\n"
-            "Оберіть групу м'язів:",
-            reply_markup=keyboard,
+            f"📅 *День {day_num}* | {muscle_group}\n\n"
+            "Введіть назву вправи:",
             parse_mode="Markdown",
         )
         await callback.answer()

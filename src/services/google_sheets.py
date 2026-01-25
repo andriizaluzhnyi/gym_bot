@@ -63,7 +63,13 @@ class GoogleSheetsService:
                 sheet["properties"]["title"] for sheet in spreadsheet.get("sheets", [])
             }
 
-            required_sheets = ["Тренування", "Записи", "Відвідування", "Програми"]
+            required_sheets = [
+                "Тренування",
+                "Записи",
+                "Відвідування",
+                "Програми",
+                "Програми (Візуалізація)",
+            ]
             sheets_to_create = [s for s in required_sheets if s not in existing_sheets]
 
             if sheets_to_create:
@@ -419,6 +425,9 @@ class GoogleSheetsService:
                 .execute(),
             )
 
+            # Update visualization sheet
+            await self.update_workout_program_visualization()
+
             return True
 
         except HttpError as e:
@@ -576,3 +585,206 @@ class GoogleSheetsService:
         except Exception as e:
             print(f"Error getting last program day for muscle group: {e}")
             return 0
+
+    async def update_workout_program_visualization(self) -> bool:
+        """Update the visualization sheet with formatted workout programs.
+
+        Creates a horizontal layout with 4 days per row section.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id:
+            return False
+
+        try:
+            # Get all programs first
+            programs = await self.get_workout_programs(limit=500)
+            if not programs:
+                return True
+
+            # Group exercises by day and muscle group
+            # Structure: {day: {muscle_group: [exercises]}}
+            days_data: dict[int, dict[str, list]] = {}
+            for prog in programs:
+                day = prog.get("day", 1)
+                muscle = prog.get("muscle_group", "")
+                if day not in days_data:
+                    days_data[day] = {}
+                if muscle not in days_data[day]:
+                    days_data[day][muscle] = []
+                days_data[day][muscle].append(prog)
+
+            if not days_data:
+                return True
+
+            # Sort days
+            sorted_days = sorted(days_data.keys())
+
+            # Build visualization rows (4 days per section)
+            all_rows = []
+            days_per_row = 4
+
+            for section_start in range(0, len(sorted_days), days_per_row):
+                section_days = sorted_days[section_start:section_start + days_per_row]
+
+                # Row 1: Day headers
+                header_row = [""]
+                for day in section_days:
+                    header_row.append(f"📅 День {day}")
+                all_rows.append(header_row)
+
+                # Row 2: Muscle groups for each day
+                muscle_row = [""]
+                for day in section_days:
+                    muscles = list(days_data[day].keys())
+                    muscle_row.append(", ".join(muscles) if muscles else "")
+                all_rows.append(muscle_row)
+
+                # Find max exercises in this section
+                max_exercises = 0
+                for day in section_days:
+                    for muscle, exercises in days_data[day].items():
+                        max_exercises = max(max_exercises, len(exercises))
+
+                # Exercise rows
+                for ex_idx in range(max_exercises):
+                    exercise_row = [f"{ex_idx + 1}"]
+                    for day in section_days:
+                        cell_content = []
+                        for muscle, exercises in days_data[day].items():
+                            if ex_idx < len(exercises):
+                                ex = exercises[ex_idx]
+                                name = ex.get("exercise", "")
+                                sets = ex.get("sets", "")
+                                reps = ex.get("reps", "")
+                                cell_content.append(f"{name}\n{sets}x{reps}")
+                        exercise_row.append("\n---\n".join(cell_content) if cell_content else "")
+                    all_rows.append(exercise_row)
+
+                # Empty row between sections
+                all_rows.append([""])
+
+            # Clear and update visualization sheet
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            # Clear existing data
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .clear(
+                    spreadsheetId=self.spreadsheet_id,
+                    range="Програми (Візуалізація)!A:Z",
+                )
+                .execute(),
+            )
+
+            # Write new data
+            if all_rows:
+                await loop.run_in_executor(
+                    None,
+                    lambda: service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range="Програми (Візуалізація)!A1",
+                        valueInputOption="RAW",
+                        body={"values": all_rows},
+                    )
+                    .execute(),
+                )
+
+            # Apply formatting
+            await self._format_visualization_sheet(len(sorted_days), days_per_row)
+
+            return True
+
+        except HttpError as e:
+            print(f"Google Sheets API error: {e}")
+            return False
+        except Exception as e:
+            print(f"Error updating workout program visualization: {e}")
+            return False
+
+    async def _format_visualization_sheet(self, total_days: int, days_per_row: int) -> None:
+        """Apply formatting to the visualization sheet."""
+        if not self.spreadsheet_id:
+            return
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            # Get sheet ID
+            spreadsheet = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .get(spreadsheetId=self.spreadsheet_id)
+                .execute(),
+            )
+
+            sheet_id = None
+            for sheet in spreadsheet.get("sheets", []):
+                if sheet["properties"]["title"] == "Програми (Візуалізація)":
+                    sheet_id = sheet["properties"]["sheetId"]
+                    break
+
+            if sheet_id is None:
+                return
+
+            requests = [
+                # Set column widths
+                {
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "COLUMNS",
+                            "startIndex": 0,
+                            "endIndex": 1,
+                        },
+                        "properties": {"pixelSize": 40},
+                        "fields": "pixelSize",
+                    }
+                },
+                {
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "COLUMNS",
+                            "startIndex": 1,
+                            "endIndex": days_per_row + 1,
+                        },
+                        "properties": {"pixelSize": 200},
+                        "fields": "pixelSize",
+                    }
+                },
+                # Text wrapping for all cells
+                {
+                    "repeatCell": {
+                        "range": {"sheetId": sheet_id},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "wrapStrategy": "WRAP",
+                                "verticalAlignment": "TOP",
+                            }
+                        },
+                        "fields": "userEnteredFormat.wrapStrategy,"
+                        "userEnteredFormat.verticalAlignment",
+                    }
+                },
+            ]
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={"requests": requests},
+                )
+                .execute(),
+            )
+
+        except Exception as e:
+            print(f"Error formatting visualization sheet: {e}")

@@ -46,20 +46,13 @@ async def start_workout_program(message: Message, state: FSMContext) -> None:
         await message.answer("❌ У вас немає прав для цієї дії")
         return
 
-    await state.set_state(WorkoutProgramStates.select_day)
+    await state.set_state(WorkoutProgramStates.muscle_group)
     await state.update_data(exercises=[])
 
-    # Get last day from sheets
-    try:
-        sheets_service = GoogleSheetsService()
-        last_day = await sheets_service.get_last_program_day()
-    except Exception:
-        last_day = 0
-
-    keyboard = get_day_selection_keyboard(last_day)
+    keyboard = get_muscle_group_keyboard()
     await message.answer(
         "💪 *Програма тренувань*\n\n"
-        "Оберіть день для програми:",
+        "Оберіть групу м'язів:",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
@@ -79,13 +72,14 @@ async def process_day_selection(callback: CallbackQuery, state: FSMContext) -> N
 
     day_num = int(parts[2])
     await state.update_data(day_number=day_num, is_new_day=(action == "new"))
-    await state.set_state(WorkoutProgramStates.muscle_group)
+    await state.set_state(WorkoutProgramStates.exercise_name)
 
-    keyboard = get_muscle_group_keyboard()
+    data = await state.get_data()
+    muscle_group = data.get("current_muscle_group", "")
+
     await callback.message.edit_text(
-        f"📅 *День {day_num}*\n\n"
-        "Оберіть групу м'язів:",
-        reply_markup=keyboard,
+        f"📅 *День {day_num}* | {muscle_group}\n\n"
+        "Введіть назву вправи:",
         parse_mode="Markdown",
     )
     await callback.answer()
@@ -104,16 +98,37 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
 
     muscle_group = action
     await state.update_data(current_muscle_group=muscle_group)
-    await state.set_state(WorkoutProgramStates.exercise_name)
 
+    # Check if day is already selected in this session
     data = await state.get_data()
-    day_num = data.get("day_number", 1)
+    current_day = data.get("day_number")
 
-    await callback.message.edit_text(
-        f"📅 *День {day_num}* | {muscle_group}\n\n"
-        "Введіть назву вправи:",
-        parse_mode="Markdown",
-    )
+    if current_day:
+        # Day already selected, proceed to exercise name
+        await state.set_state(WorkoutProgramStates.exercise_name)
+        await callback.message.edit_text(
+            f"📅 *День {current_day}* | {muscle_group}\n\n"
+            "Введіть назву вправи:",
+            parse_mode="Markdown",
+        )
+    else:
+        # First exercise, need to select day
+        await state.set_state(WorkoutProgramStates.select_day)
+
+        # Get last day from sheets
+        try:
+            sheets_service = GoogleSheetsService()
+            last_day = await sheets_service.get_last_program_day()
+        except Exception:
+            last_day = 0
+
+        keyboard = get_day_selection_keyboard(last_day)
+        await callback.message.edit_text(
+            f"💪 *{muscle_group}*\n\n"
+            "Оберіть день для програми:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
     await callback.answer()
 
 

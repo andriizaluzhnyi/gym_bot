@@ -115,10 +115,12 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
         # First exercise, need to select day
         await state.set_state(WorkoutProgramStates.select_day)
 
-        # Get last day from sheets
+        # Get last day for this muscle group from sheets
         try:
             sheets_service = GoogleSheetsService()
-            last_day = await sheets_service.get_last_program_day()
+            last_day = await sheets_service.get_last_program_day_for_muscle_group(
+                muscle_group
+            )
         except Exception:
             last_day = 0
 

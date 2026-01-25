@@ -525,3 +525,54 @@ class GoogleSheetsService:
         except Exception as e:
             print(f"Error getting last program day: {e}")
             return 0
+
+    async def get_last_program_day_for_muscle_group(self, muscle_group: str) -> int:
+        """Get the last day number for a specific muscle group.
+
+        Args:
+            muscle_group: The muscle group to filter by
+
+        Returns:
+            Last day number for this muscle group or 0 if none exist
+        """
+        if not self.spreadsheet_id:
+            return 0
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            # Get columns A (Day) and B (Muscle Group)
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:B")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+
+            # Skip header, find max day number for this muscle group
+            if len(values) <= 1:
+                return 0
+
+            max_day = 0
+            for row in values[1:]:
+                if len(row) >= 2 and row[0] and row[1]:
+                    if row[1] == muscle_group:
+                        try:
+                            day = int(row[0])
+                            if day > max_day:
+                                max_day = day
+                        except ValueError:
+                            continue
+
+            return max_day
+
+        except HttpError as e:
+            print(f"Google Sheets API error: {e}")
+            return 0
+        except Exception as e:
+            print(f"Error getting last program day for muscle group: {e}")
+            return 0

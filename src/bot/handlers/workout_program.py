@@ -188,20 +188,36 @@ async def process_sets_callback(callback: CallbackQuery, state: FSMContext) -> N
 async def process_sets_text(message: Message, state: FSMContext) -> None:
     """Process manual sets input."""
     sets = message.text.strip()
-    await state.update_data(current_sets=sets)
-    await state.set_state(WorkoutProgramStates.reps)
 
     data = await state.get_data()
     day_num = data.get("day_number", 1)
 
-    keyboard = get_reps_keyboard()
-    await message.answer(
-        f"📅 *День {day_num}*\n"
-        f"✅ Підходів: *{sets}*\n\n"
-        "Оберіть кількість повторень або введіть вручну:",
-        reply_markup=keyboard,
-        parse_mode="Markdown",
-    )
+    # Check if it's a combined format (contains / or |)
+    if "/" in sets or "|" in sets:
+        # Combined format - skip reps step
+        await state.update_data(current_sets=sets, current_reps="")
+        await state.set_state(WorkoutProgramStates.comment)
+
+        await message.answer(
+            f"📅 *День {day_num}*\n"
+            f"✅ Підходи/Повторення: *{sets}*\n\n"
+            "Додайте коментар до вправи\n"
+            "(або надішліть '-' щоб пропустити):",
+            parse_mode="Markdown",
+        )
+    else:
+        # Regular sets input - continue to reps
+        await state.update_data(current_sets=sets)
+        await state.set_state(WorkoutProgramStates.reps)
+
+        keyboard = get_reps_keyboard()
+        await message.answer(
+            f"📅 *День {day_num}*\n"
+            f"✅ Підходів: *{sets}*\n\n"
+            "Оберіть кількість повторень або введіть вручну:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
 
 
 @router.callback_query(F.data.startswith("reps:"))
@@ -259,7 +275,12 @@ async def process_comment(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     sets = data.get("current_sets", "")
     reps = data.get("current_reps", "")
-    sets_reps = f"{sets}/{reps}"
+
+    # If reps is empty, sets contains combined format already
+    if reps:
+        sets_reps = f"{sets}/{reps}"
+    else:
+        sets_reps = sets
 
     # Create exercise record with combined sets_reps field
     exercise = {

@@ -589,7 +589,7 @@ class GoogleSheetsService:
     async def update_workout_program_visualization(self) -> bool:
         """Update the visualization sheet with formatted workout programs.
 
-        Creates a horizontal layout with 4 days per row section.
+        Creates a layout grouped by muscle groups with days as columns.
 
         Returns:
             True if successful, False otherwise
@@ -603,67 +603,66 @@ class GoogleSheetsService:
             if not programs:
                 return True
 
-            # Group exercises by day and muscle group
-            # Structure: {day: {muscle_group: [exercises]}}
-            days_data: dict[int, dict[str, list]] = {}
+            # Group exercises by muscle group and day
+            # Structure: {muscle_group: {day: [exercises]}}
+            muscle_data: dict[str, dict[int, list]] = {}
+            all_days: set[int] = set()
+
             for prog in programs:
                 day = prog.get("day", 1)
                 muscle = prog.get("muscle_group", "")
-                if day not in days_data:
-                    days_data[day] = {}
-                if muscle not in days_data[day]:
-                    days_data[day][muscle] = []
-                days_data[day][muscle].append(prog)
+                all_days.add(day)
+                if muscle not in muscle_data:
+                    muscle_data[muscle] = {}
+                if day not in muscle_data[muscle]:
+                    muscle_data[muscle][day] = []
+                muscle_data[muscle][day].append(prog)
 
-            if not days_data:
+            if not muscle_data:
                 return True
 
             # Sort days
-            sorted_days = sorted(days_data.keys())
+            sorted_days = sorted(all_days)
+            num_days = len(sorted_days)
 
-            # Build visualization rows (4 days per section)
+            # Build visualization rows
             all_rows = []
-            days_per_row = 4
 
-            for section_start in range(0, len(sorted_days), days_per_row):
-                section_days = sorted_days[section_start:section_start + days_per_row]
+            # Header row: empty | День 1 | Підходи/Повт | День 2 | Підходи/Повт | ...
+            header_row = [""]
+            for day in sorted_days:
+                header_row.append(f"День {day}")
+                header_row.append("Підходи/Повторення")
+            all_rows.append(header_row)
 
-                # Row 1: Day headers
-                header_row = [""]
-                for day in section_days:
-                    header_row.append(f"📅 День {day}")
-                all_rows.append(header_row)
+            # For each muscle group, create a section
+            for muscle_group in muscle_data.keys():
+                # Muscle group header row (will be merged later)
+                muscle_header = [muscle_group] + [""] * (num_days * 2)
+                all_rows.append(muscle_header)
 
-                # Row 2: Muscle groups for each day
-                muscle_row = [""]
-                for day in section_days:
-                    muscles = list(days_data[day].keys())
-                    muscle_row.append(", ".join(muscles) if muscles else "")
-                all_rows.append(muscle_row)
-
-                # Find max exercises in this section
+                # Find max exercises for this muscle group across all days
                 max_exercises = 0
-                for day in section_days:
-                    for muscle, exercises in days_data[day].items():
-                        max_exercises = max(max_exercises, len(exercises))
+                for day in sorted_days:
+                    exercises = muscle_data[muscle_group].get(day, [])
+                    max_exercises = max(max_exercises, len(exercises))
 
                 # Exercise rows
                 for ex_idx in range(max_exercises):
-                    exercise_row = [f"{ex_idx + 1}"]
-                    for day in section_days:
-                        cell_content = []
-                        for muscle, exercises in days_data[day].items():
-                            if ex_idx < len(exercises):
-                                ex = exercises[ex_idx]
-                                name = ex.get("exercise", "")
-                                sets = ex.get("sets", "")
-                                reps = ex.get("reps", "")
-                                cell_content.append(f"{name}\n{sets}x{reps}")
-                        exercise_row.append("\n---\n".join(cell_content) if cell_content else "")
+                    exercise_row = [""]
+                    for day in sorted_days:
+                        exercises = muscle_data[muscle_group].get(day, [])
+                        if ex_idx < len(exercises):
+                            ex = exercises[ex_idx]
+                            name = ex.get("exercise", "")
+                            sets = ex.get("sets", "")
+                            reps = ex.get("reps", "")
+                            exercise_row.append(name)
+                            exercise_row.append(f"{sets}/{reps}")
+                        else:
+                            exercise_row.append("")
+                            exercise_row.append("")
                     all_rows.append(exercise_row)
-
-                # Empty row between sections
-                all_rows.append([""])
 
             # Clear and update visualization sheet
             service = self._get_service()
@@ -697,7 +696,7 @@ class GoogleSheetsService:
                 )
 
             # Apply formatting
-            await self._format_visualization_sheet(len(sorted_days), days_per_row)
+            await self._format_visualization_sheet(num_days, all_rows, muscle_data)
 
             return True
 
@@ -708,7 +707,12 @@ class GoogleSheetsService:
             print(f"Error updating workout program visualization: {e}")
             return False
 
-    async def _format_visualization_sheet(self, total_days: int, days_per_row: int) -> None:
+    async def _format_visualization_sheet(
+        self,
+        num_days: int,
+        all_rows: list,
+        muscle_data: dict,
+    ) -> None:
         """Apply formatting to the visualization sheet."""
         if not self.spreadsheet_id:
             return
@@ -734,8 +738,10 @@ class GoogleSheetsService:
             if sheet_id is None:
                 return
 
+            total_cols = num_days * 2 + 1  # +1 for first column
+
             requests = [
-                # Set column widths
+                # Set first column width (narrow)
                 {
                     "updateDimensionProperties": {
                         "range": {
@@ -744,37 +750,110 @@ class GoogleSheetsService:
                             "startIndex": 0,
                             "endIndex": 1,
                         },
-                        "properties": {"pixelSize": 40},
+                        "properties": {"pixelSize": 50},
                         "fields": "pixelSize",
                     }
                 },
+                # Set exercise name columns width
                 {
                     "updateDimensionProperties": {
                         "range": {
                             "sheetId": sheet_id,
                             "dimension": "COLUMNS",
                             "startIndex": 1,
-                            "endIndex": days_per_row + 1,
+                            "endIndex": total_cols,
                         },
-                        "properties": {"pixelSize": 200},
+                        "properties": {"pixelSize": 180},
                         "fields": "pixelSize",
                     }
                 },
-                # Text wrapping for all cells
+                # Text wrapping and alignment for all cells
                 {
                     "repeatCell": {
                         "range": {"sheetId": sheet_id},
                         "cell": {
                             "userEnteredFormat": {
                                 "wrapStrategy": "WRAP",
-                                "verticalAlignment": "TOP",
+                                "verticalAlignment": "MIDDLE",
                             }
                         },
                         "fields": "userEnteredFormat.wrapStrategy,"
                         "userEnteredFormat.verticalAlignment",
                     }
                 },
+                # Header row formatting (bold, background)
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 1,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "textFormat": {"bold": True},
+                                "backgroundColor": {
+                                    "red": 0.9,
+                                    "green": 0.9,
+                                    "blue": 0.9,
+                                },
+                                "horizontalAlignment": "CENTER",
+                            }
+                        },
+                        "fields": "userEnteredFormat.textFormat.bold,"
+                        "userEnteredFormat.backgroundColor,"
+                        "userEnteredFormat.horizontalAlignment",
+                    }
+                },
             ]
+
+            # Find muscle group header rows and format them
+            current_row = 1  # Start after header
+            for muscle_group in muscle_data.keys():
+                # Merge muscle group header cells
+                requests.append({
+                    "mergeCells": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": current_row,
+                            "endRowIndex": current_row + 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": total_cols,
+                        },
+                        "mergeType": "MERGE_ALL",
+                    }
+                })
+                # Format muscle group header (bold, centered, background)
+                requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": current_row,
+                            "endRowIndex": current_row + 1,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "textFormat": {"bold": True},
+                                "backgroundColor": {
+                                    "red": 1.0,
+                                    "green": 0.95,
+                                    "blue": 0.8,
+                                },
+                                "horizontalAlignment": "CENTER",
+                            }
+                        },
+                        "fields": "userEnteredFormat.textFormat.bold,"
+                        "userEnteredFormat.backgroundColor,"
+                        "userEnteredFormat.horizontalAlignment",
+                    }
+                })
+
+                # Calculate exercises count for this muscle group
+                max_exercises = 0
+                for day_exercises in muscle_data[muscle_group].values():
+                    max_exercises = max(max_exercises, len(day_exercises))
+
+                current_row += 1 + max_exercises  # header + exercises
 
             await loop.run_in_executor(
                 None,

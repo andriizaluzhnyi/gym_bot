@@ -12,8 +12,7 @@ from src.bot.keyboards import (
     get_admin_menu_keyboard,
     get_day_selection_keyboard,
     get_muscle_group_keyboard,
-    get_reps_keyboard,
-    get_sets_keyboard,
+    get_sets_reps_keyboard,
 )
 from src.config import get_settings
 from src.services.google_sheets import GoogleSheetsService
@@ -28,8 +27,7 @@ class WorkoutProgramStates(StatesGroup):
     select_day = State()
     muscle_group = State()
     exercise_name = State()
-    sets = State()
-    reps = State()
+    sets_reps = State()
     comment = State()
     add_more = State()
 
@@ -139,25 +137,26 @@ async def process_exercise_name(message: Message, state: FSMContext) -> None:
     """Process exercise name input."""
     exercise_name = message.text.strip()
     await state.update_data(current_exercise=exercise_name)
-    await state.set_state(WorkoutProgramStates.sets)
+    await state.set_state(WorkoutProgramStates.sets_reps)
 
     data = await state.get_data()
     day_num = data.get("day_number", 1)
     muscle = data.get("current_muscle_group", "")
 
-    keyboard = get_sets_keyboard()
+    keyboard = get_sets_reps_keyboard()
     await message.answer(
         f"📅 *День {day_num}* | {muscle}\n"
         f"💪 Вправа: *{exercise_name}*\n\n"
-        "Оберіть кількість підходів:",
+        "Оберіть або введіть підходи/повторення:\n"
+        "_Приклади: 4/12, 3/15, 2/15 | 3/10, 10-12/4_",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
 
 
-@router.callback_query(F.data.startswith("sets:"))
-async def process_sets(callback: CallbackQuery, state: FSMContext) -> None:
-    """Process sets selection."""
+@router.callback_query(F.data.startswith("setsreps:"))
+async def process_sets_reps_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Process sets/reps selection from keyboard."""
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -166,37 +165,8 @@ async def process_sets(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
 
-    sets = int(action)
-    await state.update_data(current_sets=sets)
-    await state.set_state(WorkoutProgramStates.reps)
-
-    data = await state.get_data()
-    day_num = data.get("day_number", 1)
-
-    keyboard = get_reps_keyboard()
-    await callback.message.edit_text(
-        f"📅 *День {day_num}*\n"
-        f"✅ Підходів: *{sets}*\n\n"
-        "Оберіть кількість повторень:",
-        reply_markup=keyboard,
-        parse_mode="Markdown",
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("reps:"))
-async def process_reps(callback: CallbackQuery, state: FSMContext) -> None:
-    """Process reps selection."""
-    action = callback.data.split(":")[1]
-
-    if action == "cancel":
-        await state.clear()
-        await callback.message.edit_text("❌ Створення програми скасовано")
-        await callback.answer()
-        return
-
-    reps = int(action)
-    await state.update_data(current_reps=reps)
+    sets_reps = action
+    await state.update_data(current_sets_reps=sets_reps)
     await state.set_state(WorkoutProgramStates.comment)
 
     data = await state.get_data()
@@ -204,12 +174,31 @@ async def process_reps(callback: CallbackQuery, state: FSMContext) -> None:
 
     await callback.message.edit_text(
         f"📅 *День {day_num}*\n"
-        f"✅ Повторень: *{reps}*\n\n"
+        f"✅ Підходи/Повторення: *{sets_reps}*\n\n"
         "Додайте коментар до вправи\n"
         "(або надішліть '-' щоб пропустити):",
         parse_mode="Markdown",
     )
     await callback.answer()
+
+
+@router.message(WorkoutProgramStates.sets_reps)
+async def process_sets_reps_text(message: Message, state: FSMContext) -> None:
+    """Process manual sets/reps input."""
+    sets_reps = message.text.strip()
+    await state.update_data(current_sets_reps=sets_reps)
+    await state.set_state(WorkoutProgramStates.comment)
+
+    data = await state.get_data()
+    day_num = data.get("day_number", 1)
+
+    await message.answer(
+        f"📅 *День {day_num}*\n"
+        f"✅ Підходи/Повторення: *{sets_reps}*\n\n"
+        "Додайте коментар до вправи\n"
+        "(або надішліть '-' щоб пропустити):",
+        parse_mode="Markdown",
+    )
 
 
 @router.message(WorkoutProgramStates.comment)
@@ -218,14 +207,14 @@ async def process_comment(message: Message, state: FSMContext) -> None:
     comment = message.text.strip() if message.text.strip() != "-" else ""
 
     data = await state.get_data()
+    sets_reps = data.get("current_sets_reps", "")
 
-    # Create exercise record
+    # Create exercise record with combined sets_reps field
     exercise = {
         "day": data.get("day_number", 1),
         "muscle_group": data["current_muscle_group"],
         "exercise": data["current_exercise"],
-        "sets": data["current_sets"],
-        "reps": data["current_reps"],
+        "sets_reps": sets_reps,
         "comment": comment,
         "created_at": datetime.now().strftime("%d.%m.%Y %H:%M"),
     }
@@ -242,7 +231,7 @@ async def process_comment(message: Message, state: FSMContext) -> None:
     summary = f"✅ *Вправа додана до Дня {day_num}!*\n\n"
     summary += f"🦴 Група: {exercise['muscle_group']}\n"
     summary += f"💪 Вправа: {exercise['exercise']}\n"
-    summary += f"📊 Підходи × Повторення: {exercise['sets']} × {exercise['reps']}\n"
+    summary += f"📊 Підходи/Повторення: {sets_reps}\n"
     if comment:
         summary += f"💬 Коментар: {comment}\n"
 

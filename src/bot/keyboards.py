@@ -108,6 +108,32 @@ def get_sets_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_sets_reps_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for combined sets/reps selection.
+
+    Provides quick options and allows manual text input.
+    """
+    buttons = [
+        [
+            InlineKeyboardButton(text="3/10", callback_data="setsreps:3/10"),
+            InlineKeyboardButton(text="3/12", callback_data="setsreps:3/12"),
+            InlineKeyboardButton(text="3/15", callback_data="setsreps:3/15"),
+        ],
+        [
+            InlineKeyboardButton(text="4/8", callback_data="setsreps:4/8"),
+            InlineKeyboardButton(text="4/10", callback_data="setsreps:4/10"),
+            InlineKeyboardButton(text="4/12", callback_data="setsreps:4/12"),
+        ],
+        [
+            InlineKeyboardButton(text="4/15", callback_data="setsreps:4/15"),
+            InlineKeyboardButton(text="5/5", callback_data="setsreps:5/5"),
+            InlineKeyboardButton(text="5/10", callback_data="setsreps:5/10"),
+        ],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="setsreps:cancel")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_add_more_exercise_keyboard() -> InlineKeyboardMarkup:
     """Get keyboard to add more exercises or finish."""
     buttons = [

@@ -115,7 +115,7 @@ class GoogleSheetsService:
                 ["Дата", "Тренування", "Учасник", "Telegram", "Присутність"]
             ],
             "Програми": [
-                ["День", "Група м'язів", "Вправа", "Підходи", "Повторення", "Коментар", "Дата"]
+                ["День", "Група м'язів", "Вправа", "Підходи/Повторення", "Коментар", "Дата"]
             ],
         }
 
@@ -404,8 +404,7 @@ class GoogleSheetsService:
                     str(ex.get("day", 1)),
                     ex.get("muscle_group", ""),
                     ex.get("exercise", ""),
-                    str(ex.get("sets", "")),
-                    str(ex.get("reps", "")),
+                    ex.get("sets_reps", ""),
                     ex.get("comment", ""),
                     ex.get("created_at", datetime.now().strftime("%d.%m.%Y %H:%M")),
                 ]
@@ -417,7 +416,7 @@ class GoogleSheetsService:
                 .values()
                 .append(
                     spreadsheetId=self.spreadsheet_id,
-                    range="Програми!A:G",
+                    range="Програми!A:F",
                     valueInputOption="RAW",
                     insertDataOption="INSERT_ROWS",
                     body={"values": rows},
@@ -457,7 +456,7 @@ class GoogleSheetsService:
                 None,
                 lambda: service.spreadsheets()
                 .values()
-                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:G")
+                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:F")
                 .execute(),
             )
 
@@ -474,10 +473,9 @@ class GoogleSheetsService:
                         "day": row[0] if len(row) > 0 else "1",
                         "muscle_group": row[1] if len(row) > 1 else "",
                         "exercise": row[2] if len(row) > 2 else "",
-                        "sets": row[3] if len(row) > 3 else "",
-                        "reps": row[4] if len(row) > 4 else "",
-                        "comment": row[5] if len(row) > 5 else "",
-                        "created_at": row[6] if len(row) > 6 else "",
+                        "sets_reps": row[3] if len(row) > 3 else "",
+                        "comment": row[4] if len(row) > 4 else "",
+                        "created_at": row[5] if len(row) > 5 else "",
                     })
 
             return programs[-limit:] if limit else programs
@@ -655,10 +653,9 @@ class GoogleSheetsService:
                         if ex_idx < len(exercises):
                             ex = exercises[ex_idx]
                             name = ex.get("exercise", "")
-                            sets = ex.get("sets", "")
-                            reps = ex.get("reps", "")
+                            sets_reps = ex.get("sets_reps", "")
                             exercise_row.append(name)
-                            exercise_row.append(f"{sets}/{reps}")
+                            exercise_row.append(sets_reps)
                         else:
                             exercise_row.append("")
                             exercise_row.append("")

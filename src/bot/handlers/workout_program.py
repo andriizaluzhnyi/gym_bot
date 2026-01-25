@@ -346,7 +346,7 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
         for group, exs in by_group.items():
             summary += f"\n*{group}:*\n"
             for ex in exs:
-                summary += f"  • {ex['exercise']} - {ex['sets']}×{ex['reps']}"
+                summary += f"  • {ex['exercise']} - {ex['sets_reps']}"
                 if ex.get("comment"):
                     summary += f" ({ex['comment']})"
                 summary += "\n"
@@ -411,10 +411,9 @@ async def view_programs(message: Message) -> None:
                 text += f"\n  *{muscle}*\n"
                 for ex in exercises:
                     line = f"    • {ex.get('exercise', '-')}"
-                    sets = ex.get("sets", "")
-                    reps = ex.get("reps", "")
-                    if sets and reps:
-                        line += f" ({sets}×{reps})"
+                    sets_reps = ex.get("sets_reps", "")
+                    if sets_reps:
+                        line += f" ({sets_reps})"
                     comment = ex.get("comment", "")
                     if comment:
                         line += f" - _{comment}_"

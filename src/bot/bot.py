@@ -2,16 +2,21 @@
 
 import asyncio
 import logging
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from dotenv import load_dotenv
 
 from src.bot.handlers import setup_routers
 from src.config import get_settings
 from src.database.session import init_db
 from src.services.notifications import NotificationService
+
+# Load .env file for local development (ignored if not exists)
+load_dotenv(Path(__file__).parent.parent.parent / '.env')
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

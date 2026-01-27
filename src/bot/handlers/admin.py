@@ -52,9 +52,9 @@ def is_admin(user_id: int) -> bool:
 @router.message(F.text == "➕ Додати тренування")
 async def add_training_handler(message: Message, state: FSMContext) -> None:
     """Start adding a new training."""
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас немає прав для цієї дії")
-        return
+    # if not is_admin(message.from_user.id):
+    #     await message.answer("❌ У вас немає прав для цієї дії")
+    #     return
 
     await state.set_state(AddTrainingStates.title)
     await message.answer(
@@ -267,9 +267,9 @@ async def ignore_callback(callback: CallbackQuery) -> None:
 @router.message(F.text == "📊 Статистика")
 async def statistics_handler(message: Message) -> None:
     """Show statistics for admin."""
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас немає прав для цієї дії")
-        return
+    # if not is_admin(message.from_user.id):
+    #     await message.answer("❌ У вас немає прав для цієї дії")
+    #     return
 
     async with async_session_maker() as session:
         training_repo = TrainingRepository(session)

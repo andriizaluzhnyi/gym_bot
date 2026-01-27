@@ -114,10 +114,11 @@ class GoogleSheetsService:
             "Відвідування": [
                 ["Дата", "Тренування", "Учасник", "Telegram", "Присутність"]
             ],
-            "Програми": [
-                ["День", "Група м'язів", "Вправа", "Підходи/Повторення", "Коментар", "Дата"]
-            ],
         }
+
+        headers["Програми"] = [
+            ["День", "Група м'язів", "Вправа", "Підходи/Повторення", "Коментар", "Дата"]
+        ]
 
         try:
             service = self._get_service()
@@ -139,6 +140,140 @@ class GoogleSheetsService:
 
         except Exception as e:
             print(f"Error adding headers: {e}")
+
+    async def _ensure_user_sheets_exist(self, user_name: str) -> None:
+        """Ensure sheets for a specific user exist.
+
+        Creates two sheets per user:
+        - 'Програми ({user_name})' - hidden data sheet
+        - '{user_name}' - visible visualization sheet
+
+        Args:
+            user_name: The username to create sheets for
+        """
+        if not self.spreadsheet_id or not user_name:
+            return
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            # Get existing sheets
+            spreadsheet = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .get(spreadsheetId=self.spreadsheet_id)
+                .execute(),
+            )
+
+            existing_sheets = {
+                sheet["properties"]["title"] for sheet in spreadsheet.get("sheets", [])
+            }
+
+            data_sheet = f"Програми ({user_name})"
+            viz_sheet = user_name
+
+            sheets_to_create = []
+            if data_sheet not in existing_sheets:
+                sheets_to_create.append(data_sheet)
+            if viz_sheet not in existing_sheets:
+                sheets_to_create.append(viz_sheet)
+
+            if not sheets_to_create:
+                return
+
+            # Create sheets
+            requests = [
+                {"addSheet": {"properties": {"title": title}}}
+                for title in sheets_to_create
+            ]
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .batchUpdate(spreadsheetId=self.spreadsheet_id, body={"requests": requests})
+                .execute(),
+            )
+
+            # Add headers to data sheet
+            if data_sheet in sheets_to_create:
+                await loop.run_in_executor(
+                    None,
+                    lambda: service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{data_sheet}!A1",
+                        valueInputOption="RAW",
+                        body={
+                            "values": [
+                                ["День", "Група м'язів", "Вправа", "Підходи/Повторення", "Коментар", "Дата"]
+                            ]
+                        },
+                    )
+                    .execute(),
+                )
+
+            # Hide data sheet
+            await self._hide_sheet(data_sheet)
+
+        except Exception as e:
+            print(f"Error ensuring user sheets exist: {e}")
+
+    async def _hide_sheet(self, sheet_name: str) -> None:
+        """Hide a specific sheet by name.
+
+        Args:
+            sheet_name: Name of the sheet to hide
+        """
+        if not self.spreadsheet_id:
+            return
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            # Get sheet ID
+            spreadsheet = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .get(spreadsheetId=self.spreadsheet_id)
+                .execute(),
+            )
+
+            sheet_id = None
+            for sheet in spreadsheet.get("sheets", []):
+                if sheet["properties"]["title"] == sheet_name:
+                    sheet_id = sheet["properties"]["sheetId"]
+                    break
+
+            if sheet_id is None:
+                return
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={
+                        "requests": [
+                            {
+                                "updateSheetProperties": {
+                                    "properties": {
+                                        "sheetId": sheet_id,
+                                        "hidden": True,
+                                    },
+                                    "fields": "hidden",
+                                }
+                            }
+                        ]
+                    },
+                )
+                .execute(),
+            )
+
+        except Exception as e:
+            print(f"Error hiding sheet {sheet_name}: {e}")
 
     async def add_training_record(self, training: "Training") -> bool:
         """Add a training record to the Trainings sheet.
@@ -380,11 +515,14 @@ class GoogleSheetsService:
             print(f"Error adding attendance record: {e}")
             return False
 
-    async def add_workout_program(self, exercises: list[dict]) -> bool:
+    async def add_workout_program(
+        self, exercises: list[dict], user_name: str | None = None
+    ) -> bool:
         """Add workout program exercises to the Programs sheet.
 
         Args:
             exercises: List of exercise dictionaries with 'day' field
+            user_name: Optional user name for per-user sheets
 
         Returns:
             True if successful, False otherwise
@@ -394,6 +532,10 @@ class GoogleSheetsService:
 
         try:
             await self._ensure_sheets_exist()
+
+            # Ensure user-specific sheets exist if user_name provided
+            if user_name:
+                await self._ensure_user_sheets_exist(user_name)
 
             service = self._get_service()
             loop = asyncio.get_event_loop()
@@ -410,13 +552,19 @@ class GoogleSheetsService:
                 ]
                 rows.append(row)
 
+            # Determine sheet name based on user
+            if user_name:
+                sheet_name = f"Програми ({user_name})"
+            else:
+                sheet_name = "Програми"
+
             await loop.run_in_executor(
                 None,
                 lambda: service.spreadsheets()
                 .values()
                 .append(
                     spreadsheetId=self.spreadsheet_id,
-                    range="Програми!A:F",
+                    range=f"{sheet_name}!A:F",
                     valueInputOption="RAW",
                     insertDataOption="INSERT_ROWS",
                     body={"values": rows},
@@ -424,8 +572,8 @@ class GoogleSheetsService:
                 .execute(),
             )
 
-            # Update visualization sheet
-            await self.update_workout_program_visualization()
+            # Update visualization sheet for this user
+            await self.update_workout_program_visualization(user_name)
 
             return True
 
@@ -436,11 +584,14 @@ class GoogleSheetsService:
             print(f"Error adding workout program: {e}")
             return False
 
-    async def get_workout_programs(self, limit: int = 50) -> list[dict]:
+    async def get_workout_programs(
+        self, limit: int = 50, user_name: str | None = None
+    ) -> list[dict]:
         """Get workout programs from the Programs sheet.
 
         Args:
             limit: Maximum number of records to return
+            user_name: Optional user name for per-user sheets
 
         Returns:
             List of program dictionaries
@@ -452,11 +603,17 @@ class GoogleSheetsService:
             service = self._get_service()
             loop = asyncio.get_event_loop()
 
+            # Determine sheet name based on user
+            if user_name:
+                sheet_name = f"Програми ({user_name})"
+            else:
+                sheet_name = "Програми"
+
             result = await loop.run_in_executor(
                 None,
                 lambda: service.spreadsheets()
                 .values()
-                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:F")
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:F")
                 .execute(),
             )
 
@@ -487,8 +644,11 @@ class GoogleSheetsService:
             print(f"Error getting workout programs: {e}")
             return []
 
-    async def get_last_program_day(self) -> int:
+    async def get_last_program_day(self, user_name: str | None = None) -> int:
         """Get the last day number from Programs sheet.
+
+        Args:
+            user_name: Optional user name for per-user sheets
 
         Returns:
             Last day number or 0 if no programs exist
@@ -500,11 +660,17 @@ class GoogleSheetsService:
             service = self._get_service()
             loop = asyncio.get_event_loop()
 
+            # Determine sheet name based on user
+            if user_name:
+                sheet_name = f"Програми ({user_name})"
+            else:
+                sheet_name = "Програми"
+
             result = await loop.run_in_executor(
                 None,
                 lambda: service.spreadsheets()
                 .values()
-                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:A")
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:A")
                 .execute(),
             )
 
@@ -533,11 +699,14 @@ class GoogleSheetsService:
             print(f"Error getting last program day: {e}")
             return 0
 
-    async def get_last_program_day_for_muscle_group(self, muscle_group: str) -> int:
+    async def get_last_program_day_for_muscle_group(
+        self, muscle_group: str, user_name: str | None = None
+    ) -> int:
         """Get the last day number for a specific muscle group.
 
         Args:
             muscle_group: The muscle group to filter by
+            user_name: Optional user name for per-user sheets
 
         Returns:
             Last day number for this muscle group or 0 if none exist
@@ -549,12 +718,18 @@ class GoogleSheetsService:
             service = self._get_service()
             loop = asyncio.get_event_loop()
 
+            # Determine sheet name based on user
+            if user_name:
+                sheet_name = f"Програми ({user_name})"
+            else:
+                sheet_name = "Програми"
+
             # Get columns A (Day) and B (Muscle Group)
             result = await loop.run_in_executor(
                 None,
                 lambda: service.spreadsheets()
                 .values()
-                .get(spreadsheetId=self.spreadsheet_id, range="Програми!A:B")
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:B")
                 .execute(),
             )
 
@@ -584,10 +759,15 @@ class GoogleSheetsService:
             print(f"Error getting last program day for muscle group: {e}")
             return 0
 
-    async def update_workout_program_visualization(self) -> bool:
+    async def update_workout_program_visualization(
+        self, user_name: str | None = None
+    ) -> bool:
         """Update the visualization sheet with formatted workout programs.
 
         Creates a layout grouped by muscle groups with days as columns.
+
+        Args:
+            user_name: Optional user name for per-user sheets
 
         Returns:
             True if successful, False otherwise
@@ -596,8 +776,8 @@ class GoogleSheetsService:
             return False
 
         try:
-            # Get all programs first
-            programs = await self.get_workout_programs(limit=500)
+            # Get all programs first for this user
+            programs = await self.get_workout_programs(limit=500, user_name=user_name)
             if not programs:
                 return True
 
@@ -661,6 +841,12 @@ class GoogleSheetsService:
                             exercise_row.append("")
                     all_rows.append(exercise_row)
 
+            # Determine visualization sheet name based on user
+            if user_name:
+                viz_sheet_name = user_name
+            else:
+                viz_sheet_name = "Програми (Візуалізація)"
+
             # Clear and update visualization sheet
             service = self._get_service()
             loop = asyncio.get_event_loop()
@@ -672,7 +858,7 @@ class GoogleSheetsService:
                 .values()
                 .clear(
                     spreadsheetId=self.spreadsheet_id,
-                    range="Програми (Візуалізація)!A:Z",
+                    range=f"{viz_sheet_name}!A:Z",
                 )
                 .execute(),
             )
@@ -685,7 +871,7 @@ class GoogleSheetsService:
                     .values()
                     .update(
                         spreadsheetId=self.spreadsheet_id,
-                        range="Програми (Візуалізація)!A1",
+                        range=f"{viz_sheet_name}!A1",
                         valueInputOption="RAW",
                         body={"values": all_rows},
                     )
@@ -693,7 +879,9 @@ class GoogleSheetsService:
                 )
 
             # Apply formatting
-            await self._format_visualization_sheet(num_days, all_rows, muscle_data)
+            await self._format_visualization_sheet(
+                num_days, all_rows, muscle_data, user_name
+            )
 
             return True
 
@@ -709,6 +897,7 @@ class GoogleSheetsService:
         num_days: int,
         all_rows: list,
         muscle_data: dict,
+        user_name: str | None = None,
     ) -> None:
         """Apply formatting to the visualization sheet."""
         if not self.spreadsheet_id:
@@ -717,6 +906,12 @@ class GoogleSheetsService:
         try:
             service = self._get_service()
             loop = asyncio.get_event_loop()
+
+            # Determine visualization sheet name based on user
+            if user_name:
+                viz_sheet_name = user_name
+            else:
+                viz_sheet_name = "Програми (Візуалізація)"
 
             # Get sheet ID
             spreadsheet = await loop.run_in_executor(
@@ -728,7 +923,7 @@ class GoogleSheetsService:
 
             sheet_id = None
             for sheet in spreadsheet.get("sheets", []):
-                if sheet["properties"]["title"] == "Програми (Візуалізація)":
+                if sheet["properties"]["title"] == viz_sheet_name:
                     sheet_id = sheet["properties"]["sheetId"]
                     break
 

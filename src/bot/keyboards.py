@@ -14,10 +14,10 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Get main menu keyboard."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="📅 Розклад"),
-                KeyboardButton(text="📝 Мої записи"),
-            ],
+            # [
+            #     KeyboardButton(text="📅 Розклад"),
+            #     KeyboardButton(text="📝 Мої записи"),
+            # ],
             [
                 KeyboardButton(text="👤 Профіль"),
                 KeyboardButton(text="ℹ️ Допомога"),
@@ -32,14 +32,14 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     """Get admin menu keyboard."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="📅 Розклад"),
-                KeyboardButton(text="📝 Мої записи"),
-            ],
-            [
-                KeyboardButton(text="➕ Додати тренування"),
-                KeyboardButton(text="📊 Статистика"),
-            ],
+            # [
+            #     KeyboardButton(text="📅 Розклад"),
+            #     KeyboardButton(text="📝 Мої записи"),
+            # ],
+            # [
+            #     KeyboardButton(text="➕ Додати тренування"),
+            #     KeyboardButton(text="📊 Статистика"),
+            # ],
             [
                 KeyboardButton(text="💪 Програма тренувань"),
                 KeyboardButton(text="📋 Переглянути програми"),
@@ -56,6 +56,26 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
 
 # Muscle groups for workout program
 MUSCLE_GROUPS = ["🦴 Спина", "💪 Руки", "🎯 Плечі", "🏋️ Груди", "🦵 Ноги"]
+
+
+def get_user_selection_keyboard(users: list[str]) -> InlineKeyboardMarkup:
+    """Get inline keyboard for user selection.
+
+    Args:
+        users: List of user names to select from
+
+    Returns:
+        Inline keyboard with user options
+    """
+    buttons = []
+    for user_name in users:
+        buttons.append(
+            [InlineKeyboardButton(text=f"👤 {user_name}", callback_data=f"user:{user_name}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="user:cancel")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_muscle_group_keyboard() -> InlineKeyboardMarkup:

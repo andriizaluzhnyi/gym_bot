@@ -14,17 +14,29 @@ from src.bot.keyboards import (
     get_muscle_group_keyboard,
     get_reps_keyboard,
     get_sets_keyboard,
+    get_user_selection_keyboard,
 )
 from src.config import get_settings
+from src.database.repository import UserRepository
+from src.database.session import async_session_maker
 from src.services.google_sheets import GoogleSheetsService
 
 router = Router()
 settings = get_settings()
 
 
+async def _get_workout_users() -> list[str]:
+    """Get list of usernames from database."""
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        users = await user_repo.get_all_with_username()
+        return [user.username for user in users if user.username]
+
+
 class WorkoutProgramStates(StatesGroup):
     """States for creating workout program."""
 
+    select_user = State()
     select_day = State()
     muscle_group = State()
     exercise_name = State()
@@ -36,26 +48,79 @@ class WorkoutProgramStates(StatesGroup):
 
 def is_admin(user_id: int) -> bool:
     """Check if user is admin."""
-    return user_id in settings.admin_user_ids
+    return True  # user_id in settings.admin_user_ids
 
 
 @router.message(F.text == "💪 Програма тренувань")
 async def start_workout_program(message: Message, state: FSMContext) -> None:
     """Start creating a workout program."""
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас немає прав для цієї дії")
+    # if not is_admin(message.from_user.id):
+    #     await message.answer("❌ У вас немає прав для цієї дії")
+    #     return
+
+    # Get users from database
+    workout_users = await _get_workout_users()
+
+    if workout_users:
+        # Ask to select user first
+        await state.set_state(WorkoutProgramStates.select_user)
+        await state.update_data(exercises=[])
+
+        keyboard = get_user_selection_keyboard(workout_users)
+        await message.answer(
+            "💪 *Програма тренувань*\n\n"
+            "Оберіть користувача:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+    else:
+        # No users in database, proceed directly
+        await state.set_state(WorkoutProgramStates.muscle_group)
+        await state.update_data(exercises=[], selected_user=None)
+
+        keyboard = get_muscle_group_keyboard()
+        await message.answer(
+            "💪 *Програма тренувань*\n\n"
+            "Оберіть групу м'язів:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+
+
+@router.callback_query(F.data.startswith("user:"))
+async def process_user_selection(callback: CallbackQuery, state: FSMContext) -> None:
+    """Process user selection."""
+    action = callback.data.split(":")[1]
+
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Операцію скасовано")
+        await callback.answer()
         return
 
+    user_name = action
+    data = await state.get_data()
+
+    # Check if we're in viewing mode
+    if data.get("viewing_mode"):
+        await state.clear()
+        await callback.message.edit_text(f"📋 *Завантаження програм для {user_name}...*", parse_mode="Markdown")
+        await _show_programs(callback.message, user_name=user_name)
+        await callback.answer()
+        return
+
+    # Creating mode - proceed to muscle group selection
+    await state.update_data(selected_user=user_name)
     await state.set_state(WorkoutProgramStates.muscle_group)
-    await state.update_data(exercises=[])
 
     keyboard = get_muscle_group_keyboard()
-    await message.answer(
-        "💪 *Програма тренувань*\n\n"
+    await callback.message.edit_text(
+        f"💪 *Програма тренувань для {user_name}*\n\n"
         "Оберіть групу м'язів:",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("day:"))
@@ -76,9 +141,11 @@ async def process_day_selection(callback: CallbackQuery, state: FSMContext) -> N
 
     data = await state.get_data()
     muscle_group = data.get("current_muscle_group", "")
+    selected_user = data.get("selected_user")
+    user_prefix = f"👤 {selected_user} | " if selected_user else ""
 
     await callback.message.edit_text(
-        f"📅 *День {day_num}* | {muscle_group}\n\n"
+        f"{user_prefix}📅 *День {day_num}* | {muscle_group}\n\n"
         "Введіть назву вправи:",
         parse_mode="Markdown",
     )
@@ -102,12 +169,14 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
     # Check if day is already selected in this session
     data = await state.get_data()
     current_day = data.get("day_number")
+    selected_user = data.get("selected_user")
 
     if current_day:
         # Day already selected, proceed to exercise name
         await state.set_state(WorkoutProgramStates.exercise_name)
+        user_prefix = f"👤 {selected_user} | " if selected_user else ""
         await callback.message.edit_text(
-            f"📅 *День {current_day}* | {muscle_group}\n\n"
+            f"{user_prefix}📅 *День {current_day}* | {muscle_group}\n\n"
             "Введіть назву вправи:",
             parse_mode="Markdown",
         )
@@ -119,14 +188,15 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
         try:
             sheets_service = GoogleSheetsService()
             last_day = await sheets_service.get_last_program_day_for_muscle_group(
-                muscle_group
+                muscle_group, user_name=selected_user
             )
         except Exception:
             last_day = 0
 
         keyboard = get_day_selection_keyboard(last_day)
+        user_prefix = f"👤 {selected_user} | " if selected_user else ""
         await callback.message.edit_text(
-            f"💪 *{muscle_group}*\n\n"
+            f"{user_prefix}💪 *{muscle_group}*\n\n"
             "Оберіть день для програми:",
             reply_markup=keyboard,
             parse_mode="Markdown",
@@ -324,9 +394,11 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
         data = await state.get_data()
         day_num = data.get("day_number", 1)
         muscle_group = data.get("current_muscle_group", "")
+        selected_user = data.get("selected_user")
+        user_prefix = f"👤 {selected_user} | " if selected_user else ""
 
         await callback.message.edit_text(
-            f"📅 *День {day_num}* | {muscle_group}\n\n"
+            f"{user_prefix}📅 *День {day_num}* | {muscle_group}\n\n"
             "Введіть назву вправи:",
             parse_mode="Markdown",
         )
@@ -334,27 +406,31 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
         return
 
     if action == "finish":
+        # Answer callback immediately to prevent timeout
+        await callback.answer("⏳ Зберігаємо...")
+
         data = await state.get_data()
         exercises = data.get("exercises", [])
         day_num = data.get("day_number", 1)
+        selected_user = data.get("selected_user")
 
         if not exercises:
             await callback.message.edit_text("❌ Програма порожня!")
             await state.clear()
-            await callback.answer()
             return
 
         # Save to Google Sheets
         try:
             sheets_service = GoogleSheetsService()
-            await sheets_service.add_workout_program(exercises)
+            await sheets_service.add_workout_program(exercises, user_name=selected_user)
             sheets_saved = True
         except Exception as e:
             print(f"Error saving to sheets: {e}")
             sheets_saved = False
 
         # Show final summary
-        summary = f"✅ *День {day_num} збережено!*\n\n"
+        user_header = f" для {selected_user}" if selected_user else ""
+        summary = f"✅ *День {day_num}{user_header} збережено!*\n\n"
 
         # Group by muscle group
         by_group = {}
@@ -384,23 +460,45 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
         )
 
         await state.clear()
-        await callback.answer("✅ Програма збережена!")
 
 
 @router.message(F.text == "📋 Переглянути програми")
-async def view_programs(message: Message) -> None:
-    """View saved workout programs grouped by days."""
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас немає прав для цієї дії")
-        return
+async def view_programs(message: Message, state: FSMContext) -> None:
+    """View saved workout programs - select user first if users exist."""
+    # if not is_admin(message.from_user.id):
+    #     await message.answer("❌ У вас немає прав для цієї дії")
+    #     return
 
+    # Get users from database
+    workout_users = await _get_workout_users()
+
+    if workout_users:
+        # Ask to select user first
+        keyboard = get_user_selection_keyboard(workout_users)
+        await state.set_state(WorkoutProgramStates.select_user)
+        await state.update_data(viewing_mode=True)
+        await message.answer(
+            "📋 *Перегляд програм*\n\n"
+            "Оберіть користувача:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+    else:
+        # No users in database, show generic programs
+        await _show_programs(message, user_name=None)
+
+
+async def _show_programs(message: Message, user_name: str | None = None) -> None:
+    """Show programs for a specific user or all programs."""
     try:
         sheets_service = GoogleSheetsService()
-        programs = await sheets_service.get_workout_programs(limit=100)
+        programs = await sheets_service.get_workout_programs(limit=100, user_name=user_name)
+
+        user_header = f" ({user_name})" if user_name else ""
 
         if not programs:
             await message.answer(
-                "📋 *Програма тренувань*\n\n"
+                f"📋 *Програма тренувань{user_header}*\n\n"
                 "_Поки немає збережених програм_",
                 parse_mode="Markdown",
             )
@@ -414,7 +512,7 @@ async def view_programs(message: Message) -> None:
                 by_day[day] = []
             by_day[day].append(p)
 
-        text = "📋 *Програма тренувань*\n"
+        text = f"📋 *Програма тренувань{user_header}*\n"
         text += "━" * 20 + "\n"
 
         for day in sorted(by_day.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):

@@ -155,6 +155,53 @@ def get_add_more_exercise_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_view_muscle_filter_keyboard(include_all: bool = True) -> InlineKeyboardMarkup:
+    """Get inline keyboard for filtering by muscle group when viewing programs.
+
+    Args:
+        include_all: Whether to include 'All groups' option
+
+    Returns:
+        Inline keyboard with muscle group filter options
+    """
+    buttons = []
+    if include_all:
+        buttons.append(
+            [InlineKeyboardButton(text="📋 Всі групи м'язів", callback_data="view_muscle:all")]
+        )
+    for group in MUSCLE_GROUPS:
+        buttons.append(
+            [InlineKeyboardButton(text=group, callback_data=f"view_muscle:{group}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="view_muscle:cancel")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_view_day_filter_keyboard(available_days: list[int]) -> InlineKeyboardMarkup:
+    """Get inline keyboard for filtering by day when viewing programs.
+
+    Args:
+        available_days: List of available day numbers
+
+    Returns:
+        Inline keyboard with day filter options
+    """
+    buttons = []
+    buttons.append(
+        [InlineKeyboardButton(text="📋 Всі дні", callback_data="view_day:all")]
+    )
+    for day in sorted(available_days):
+        buttons.append(
+            [InlineKeyboardButton(text=f"📅 День {day}", callback_data=f"view_day:{day}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="view_day:back")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_day_selection_keyboard(last_day: int = 0) -> InlineKeyboardMarkup:
     """Get keyboard for day selection.
 

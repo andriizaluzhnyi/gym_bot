@@ -15,6 +15,8 @@ from src.bot.keyboards import (
     get_reps_keyboard,
     get_sets_keyboard,
     get_user_selection_keyboard,
+    get_view_day_filter_keyboard,
+    get_view_muscle_filter_keyboard,
 )
 from src.config import get_settings
 from src.database.repository import UserRepository
@@ -44,6 +46,9 @@ class WorkoutProgramStates(StatesGroup):
     reps = State()
     comment = State()
     add_more = State()
+    # Viewing states
+    view_filter_muscle = State()
+    view_filter_day = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -103,9 +108,16 @@ async def process_user_selection(callback: CallbackQuery, state: FSMContext) -> 
 
     # Check if we're in viewing mode
     if data.get("viewing_mode"):
-        await state.clear()
-        await callback.message.edit_text(f"📋 *Завантаження програм для {user_name}...*", parse_mode="Markdown")
-        await _show_programs(callback.message, user_name=user_name)
+        await state.update_data(selected_user=user_name)
+        await state.set_state(WorkoutProgramStates.view_filter_muscle)
+
+        keyboard = get_view_muscle_filter_keyboard()
+        await callback.message.edit_text(
+            f"📋 *Програми для {user_name}*\n\n"
+            "Оберіть групу м'язів для фільтрації:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
         await callback.answer()
         return
 
@@ -484,8 +496,17 @@ async def view_programs(message: Message, state: FSMContext) -> None:
             parse_mode="Markdown",
         )
     else:
-        # No users in database, show generic programs
-        await _show_programs(message, user_name=None)
+        # No users in database, go directly to muscle filter
+        await state.set_state(WorkoutProgramStates.view_filter_muscle)
+        await state.update_data(viewing_mode=True, selected_user=None)
+
+        keyboard = get_view_muscle_filter_keyboard()
+        await message.answer(
+            "📋 *Перегляд програм*\n\n"
+            "Оберіть групу м'язів для фільтрації:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
 
 
 async def _show_programs(message: Message, user_name: str | None = None) -> None:
@@ -528,6 +549,207 @@ async def _show_programs(message: Message, user_name: str | None = None) -> None
 
             for muscle, exercises in by_muscle.items():
                 text += f"\n  *{muscle}*\n"
+                for ex in exercises:
+                    line = f"    • {ex.get('exercise', '-')}"
+                    sets_reps = ex.get("sets_reps", "")
+                    if sets_reps:
+                        line += f" ({sets_reps})"
+                    comment = ex.get("comment", "")
+                    if comment:
+                        line += f" - _{comment}_"
+                    text += line + "\n"
+
+            text += "\n" + "─" * 15 + "\n"
+
+        # Split if too long
+        if len(text) > 4000:
+            text = text[:3900] + "\n\n_...і ще записи_"
+
+        await message.answer(text, parse_mode="Markdown")
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Помилка при завантаженні програм: {str(e)}",
+        )
+
+
+@router.callback_query(F.data.startswith("view_muscle:"))
+async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext) -> None:
+    """Process muscle group filter selection for viewing."""
+    action = callback.data.split(":")[1]
+
+    if action == "cancel":
+        await state.clear()
+        await callback.message.edit_text("❌ Операцію скасовано")
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    selected_user = data.get("selected_user")
+
+    if action == "all":
+        await state.update_data(filter_muscle_group=None)
+    else:
+        await state.update_data(filter_muscle_group=action)
+
+    # Get available days for this user and muscle group
+    try:
+        sheets_service = GoogleSheetsService()
+        programs = await sheets_service.get_workout_programs(limit=100, user_name=selected_user)
+
+        # Filter by muscle group if selected
+        if action != "all":
+            programs = [p for p in programs if p.get("muscle_group") == action]
+
+        # Get unique days
+        days = set()
+        for p in programs:
+            day = p.get("day", "")
+            if day and str(day).isdigit():
+                days.add(int(day))
+
+        if not days:
+            # No days found, show programs directly
+            filter_muscle = None if action == "all" else action
+            await state.clear()
+            await callback.message.edit_text(
+                f"📋 *Завантаження програм...*",
+                parse_mode="Markdown"
+            )
+            await _show_programs_filtered(
+                callback.message,
+                user_name=selected_user,
+                muscle_group=filter_muscle,
+                day=None
+            )
+            await callback.answer()
+            return
+
+        await state.set_state(WorkoutProgramStates.view_filter_day)
+        keyboard = get_view_day_filter_keyboard(list(days))
+
+        filter_text = f" ({action})" if action != "all" else ""
+        await callback.message.edit_text(
+            f"📋 *Програми для {selected_user}{filter_text}*\n\n"
+            "Оберіть день для фільтрації:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await callback.message.edit_text(f"❌ Помилка: {str(e)}")
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("view_day:"))
+async def process_view_day_filter(callback: CallbackQuery, state: FSMContext) -> None:
+    """Process day filter selection for viewing."""
+    action = callback.data.split(":")[1]
+
+    if action == "back":
+        # Go back to muscle group selection
+        data = await state.get_data()
+        selected_user = data.get("selected_user")
+        await state.set_state(WorkoutProgramStates.view_filter_muscle)
+
+        keyboard = get_view_muscle_filter_keyboard()
+        await callback.message.edit_text(
+            f"📋 *Програми для {selected_user}*\n\n"
+            "Оберіть групу м'язів для фільтрації:",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    selected_user = data.get("selected_user")
+    filter_muscle = data.get("filter_muscle_group")
+
+    if action == "all":
+        filter_day = None
+    else:
+        filter_day = int(action)
+
+    await state.clear()
+    await callback.message.edit_text(
+        f"📋 *Завантаження програм...*",
+        parse_mode="Markdown"
+    )
+    await _show_programs_filtered(
+        callback.message,
+        user_name=selected_user,
+        muscle_group=filter_muscle,
+        day=filter_day
+    )
+    await callback.answer()
+
+
+async def _show_programs_filtered(
+    message: Message,
+    user_name: str | None = None,
+    muscle_group: str | None = None,
+    day: int | None = None
+) -> None:
+    """Show programs filtered by muscle group and/or day.
+
+    Args:
+        message: Message to reply to
+        user_name: User name to filter by
+        muscle_group: Muscle group to filter by (None for all)
+        day: Day number to filter by (None for all)
+    """
+    try:
+        sheets_service = GoogleSheetsService()
+        programs = await sheets_service.get_workout_programs(limit=100, user_name=user_name)
+
+        # Apply filters
+        if muscle_group:
+            programs = [p for p in programs if p.get("muscle_group") == muscle_group]
+        if day is not None:
+            programs = [p for p in programs if str(p.get("day", "")) == str(day)]
+
+        # Build header
+        user_header = f" ({user_name})" if user_name else ""
+        filter_parts = []
+        if muscle_group:
+            filter_parts.append(muscle_group)
+        if day is not None:
+            filter_parts.append(f"День {day}")
+        filter_header = f" | {' | '.join(filter_parts)}" if filter_parts else ""
+
+        if not programs:
+            await message.answer(
+                f"📋 *Програма тренувань{user_header}{filter_header}*\n\n"
+                "_Немає записів за вибраними критеріями_",
+                parse_mode="Markdown",
+            )
+            return
+
+        # Group by day
+        by_day = {}
+        for p in programs:
+            d = p.get("day", "?")
+            if d not in by_day:
+                by_day[d] = []
+            by_day[d].append(p)
+
+        text = f"📋 *Програма тренувань{user_header}{filter_header}*\n"
+        text += "━" * 20 + "\n"
+
+        for d in sorted(by_day.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+            text += f"\n📅 *День {d}*\n"
+
+            # Group by muscle in this day
+            by_muscle = {}
+            for ex in by_day[d]:
+                m = ex.get("muscle_group", "Інше")
+                if m not in by_muscle:
+                    by_muscle[m] = []
+                by_muscle[m].append(ex)
+
+            for m, exercises in by_muscle.items():
+                text += f"\n  *{m}*\n"
                 for ex in exercises:
                     line = f"    • {ex.get('exercise', '-')}"
                     sets_reps = ex.get("sets_reps", "")

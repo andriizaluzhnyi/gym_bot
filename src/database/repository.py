@@ -73,6 +73,15 @@ class UserRepository:
         )
         return list(result.scalars().all())
 
+    async def get_all_with_username(self) -> list[User]:
+        """Get all users that have a username set."""
+        result = await self.session.execute(
+            select(User).where(
+                and_(User.is_active == True, User.username.isnot(None))  # noqa: E712
+            ).order_by(User.username)
+        )
+        return list(result.scalars().all())
+
 
 class TrainingRepository:
     """Repository for Training operations."""

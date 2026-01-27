@@ -3,22 +3,26 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _parse_int_list(value: str, default: list[int] | None = None) -> list[int]:
+    """Parse comma-separated integers."""
+    if not value or not value.strip():
+        return default or []
+    return [int(x.strip()) for x in value.split(",") if x.strip()]
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
         extra="ignore",
     )
 
     # Telegram
     telegram_bot_token: str
-    admin_user_ids: list[int] = []
+    admin_user_id: int = 0
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./gym_bot.db"
@@ -32,27 +36,19 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Kyiv"
 
     # Notifications
-    reminder_hours_before: list[int] = [24, 2]
+    reminder_hours_before_str: str = "24,2"
 
-    @field_validator("admin_user_ids", mode="before")
-    @classmethod
-    def parse_admin_ids(cls, v: str | list[int]) -> list[int]:
-        """Parse comma-separated admin IDs."""
-        if isinstance(v, str):
-            if not v.strip():
-                return []
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+    @property
+    def admin_user_ids(self) -> list[int]:
+        """Get admin user IDs as list."""
+        if self.admin_user_id:
+            return [self.admin_user_id]
+        return []
 
-    @field_validator("reminder_hours_before", mode="before")
-    @classmethod
-    def parse_reminder_hours(cls, v: str | list[int]) -> list[int]:
-        """Parse comma-separated reminder hours."""
-        if isinstance(v, str):
-            if not v.strip():
-                return [24, 2]
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+    @property
+    def reminder_hours_before(self) -> list[int]:
+        """Get reminder hours as list."""
+        return _parse_int_list(self.reminder_hours_before_str, [24, 2])
 
 
 @lru_cache

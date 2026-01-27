@@ -14,10 +14,10 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Get main menu keyboard."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="📅 Розклад"),
-                KeyboardButton(text="📝 Мої записи"),
-            ],
+            # [
+            #     KeyboardButton(text="📅 Розклад"),
+            #     KeyboardButton(text="📝 Мої записи"),
+            # ],
             [
                 KeyboardButton(text="👤 Профіль"),
                 KeyboardButton(text="ℹ️ Допомога"),
@@ -32,13 +32,17 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     """Get admin menu keyboard."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
+            # [
+            #     KeyboardButton(text="📅 Розклад"),
+            #     KeyboardButton(text="📝 Мої записи"),
+            # ],
+            # [
+            #     KeyboardButton(text="➕ Додати тренування"),
+            #     KeyboardButton(text="📊 Статистика"),
+            # ],
             [
-                KeyboardButton(text="📅 Розклад"),
-                KeyboardButton(text="📝 Мої записи"),
-            ],
-            [
-                KeyboardButton(text="➕ Додати тренування"),
-                KeyboardButton(text="📊 Статистика"),
+                KeyboardButton(text="💪 Програма тренувань"),
+                KeyboardButton(text="📋 Переглянути програми"),
             ],
             [
                 KeyboardButton(text="👤 Профіль"),
@@ -48,6 +52,152 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
     )
     return keyboard
+
+
+# Muscle groups for workout program
+MUSCLE_GROUPS = ["🦴 Спина", "💪 Руки", "🎯 Плечі", "🏋️ Груди", "🦵 Ноги"]
+
+
+def get_user_selection_keyboard(users: list[str]) -> InlineKeyboardMarkup:
+    """Get inline keyboard for user selection.
+
+    Args:
+        users: List of user names to select from
+
+    Returns:
+        Inline keyboard with user options
+    """
+    buttons = []
+    for user_name in users:
+        buttons.append(
+            [InlineKeyboardButton(text=f"👤 {user_name}", callback_data=f"user:{user_name}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="user:cancel")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_muscle_group_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for muscle group selection."""
+    buttons = []
+    for group in MUSCLE_GROUPS:
+        buttons.append(
+            [InlineKeyboardButton(text=group, callback_data=f"muscle:{group}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="muscle:cancel")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_reps_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for repetitions selection."""
+    buttons = [
+        [InlineKeyboardButton(text="🔢 Оберіть кількість повторень:", callback_data="ignore")],
+        [
+            InlineKeyboardButton(text="5", callback_data="reps:5"),
+            InlineKeyboardButton(text="8", callback_data="reps:8"),
+            InlineKeyboardButton(text="10", callback_data="reps:10"),
+            InlineKeyboardButton(text="12", callback_data="reps:12"),
+        ],
+        [
+            InlineKeyboardButton(text="15", callback_data="reps:15"),
+            InlineKeyboardButton(text="20", callback_data="reps:20"),
+            InlineKeyboardButton(text="25", callback_data="reps:25"),
+            InlineKeyboardButton(text="30", callback_data="reps:30"),
+        ],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="reps:cancel")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_sets_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for sets selection."""
+    buttons = [
+        [InlineKeyboardButton(text="📊 Оберіть кількість підходів:", callback_data="ignore")],
+        [
+            InlineKeyboardButton(text="1", callback_data="sets:1"),
+            InlineKeyboardButton(text="2", callback_data="sets:2"),
+            InlineKeyboardButton(text="3", callback_data="sets:3"),
+            InlineKeyboardButton(text="4", callback_data="sets:4"),
+            InlineKeyboardButton(text="5", callback_data="sets:5"),
+        ],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="sets:cancel")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_sets_reps_keyboard() -> InlineKeyboardMarkup:
+    """Get inline keyboard for combined sets/reps selection.
+
+    Provides quick options and allows manual text input.
+    """
+    buttons = [
+        [
+            InlineKeyboardButton(text="3/10", callback_data="setsreps:3/10"),
+            InlineKeyboardButton(text="3/12", callback_data="setsreps:3/12"),
+            InlineKeyboardButton(text="3/15", callback_data="setsreps:3/15"),
+        ],
+        [
+            InlineKeyboardButton(text="4/8", callback_data="setsreps:4/8"),
+            InlineKeyboardButton(text="4/10", callback_data="setsreps:4/10"),
+            InlineKeyboardButton(text="4/12", callback_data="setsreps:4/12"),
+        ],
+        [
+            InlineKeyboardButton(text="4/15", callback_data="setsreps:4/15"),
+            InlineKeyboardButton(text="5/5", callback_data="setsreps:5/5"),
+            InlineKeyboardButton(text="5/10", callback_data="setsreps:5/10"),
+        ],
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="setsreps:cancel")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_add_more_exercise_keyboard() -> InlineKeyboardMarkup:
+    """Get keyboard to add more exercises or finish."""
+    buttons = [
+        [InlineKeyboardButton(text="➕ Додати ще вправу", callback_data="program:add_more")],
+        [InlineKeyboardButton(text="✅ Завершити програму", callback_data="program:finish")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_day_selection_keyboard(last_day: int = 0) -> InlineKeyboardMarkup:
+    """Get keyboard for day selection.
+
+    Args:
+        last_day: Last existing day number (0 if no days exist)
+
+    Returns:
+        Inline keyboard with day options
+    """
+    buttons = []
+
+    # Show existing days to continue
+    if last_day > 0:
+        buttons.append(
+            [InlineKeyboardButton(
+                text=f"📝 Продовжити День {last_day}",
+                callback_data=f"day:continue:{last_day}"
+            )]
+        )
+
+    # New day option
+    new_day = last_day + 1
+    buttons.append(
+        [InlineKeyboardButton(
+            text=f"➕ Створити День {new_day}",
+            callback_data=f"day:new:{new_day}"
+        )]
+    )
+
+    # Cancel
+    buttons.append(
+        [InlineKeyboardButton(text="❌ Скасувати", callback_data="day:cancel")]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_phone_request_keyboard() -> ReplyKeyboardMarkup:

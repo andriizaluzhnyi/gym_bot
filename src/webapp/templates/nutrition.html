@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>БЖУ Монітор</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-color: #0a0a0a;
+            --card-bg: #1a1a1a;
+            --card-border: #2a2a2a;
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --text-muted: #666666;
+            --accent-green: #4ade80;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--tg-theme-bg-color, var(--bg-color));
+            color: var(--tg-theme-text-color, var(--text-primary));
+            min-height: 100vh;
+            padding: 16px;
+            padding-bottom: 100px;
+        }
+
+        .date {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .card {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        /* Calories Section */
+        .calories-section {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .calories-ring {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            flex-shrink: 0;
+        }
+
+        .calories-ring svg {
+            transform: rotate(-90deg);
+            width: 100px;
+            height: 100px;
+        }
+
+        .calories-ring circle {
+            fill: none;
+            stroke-width: 8;
+        }
+
+        .calories-ring .bg {
+            stroke: var(--card-border);
+        }
+
+        .calories-ring .progress {
+            stroke: var(--tg-theme-button-color, var(--accent-green));
+            stroke-linecap: round;
+            stroke-dasharray: 251;
+            stroke-dashoffset: 251;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+
+        .calories-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .calories-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .calories-label {
+            font-size: 11px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        .macros {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .macro-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .macro-name {
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 14px;
+        }
+
+        .macro-value {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        /* Water Section */
+        .water-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .water-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .water-icon {
+            font-size: 18px;
+        }
+
+        .water-display {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .water-current {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .water-total {
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            font-size: 16px;
+        }
+
+        .water-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .water-btn {
+            background-color: var(--card-border);
+            border: none;
+            border-radius: 20px;
+            padding: 10px 16px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .water-btn:active {
+            transform: scale(0.95);
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        /* Meals Section */
+        .meals-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .meals-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .meals-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .action-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .edit-btn {
+            background-color: var(--card-border);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .photo-btn {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+            padding: 10px 16px;
+            border-radius: 20px;
+            width: auto;
+            font-size: 14px;
+            font-weight: 500;
+            gap: 6px;
+        }
+
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px 0;
+        }
+
+        .empty-state p {
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            margin-bottom: 4px;
+        }
+
+        .empty-state .subtitle {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            opacity: 0.7;
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            display: flex;
+            justify-content: space-around;
+            padding: 12px 0;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
+            border-top: 1px solid var(--card-border);
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            text-decoration: none;
+            font-size: 11px;
+            -webkit-tap-highlight-color: transparent;
+            transition: color 0.2s;
+        }
+
+        .nav-item.active {
+            color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .nav-icon {
+            font-size: 20px;
+        }
+
+        /* Haptic feedback simulation */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.95); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="date" id="currentDate">24 січня</div>
+
+    <div class="card">
+        <div class="calories-section">
+            <div class="calories-ring">
+                <svg viewBox="0 0 100 100">
+                    <circle class="bg" cx="50" cy="50" r="40"/>
+                    <circle class="progress" id="caloriesProgress" cx="50" cy="50" r="40"/>
+                </svg>
+                <div class="calories-text">
+                    <div class="calories-value" id="caloriesValue">0</div>
+                    <div class="calories-label">ккал</div>
+                </div>
+            </div>
+            <div class="macros">
+                <div class="macro-item">
+                    <span class="macro-name">Білки</span>
+                    <span class="macro-value" id="proteinValue">0/193 г</span>
+                </div>
+                <div class="macro-item">
+                    <span class="macro-name">Жири</span>
+                    <span class="macro-value" id="fatValue">0/86 г</span>
+                </div>
+                <div class="macro-item">
+                    <span class="macro-name">Вуглеводи</span>
+                    <span class="macro-value" id="carbsValue">0/408 г</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="water-header">
+            <span class="water-icon">💧</span>
+            <h3>Вода</h3>
+        </div>
+        <div class="water-display">
+            <span class="water-current" id="waterCurrent">0 мл</span>
+            <span class="water-total">/ 3210 мл</span>
+        </div>
+        <div class="water-buttons">
+            <button class="water-btn" data-amount="100">+100 мл</button>
+            <button class="water-btn" data-amount="200">+200 мл</button>
+            <button class="water-btn" data-amount="250">+250 мл</button>
+            <button class="water-btn" data-amount="500">+500 мл</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="meals-header">
+            <span class="meals-title">Прийоми їжі</span>
+            <div class="meals-actions">
+                <button class="action-btn edit-btn">✏️</button>
+                <button class="action-btn photo-btn">📷 Фото</button>
+            </div>
+        </div>
+        <div class="empty-state" id="mealsEmpty">
+            <p>Немає записів за сьогодні</p>
+            <p class="subtitle">Додайте перший прийом їжі</p>
+        </div>
+        <div id="mealsList"></div>
+    </div>
+
+    <nav class="bottom-nav">
+        <a href="#" class="nav-item active" data-tab="today">
+            <span class="nav-icon">📅</span>
+            <span>Сьогодні</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="stats">
+            <span class="nav-icon">📊</span>
+            <span>Статистика</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="profile">
+            <span class="nav-icon">👤</span>
+            <span>Профіль</span>
+        </a>
+        <a href="#" class="nav-item" data-tab="settings">
+            <span class="nav-icon">⚙️</span>
+            <span>Налаштування</span>
+        </a>
+    </nav>
+
+    <script>
+        // Initialize Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        // State
+        let waterAmount = 0;
+        const waterGoal = 3210;
+        const caloriesGoal = 2500;
+        let currentCalories = 0;
+
+        // Set current date
+        function setCurrentDate() {
+            const now = new Date();
+            const months = [
+                'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
+                'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'
+            ];
+            document.getElementById('currentDate').textContent =
+                `${now.getDate()} ${months[now.getMonth()]}`;
+        }
+
+        // Update calories ring
+        function updateCaloriesRing(calories) {
+            const progress = Math.min(calories / caloriesGoal, 1);
+            const circumference = 251;
+            const offset = circumference - (progress * circumference);
+            document.getElementById('caloriesProgress').style.strokeDashoffset = offset;
+            document.getElementById('caloriesValue').textContent = calories;
+        }
+
+        // Update water display
+        function updateWater(amount) {
+            waterAmount = Math.max(0, waterAmount + amount);
+            document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
+
+            // Haptic feedback
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
+        }
+
+        // Water buttons
+        document.querySelectorAll('.water-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const amount = parseInt(btn.dataset.amount);
+                updateWater(amount);
+            });
+        });
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+            });
+        });
+
+        // Photo button
+        document.querySelector('.photo-btn').addEventListener('click', () => {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('medium');
+            }
+            // TODO: Open camera or file picker
+            tg.showAlert('Функція додавання фото буде доступна незабаром!');
+        });
+
+        // Edit button
+        document.querySelector('.edit-btn').addEventListener('click', () => {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
+            // TODO: Open edit mode
+        });
+
+        // Initialize
+        setCurrentDate();
+        updateCaloriesRing(currentCalories);
+
+        // Back button handler
+        tg.BackButton.onClick(() => {
+            tg.close();
+        });
+    </script>
+</body>
+</html>

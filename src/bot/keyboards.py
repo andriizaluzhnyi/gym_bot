@@ -12,17 +12,15 @@ from src.database.models import Training
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Get main menu keyboard."""
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            # [
-            #     KeyboardButton(text="📅 Розклад"),
-            #     KeyboardButton(text="📝 Мої записи"),
-            # ],
-            [
-                KeyboardButton(text="👤 Профіль"),
-                KeyboardButton(text="ℹ️ Допомога"),
-            ],
+    buttons = [
+        [
+            KeyboardButton(text="👤 Профіль"),
+            KeyboardButton(text="ℹ️ Допомога"),
         ],
+    ]
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=buttons,
         resize_keyboard=True,
     )
     return keyboard
@@ -30,25 +28,19 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
     """Get admin menu keyboard."""
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            # [
-            #     KeyboardButton(text="📅 Розклад"),
-            #     KeyboardButton(text="📝 Мої записи"),
-            # ],
-            # [
-            #     KeyboardButton(text="➕ Додати тренування"),
-            #     KeyboardButton(text="📊 Статистика"),
-            # ],
-            [
-                KeyboardButton(text="💪 Програма тренувань"),
-                KeyboardButton(text="📋 Переглянути програми"),
-            ],
-            [
-                KeyboardButton(text="👤 Профіль"),
-                KeyboardButton(text="ℹ️ Допомога"),
-            ],
+    buttons = [
+        [
+            KeyboardButton(text="💪 Програма тренувань"),
+            KeyboardButton(text="📋 Переглянути програми"),
         ],
+        [
+            KeyboardButton(text="👤 Профіль"),
+            KeyboardButton(text="ℹ️ Допомога"),
+        ],
+    ]
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=buttons,
         resize_keyboard=True,
     )
     return keyboard

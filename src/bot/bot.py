@@ -14,6 +14,7 @@ from src.bot.handlers import setup_routers
 from src.config import get_settings
 from src.database.session import init_db
 from src.services.notifications import NotificationService
+from src.webapp.server import start_webapp, stop_webapp
 
 # Load .env file for local development (ignored if not exists)
 load_dotenv(Path(__file__).parent.parent.parent / '.env')
@@ -85,12 +86,20 @@ async def run_bot() -> None:
     scheduler.start()
     logger.info("Scheduler started")
 
+    # Start web server for Mini App
+    webapp_runner = None
+    if settings.webapp_url:
+        webapp_runner = await start_webapp(port=settings.webapp_port)
+        logger.info(f"Web server started on port {settings.webapp_port}")
+
     # Start polling
     try:
         logger.info("Bot started polling")
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         scheduler.shutdown()
+        if webapp_runner:
+            await stop_webapp(webapp_runner)
         await bot.session.close()
         logger.info("Bot stopped")
 

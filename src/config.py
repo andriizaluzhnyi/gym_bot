@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # Timezone
     timezone: str = "Europe/Kyiv"
 
+    # Web App
+    webapp_url: str = ""
+    webapp_port: int = 8080
+
     # Notifications
     reminder_hours_before_str: str = "24,2"
 

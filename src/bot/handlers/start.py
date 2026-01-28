@@ -83,32 +83,6 @@ async def cmd_help(message: Message) -> None:
     await message.answer(help_text, parse_mode="Markdown")
 
 
-@router.message(F.text == "👤 Профіль")
-async def profile_handler(message: Message) -> None:
-    """Handle profile button."""
-    async with async_session_maker() as session:
-        user_repo = UserRepository(session)
-        user = await user_repo.get_by_telegram_id(message.from_user.id)
-
-        if not user:
-            await message.answer("❌ Профіль не знайдено. Натисніть /start")
-            return
-
-        phone_text = user.phone if user.phone else "не вказано"
-        notifications_text = "увімкнені ✅" if user.notifications_enabled else "вимкнені ❌"
-
-        profile_text = (
-            f"👤 *Ваш профіль*\n\n"
-            f"*Ім'я:* {user.full_name}\n"
-            f"*Username:* @{user.username or 'не вказано'}\n"
-            f"*Телефон:* {phone_text}\n"
-            f"*Сповіщення:* {notifications_text}\n\n"
-            f"_Для оновлення телефону надішліть контакт_"
-        )
-
-        await message.answer(profile_text, parse_mode="Markdown")
-
-
 @router.message(F.contact)
 async def contact_handler(message: Message) -> None:
     """Handle contact sharing."""

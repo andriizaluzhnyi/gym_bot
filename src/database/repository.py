@@ -1,12 +1,20 @@
 """Repository pattern for database operations."""
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.database.models import Booking, BookingStatus, Training, User
+from src.database.models import (
+    Booking,
+    BookingStatus,
+    DailyNutrition,
+    Profile,
+    Training,
+    User,
+)
 
 
 class UserRepository:
@@ -81,6 +89,174 @@ class UserRepository:
             ).order_by(User.username)
         )
         return list(result.scalars().all())
+
+    async def update_nutrition_settings(
+        self,
+        telegram_id: int,
+        age: int | None = None,
+        height: float | None = None,
+        weight: float | None = None,
+        gender: str | None = None,
+        daily_water_ml: int | None = None,
+        daily_calories: int | None = None,
+        daily_protein: int | None = None,
+        daily_fats: int | None = None,
+        daily_carbs: int | None = None,
+    ) -> User | None:
+        """Update user's nutrition and body settings.
+
+        Deprecated: Use ProfileRepository instead.
+        This method is kept for backward compatibility.
+        """
+        user = await self.get_by_telegram_id(telegram_id)
+        if not user:
+            return None
+
+        # Get or create profile
+        profile_repo = ProfileRepository(self.session)
+        await profile_repo.get_or_create(user.id)
+
+        # Update profile
+        await profile_repo.update(
+            user.id,
+            age=age,
+            height=height,
+            weight=weight,
+            gender=gender,
+            daily_water_ml=daily_water_ml,
+            daily_calories=daily_calories,
+            daily_protein=daily_protein,
+            daily_fats=daily_fats,
+            daily_carbs=daily_carbs,
+        )
+
+        await self.session.flush()
+        return user
+
+    async def get_nutrition_settings(self, telegram_id: int) -> dict | None:
+        """Get user's nutrition settings as dictionary.
+
+        Deprecated: Use ProfileRepository instead.
+        This method is kept for backward compatibility.
+        """
+        user = await self.get_by_telegram_id(telegram_id)
+        if not user:
+            return None
+
+        profile_repo = ProfileRepository(self.session)
+        profile = await profile_repo.get_by_user_id(user.id)
+
+        if not profile:
+            # Return defaults
+            return {
+                "age": None,
+                "height": None,
+                "weight": None,
+                "gender": None,
+                "daily_water_ml": 2500,
+                "daily_calories": 2500,
+                "daily_protein": 150,
+                "daily_fats": 80,
+                "daily_carbs": 250,
+            }
+
+        return {
+            "age": profile.age,
+            "height": profile.height,
+            "weight": profile.weight,
+            "gender": profile.gender,
+            "daily_water_ml": profile.daily_water_ml or 2500,
+            "daily_calories": profile.daily_calories or 2500,
+            "daily_protein": profile.daily_protein or 150,
+            "daily_fats": profile.daily_fats or 80,
+            "daily_carbs": profile.daily_carbs or 250,
+        }
+
+
+class ProfileRepository:
+    """Repository for Profile operations."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_user_id(self, user_id: uuid.UUID) -> Profile | None:
+        """Get profile by user ID."""
+        result = await self.session.execute(
+            select(Profile).where(Profile.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_or_create(self, user_id: uuid.UUID) -> tuple[Profile, bool]:
+        """Get existing profile or create a new one."""
+        profile = await self.get_by_user_id(user_id)
+        if profile:
+            return profile, False
+
+        profile = Profile(user_id=user_id)
+        self.session.add(profile)
+        await self.session.flush()
+        return profile, True
+
+    async def update(
+        self,
+        user_id: uuid.UUID,
+        age: int | None = None,
+        height: float | None = None,
+        weight: float | None = None,
+        gender: str | None = None,
+        daily_water_ml: int | None = None,
+        daily_calories: int | None = None,
+        daily_protein: int | None = None,
+        daily_fats: int | None = None,
+        daily_carbs: int | None = None,
+    ) -> Profile | None:
+        """Update profile settings.
+
+        Only updates fields that are not None.
+        """
+        profile = await self.get_by_user_id(user_id)
+        if not profile:
+            return None
+
+        if age is not None:
+            profile.age = age
+        if height is not None:
+            profile.height = height
+        if weight is not None:
+            profile.weight = weight
+        if gender is not None:
+            profile.gender = gender
+        if daily_water_ml is not None:
+            profile.daily_water_ml = daily_water_ml
+        if daily_calories is not None:
+            profile.daily_calories = daily_calories
+        if daily_protein is not None:
+            profile.daily_protein = daily_protein
+        if daily_fats is not None:
+            profile.daily_fats = daily_fats
+        if daily_carbs is not None:
+            profile.daily_carbs = daily_carbs
+
+        await self.session.flush()
+        return profile
+
+    async def get_settings(self, user_id: uuid.UUID) -> dict | None:
+        """Get profile settings as dictionary."""
+        profile = await self.get_by_user_id(user_id)
+        if not profile:
+            return None
+
+        return {
+            "age": profile.age,
+            "height": profile.height,
+            "weight": profile.weight,
+            "gender": profile.gender,
+            "daily_water_ml": profile.daily_water_ml or 2500,
+            "daily_calories": profile.daily_calories or 2500,
+            "daily_protein": profile.daily_protein or 150,
+            "daily_fats": profile.daily_fats or 80,
+            "daily_carbs": profile.daily_carbs or 250,
+        }
 
 
 class TrainingRepository:
@@ -227,7 +403,7 @@ class BookingRepository:
         return booking
 
     async def get_user_booking_for_training(
-        self, user_id: int, training_id: int
+        self, user_id: uuid.UUID, training_id: int
     ) -> Booking | None:
         """Get user's booking for a specific training."""
         result = await self.session.execute(
@@ -305,3 +481,155 @@ class BookingRepository:
             )
         )
         return list(result.scalars().all())
+
+
+class DailyNutritionRepository:
+    """Repository for DailyNutrition operations."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_user_and_date(
+        self, user_id: uuid.UUID, date: datetime
+    ) -> DailyNutrition | None:
+        """Get daily nutrition record for a specific user and date."""
+        # Normalize to start of day
+        date_normalized = date.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        result = await self.session.execute(
+            select(DailyNutrition).where(
+                and_(
+                    DailyNutrition.user_id == user_id,
+                    DailyNutrition.date == date_normalized,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create(
+        self,
+        user_id: uuid.UUID,
+        date: datetime,
+        water_ml: int | None = None,
+        calories: int | None = None,
+        protein: int | None = None,
+        fats: int | None = None,
+        carbs: int | None = None,
+    ) -> DailyNutrition:
+        """Create new daily nutrition record."""
+        # Use current timestamp (not normalized to start of day)
+        record = DailyNutrition(
+            user_id=user_id,
+            date=date,
+            water_ml=water_ml or 0,
+            calories=calories or 0,
+            protein=protein or 0,
+            fats=fats or 0,
+            carbs=carbs or 0,
+        )
+        self.session.add(record)
+        await self.session.flush()
+        return record
+
+    async def create_or_update(
+        self,
+        user_id: uuid.UUID,
+        date: datetime,
+        water_ml: int | None = None,
+        calories: int | None = None,
+        protein: int | None = None,
+        fats: int | None = None,
+        carbs: int | None = None,
+    ) -> DailyNutrition:
+        """Create or update daily nutrition record."""
+        # Normalize to start of day
+        date_normalized = date.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        # Try to get existing record
+        record = await self.get_by_user_and_date(user_id, date_normalized)
+
+        if record:
+            # Update existing record
+            if water_ml is not None:
+                record.water_ml = water_ml
+            if calories is not None:
+                record.calories = calories
+            if protein is not None:
+                record.protein = protein
+            if fats is not None:
+                record.fats = fats
+            if carbs is not None:
+                record.carbs = carbs
+            record.updated_at = datetime.utcnow()
+        else:
+            # Create new record
+            record = DailyNutrition(
+                user_id=user_id,
+                date=date_normalized,
+                water_ml=water_ml or 0,
+                calories=calories or 0,
+                protein=protein or 0,
+                fats=fats or 0,
+                carbs=carbs or 0,
+            )
+            self.session.add(record)
+
+        await self.session.flush()
+        return record
+
+    async def get_user_history(
+        self, user_id: uuid.UUID, limit: int = 30
+    ) -> list[DailyNutrition]:
+        """Get user's nutrition history, most recent first."""
+        result = await self.session.execute(
+            select(DailyNutrition)
+            .where(DailyNutrition.user_id == user_id)
+            .order_by(DailyNutrition.date.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_today_total(
+        self, user_id: uuid.UUID, date: datetime
+    ) -> dict:
+        """Get total nutrition for today (sum of all records)."""
+        from sqlalchemy import func
+
+        # Normalize to start of day
+        start_of_day = date.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        end_of_day = date.replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        )
+
+        result = await self.session.execute(
+            select(
+                func.sum(DailyNutrition.water_ml).label('water_ml'),
+                func.sum(DailyNutrition.calories).label('calories'),
+                func.sum(DailyNutrition.protein).label('protein'),
+                func.sum(DailyNutrition.fats).label('fats'),
+                func.sum(DailyNutrition.carbs).label('carbs'),
+            )
+            .where(
+                and_(
+                    DailyNutrition.user_id == user_id,
+                    DailyNutrition.date >= start_of_day,
+                    DailyNutrition.date <= end_of_day,
+                )
+            )
+        )
+        row = result.one()
+
+        return {
+            'water_ml': row.water_ml or 0,
+            'calories': row.calories or 0,
+            'protein': row.protein or 0,
+            'fats': row.fats or 0,
+            'carbs': row.carbs or 0,
+        }
+

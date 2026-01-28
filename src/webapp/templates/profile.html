@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Профіль</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-color: #0a0a0a;
+            --card-bg: #1a1a1a;
+            --card-border: #2a2a2a;
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --text-muted: #666666;
+            --accent-green: #4ade80;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--tg-theme-bg-color, var(--bg-color));
+            color: var(--tg-theme-text-color, var(--text-primary));
+            min-height: 100vh;
+            padding: 16px;
+            padding-bottom: 100px;
+        }
+
+        .header {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .card {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background-color: var(--card-border);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .form-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .gender-selector {
+            display: flex;
+            gap: 12px;
+        }
+
+        .gender-btn {
+            flex: 1;
+            padding: 12px;
+            background-color: var(--card-border);
+            border: 2px solid var(--card-border);
+            border-radius: 12px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .gender-btn.active {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .info-value {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .save-btn {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            border: none;
+            border-radius: 12px;
+            color: var(--tg-theme-button-text-color, #000);
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .save-btn:active {
+            transform: scale(0.98);
+        }
+
+        .save-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            display: flex;
+            justify-content: space-around;
+            padding: 12px 0;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
+            border-top: 1px solid var(--card-border);
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            text-decoration: none;
+            font-size: 11px;
+            -webkit-tap-highlight-color: transparent;
+            transition: color 0.2s;
+        }
+
+        .nav-item.active {
+            color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .nav-icon {
+            font-size: 20px;
+        }
+
+        .bmi-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            background: linear-gradient(135deg, var(--tg-theme-button-color, var(--accent-green)) 0%, #22c55e 100%);
+            border-radius: 12px;
+            margin-top: 8px;
+        }
+
+        .bmi-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--tg-theme-button-text-color, #000);
+            margin-right: 8px;
+        }
+
+        .bmi-label {
+            font-size: 14px;
+            color: var(--tg-theme-button-text-color, #000);
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">👤 Профіль</div>
+
+    <!-- Особисті дані -->
+    <div class="card">
+        <div class="card-title">Особисті дані</div>
+
+        <div class="form-group">
+            <label class="form-label">Вік (років)</label>
+            <input type="number" class="form-input" id="ageInput" placeholder="25" min="10" max="120">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Зріст (см)</label>
+            <input type="number" class="form-input" id="heightInput" placeholder="170" min="100" max="250">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Вага (кг)</label>
+            <input type="number" class="form-input" id="weightInput" placeholder="70" min="30" max="300" step="0.1">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Стать</label>
+            <div class="gender-selector">
+                <button class="gender-btn" id="maleBtn" data-gender="male">👨 Чоловік</button>
+                <button class="gender-btn" id="femaleBtn" data-gender="female">👩 Жінка</button>
+            </div>
+        </div>
+
+        <div id="bmiContainer" style="display: none;">
+            <div class="bmi-indicator">
+                <span class="bmi-value" id="bmiValue">0</span>
+                <span class="bmi-label">ІМТ</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Денні цілі БЖУ -->
+    <div class="card">
+        <div class="card-title">Денні цілі</div>
+
+        <div class="form-group">
+            <label class="form-label">Вода (мл)</label>
+            <input type="number" class="form-input" id="waterInput" placeholder="2500" min="500" max="10000" step="100">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Калорії (ккал)</label>
+            <input type="number" class="form-input" id="caloriesInput" placeholder="2500" min="1000" max="6000" step="50">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Білки (г)</label>
+            <input type="number" class="form-input" id="proteinInput" placeholder="150" min="20" max="500" step="5">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Жири (г)</label>
+            <input type="number" class="form-input" id="fatsInput" placeholder="80" min="20" max="300" step="5">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Вуглеводи (г)</label>
+            <input type="number" class="form-input" id="carbsInput" placeholder="250" min="20" max="800" step="5">
+        </div>
+    </div>
+
+    <!-- Розрахункові показники -->
+    <div class="card" id="calculatedCard" style="display: none;">
+        <div class="card-title">Розрахункові показники</div>
+
+        <div class="info-row">
+            <span class="info-label">Базовий обмін (BMR)</span>
+            <span class="info-value" id="bmrValue">—</span>
+        </div>
+
+        <div class="info-row">
+            <span class="info-label">Рекомендована норма</span>
+            <span class="info-value" id="tdeeValue">—</span>
+        </div>
+    </div>
+
+    <button class="save-btn" id="saveBtn">Зберегти</button>
+
+    <nav class="bottom-nav">
+        <a href="/nutrition" class="nav-item">
+            <span class="nav-icon">📅</span>
+            <span>Сьогодні</span>
+        </a>
+        <a href="#" class="nav-item">
+            <span class="nav-icon">📊</span>
+            <span>Статистика</span>
+        </a>
+        <a href="/profile" class="nav-item active">
+            <span class="nav-icon">👤</span>
+            <span>Профіль</span>
+        </a>
+        <a href="#" class="nav-item">
+            <span class="nav-icon">⚙️</span>
+            <span>Налаштування</span>
+        </a>
+    </nav>
+
+    <script>
+        // Initialize Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        // State
+        let currentGender = null;
+        let isDataChanged = false;
+
+        // Gender selection
+        document.querySelectorAll('.gender-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.gender-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentGender = btn.dataset.gender;
+                isDataChanged = true;
+                calculateMetrics();
+
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.impactOccurred('light');
+                }
+            });
+        });
+
+        // Input change tracking
+        document.querySelectorAll('.form-input').forEach(input => {
+            input.addEventListener('input', () => {
+                isDataChanged = true;
+                calculateMetrics();
+            });
+        });
+
+        // Calculate BMI and other metrics
+        function calculateMetrics() {
+            const height = parseFloat(document.getElementById('heightInput').value);
+            const weight = parseFloat(document.getElementById('weightInput').value);
+            const age = parseInt(document.getElementById('ageInput').value);
+
+            if (height && weight) {
+                // Calculate BMI
+                const bmi = (weight / ((height / 100) ** 2)).toFixed(1);
+                document.getElementById('bmiValue').textContent = bmi;
+                document.getElementById('bmiContainer').style.display = 'block';
+
+                // Calculate BMR (Basal Metabolic Rate)
+                if (age && currentGender) {
+                    let bmr;
+                    if (currentGender === 'male') {
+                        // Mifflin-St Jeor formula for men
+                        bmr = 10 * weight + 6.25 * height - 5 * age + 5;
+                    } else {
+                        // Mifflin-St Jeor formula for women
+                        bmr = 10 * weight + 6.25 * height - 5 * age - 161;
+                    }
+
+                    // TDEE (Total Daily Energy Expenditure) - moderate activity
+                    const tdee = Math.round(bmr * 1.55);
+
+                    document.getElementById('bmrValue').textContent = Math.round(bmr) + ' ккал';
+                    document.getElementById('tdeeValue').textContent = tdee + ' ккал';
+                    document.getElementById('calculatedCard').style.display = 'block';
+                }
+            } else {
+                document.getElementById('bmiContainer').style.display = 'none';
+                document.getElementById('calculatedCard').style.display = 'none';
+            }
+        }
+
+        // Load user profile from API
+        async function loadUserProfile() {
+            try {
+                const response = await fetch('/api/user/settings', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        const data = result.data;
+
+                        // Personal data
+                        if (data.age) document.getElementById('ageInput').value = data.age;
+                        if (data.height) document.getElementById('heightInput').value = data.height;
+                        if (data.weight) document.getElementById('weightInput').value = data.weight;
+
+                        if (data.gender) {
+                            currentGender = data.gender;
+                            const btn = document.querySelector(`[data-gender="${data.gender}"]`);
+                            if (btn) btn.classList.add('active');
+                        }
+
+                        // Daily goals
+                        if (data.daily_water_ml) document.getElementById('waterInput').value = data.daily_water_ml;
+                        if (data.daily_calories) document.getElementById('caloriesInput').value = data.daily_calories;
+                        if (data.daily_protein) document.getElementById('proteinInput').value = data.daily_protein;
+                        if (data.daily_fats) document.getElementById('fatsInput').value = data.daily_fats;
+                        if (data.daily_carbs) document.getElementById('carbsInput').value = data.daily_carbs;
+
+                        calculateMetrics();
+                        isDataChanged = false;
+                    }
+                } else {
+                    console.error('Failed to load user profile:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading user profile:', error);
+            }
+        }
+
+        // Save user profile
+        async function saveUserProfile() {
+            const saveBtn = document.getElementById('saveBtn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Збереження...';
+
+            try {
+                const data = {
+                    age: parseInt(document.getElementById('ageInput').value) || null,
+                    height: parseFloat(document.getElementById('heightInput').value) || null,
+                    weight: parseFloat(document.getElementById('weightInput').value) || null,
+                    gender: currentGender,
+                    daily_water_ml: parseInt(document.getElementById('waterInput').value) || null,
+                    daily_calories: parseInt(document.getElementById('caloriesInput').value) || null,
+                    daily_protein: parseInt(document.getElementById('proteinInput').value) || null,
+                    daily_fats: parseInt(document.getElementById('fatsInput').value) || null,
+                    daily_carbs: parseInt(document.getElementById('carbsInput').value) || null,
+                };
+
+                const response = await fetch('/api/user/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    isDataChanged = false;
+
+                    if (tg.HapticFeedback) {
+                        tg.HapticFeedback.notificationOccurred('success');
+                    }
+
+                    tg.showAlert('✅ Профіль успішно збережено!');
+                } else {
+                    throw new Error('Failed to save profile');
+                }
+            } catch (error) {
+                console.error('Error saving profile:', error);
+                tg.showAlert('❌ Помилка при збереженні профілю');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Зберегти';
+            }
+        }
+
+        // Save button
+        document.getElementById('saveBtn').addEventListener('click', () => {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('medium');
+            }
+            saveUserProfile();
+        });
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (item.getAttribute('href') === '#') {
+                    e.preventDefault();
+                    tg.showAlert('Розділ буде доступний незабаром!');
+                } else if (isDataChanged && item.getAttribute('href') !== '/profile') {
+                    e.preventDefault();
+                    if (confirm('У вас є незбережені зміни. Покинути сторінку?')) {
+                        window.location.href = item.getAttribute('href');
+                    }
+                }
+
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+            });
+        });
+
+        // Initialize
+        loadUserProfile();
+
+        // Back button handler
+        tg.BackButton.onClick(() => {
+            if (isDataChanged) {
+                if (confirm('У вас є незбережені зміни. Вийти без збереження?')) {
+                    tg.close();
+                }
+            } else {
+                tg.close();
+            }
+        });
+    </script>
+</body>
+</html>

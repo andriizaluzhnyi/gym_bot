@@ -5,6 +5,7 @@ from aiogram import Router
 from src.bot.handlers.admin import router as admin_router
 from src.bot.handlers.booking import router as booking_router
 from src.bot.handlers.nutrition import router as nutrition_router
+from src.bot.handlers.profile import router as profile_router
 from src.bot.handlers.schedule import router as schedule_router
 from src.bot.handlers.start import router as start_router
 from src.bot.handlers.workout_program import router as workout_program_router
@@ -15,6 +16,7 @@ def setup_routers() -> Router:
     main_router = Router()
 
     main_router.include_router(start_router)
+    main_router.include_router(profile_router)
     main_router.include_router(schedule_router)
     main_router.include_router(booking_router)
     main_router.include_router(admin_router)

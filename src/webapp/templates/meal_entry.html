@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Додати страву</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-color: #0a0a0a;
+            --card-bg: #1a1a1a;
+            --card-border: #2a2a2a;
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --text-muted: #666666;
+            --accent-green: #4ade80;
+            --input-bg: #2a2a2a;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--tg-theme-bg-color, var(--bg-color));
+            color: var(--tg-theme-text-color, var(--text-primary));
+            min-height: 100vh;
+            padding: 16px;
+            padding-bottom: 24px;
+        }
+
+        .header {
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 14px;
+            background-color: var(--tg-theme-secondary-bg-color, var(--input-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .form-input::placeholder {
+            color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        .macros-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .macro-input-group {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .macro-label {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            min-width: 100px;
+            font-weight: 500;
+        }
+
+        .macro-input {
+            padding: 12px 14px;
+            background-color: var(--tg-theme-secondary-bg-color, var(--input-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 16px;
+            outline: none;
+            flex: 1;
+        }
+
+        .macro-input:focus {
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .macro-input.protein {
+            border-color: #3b82f6;
+        }
+
+        .macro-input.fat {
+            border-color: #f59e0b;
+        }
+
+        .macro-input.carbs {
+            border-color: #10b981;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .btn-primary {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        .btn-secondary {
+            background-color: var(--card-border);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .calories-preview {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-top: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .calories-label {
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 14px;
+        }
+
+        .calories-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 13px;
+            margin-top: 6px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">Додати страву</div>
+
+    <form id="mealForm">
+        <div class="form-group">
+            <label class="form-label" for="mealName">Назва страви</label>
+            <input
+                type="text"
+                id="mealName"
+                class="form-input"
+                placeholder="Наприклад: Куряча грудка з рисом"
+                required
+            >
+            <div class="error-message" id="nameError">Введіть назву страви</div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">БЖУ (на порцію)</label>
+            <div class="macros-grid">
+                <div class="macro-input-group">
+                    <label class="macro-label" for="protein">Білки (г)</label>
+                    <input
+                        type="number"
+                        id="protein"
+                        class="macro-input protein"
+                        placeholder="0"
+                        min="0"
+                        step="0.1"
+                        required
+                    >
+                </div>
+                <div class="macro-input-group">
+                    <label class="macro-label" for="fats">Жири (г)</label>
+                    <input
+                        type="number"
+                        id="fats"
+                        class="macro-input fat"
+                        placeholder="0"
+                        min="0"
+                        step="0.1"
+                        required
+                    >
+                </div>
+                <div class="macro-input-group">
+                    <label class="macro-label" for="carbs">Вуглеводи (г)</label>
+                    <input
+                        type="number"
+                        id="carbs"
+                        class="macro-input carbs"
+                        placeholder="0"
+                        min="0"
+                        step="0.1"
+                        required
+                    >
+                </div>
+            </div>
+            <div class="error-message" id="macrosError">Введіть БЖУ</div>
+        </div>
+
+        <div class="calories-preview">
+            <span class="calories-label">Калорійність:</span>
+            <span class="calories-value" id="caloriesPreview">0 ккал</span>
+        </div>
+
+        <div class="button-group">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">Скасувати</button>
+            <button type="submit" class="btn btn-primary" id="saveBtn">Зберегти</button>
+        </div>
+    </form>
+
+    <script>
+        // Initialize Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        // Show back button
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.location.href = '/nutrition';
+        });
+
+        // Elements
+        const form = document.getElementById('mealForm');
+        const mealNameInput = document.getElementById('mealName');
+        const proteinInput = document.getElementById('protein');
+        const fatsInput = document.getElementById('fats');
+        const carbsInput = document.getElementById('carbs');
+        const caloriesPreview = document.getElementById('caloriesPreview');
+        const saveBtn = document.getElementById('saveBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const nameError = document.getElementById('nameError');
+        const macrosError = document.getElementById('macrosError');
+
+        // Calculate calories based on macros
+        function calculateCalories() {
+            const protein = parseFloat(proteinInput.value) || 0;
+            const fats = parseFloat(fatsInput.value) || 0;
+            const carbs = parseFloat(carbsInput.value) || 0;
+
+            // Protein: 4 kcal/g, Fats: 9 kcal/g, Carbs: 4 kcal/g
+            const calories = Math.round(protein * 4 + fats * 9 + carbs * 4);
+            caloriesPreview.textContent = `${calories} ккал`;
+            return calories;
+        }
+
+        // Update calories on input
+        proteinInput.addEventListener('input', calculateCalories);
+        fatsInput.addEventListener('input', calculateCalories);
+        carbsInput.addEventListener('input', calculateCalories);
+
+        // Cancel button
+        cancelBtn.addEventListener('click', () => {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
+            window.location.href = '/nutrition';
+        });
+
+        // Form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Reset errors
+            nameError.classList.remove('show');
+            macrosError.classList.remove('show');
+
+            // Validation
+            const mealName = mealNameInput.value.trim();
+            const protein = parseFloat(proteinInput.value) || 0;
+            const fats = parseFloat(fatsInput.value) || 0;
+            const carbs = parseFloat(carbsInput.value) || 0;
+
+            let hasError = false;
+
+            if (!mealName) {
+                nameError.classList.add('show');
+                hasError = true;
+            }
+
+            if (protein === 0 && fats === 0 && carbs === 0) {
+                macrosError.textContent = 'Введіть хоча б одне значення БЖУ';
+                macrosError.classList.add('show');
+                hasError = true;
+            }
+
+            if (hasError) {
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('error');
+                }
+                return;
+            }
+
+            // Calculate total calories
+            const calories = calculateCalories();
+
+            // Disable button
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Збереження...';
+
+            try {
+                // Save to server
+                const response = await fetch('/api/nutrition/meal', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        meal_name: mealName,
+                        protein: protein,
+                        fats: fats,
+                        carbs: carbs,
+                        calories: calories
+                    })
+                });
+
+                if (response.ok) {
+                    if (tg.HapticFeedback) {
+                        tg.HapticFeedback.notificationOccurred('success');
+                    }
+
+                    // Return to nutrition page
+                    window.location.href = '/nutrition';
+                } else {
+                    throw new Error('Failed to save meal');
+                }
+            } catch (error) {
+                console.error('Error saving meal:', error);
+
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('error');
+                }
+
+                tg.showAlert('Помилка збереження. Спробуйте ще раз.');
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Зберегти';
+            }
+        });
+    </script>
+</body>
+</html>

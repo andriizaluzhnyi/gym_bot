@@ -27,58 +27,74 @@
             background-color: var(--tg-theme-bg-color, var(--bg-color));
             color: var(--tg-theme-text-color, var(--text-primary));
             min-height: 100vh;
-            padding: 16px;
-            padding-bottom: 100px;
+            padding: 12px;
+            padding-bottom: 90px;
         }
 
         .date {
-            font-size: 24px;
+            font-size: 22px;
             font-weight: 600;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             color: var(--tg-theme-text-color, var(--text-primary));
         }
 
         .card {
             background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
             border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
         }
 
         /* Calories Section */
         .calories-section {
             display: flex;
             align-items: center;
-            gap: 24px;
+            gap: 20px;
         }
 
         .calories-ring {
             position: relative;
-            width: 100px;
-            height: 100px;
+            width: 90px;
+            height: 90px;
             flex-shrink: 0;
         }
 
         .calories-ring svg {
             transform: rotate(-90deg);
-            width: 100px;
-            height: 100px;
+            width: 90px;
+            height: 90px;
         }
 
         .calories-ring circle {
             fill: none;
-            stroke-width: 8;
+            stroke-width: 6;
         }
 
         .calories-ring .bg {
             stroke: var(--card-border);
         }
 
-        .calories-ring .progress {
-            stroke: var(--tg-theme-button-color, var(--accent-green));
+        .calories-ring .protein-progress {
+            stroke: #3b82f6;
             stroke-linecap: round;
             stroke-dasharray: 251;
             stroke-dashoffset: 251;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+
+        .calories-ring .fat-progress {
+            stroke: #f59e0b;
+            stroke-linecap: round;
+            stroke-dasharray: 207;
+            stroke-dashoffset: 207;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+
+        .calories-ring .carbs-progress {
+            stroke: #10b981;
+            stroke-linecap: round;
+            stroke-dasharray: 163;
+            stroke-dashoffset: 163;
             transition: stroke-dashoffset 0.5s ease;
         }
 
@@ -91,20 +107,20 @@
         }
 
         .calories-value {
-            font-size: 24px;
+            font-size: 15px;
             font-weight: 700;
             color: var(--tg-theme-text-color, var(--text-primary));
         }
 
         .calories-label {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--tg-theme-hint-color, var(--text-muted));
         }
 
         .macros {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
             flex: 1;
         }
 
@@ -150,7 +166,7 @@
         }
 
         .water-current {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 700;
             color: var(--tg-theme-text-color, var(--text-primary));
         }
@@ -158,6 +174,27 @@
         .water-total {
             color: var(--tg-theme-hint-color, var(--text-muted));
             font-size: 16px;
+        }
+
+        .water-progress-bar {
+            width: 100%;
+            height: 8px;
+            background-color: var(--card-border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        .water-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .water-progress-fill.over-goal {
+            background: linear-gradient(90deg, #60a5fa 0%, #3b82f6 100%);
         }
 
         .water-buttons {
@@ -178,6 +215,18 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        .water-btn.undo-water {
+            /* background-color: #ff6b6b; */
+            color: #ffffff;
+        }
+
+        .water-btn.undo-water:disabled {
+            background-color: var(--card-border);
+            color: var(--text-muted);
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .water-btn:active {
             transform: scale(0.95);
             background-color: var(--tg-theme-button-color, var(--accent-green));
@@ -189,7 +238,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
 
         .meals-title {
@@ -254,6 +303,55 @@
             opacity: 0.7;
         }
 
+        /* Meals List */
+        .meal-item {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            border: 1px solid var(--card-border);
+        }
+
+        .meal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .meal-time {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        .meal-calories {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .meal-macros {
+            display: flex;
+            gap: 12px;
+        }
+
+        .meal-macro {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .meal-macro.protein {
+            color: #3b82f6;
+        }
+
+        .meal-macro.fat {
+            color: #f59e0b;
+        }
+
+        .meal-macro.carbs {
+            color: #10b981;
+        }
+
         /* Bottom Navigation */
         .bottom-nav {
             position: fixed;
@@ -300,11 +398,36 @@
     <div class="date" id="currentDate">24 січня</div>
 
     <div class="card">
+        <div class="water-header">
+            <span class="water-icon">💧</span>
+            <h3>Вода</h3>
+        </div>
+        <div class="water-display">
+            <span class="water-current" id="waterCurrent">0 мл</span>
+            <span class="water-total" id="waterGoal">/ 2500 мл</span>
+        </div>
+        <div class="water-progress-bar">
+            <div class="water-progress-fill" id="waterProgressFill"></div>
+        </div>
+        <div class="water-buttons">
+            <button class="water-btn" data-amount="100">+100 мл</button>
+            <button class="water-btn" data-amount="200">+200 мл</button>
+            <button class="water-btn" data-amount="250">+250 мл</button>
+            <button class="water-btn" data-amount="500">+500 мл</button>
+            <button class="water-btn undo-water" id="undoWaterBtn" disabled>↩️ Відмінити</button>
+        </div>
+    </div>
+
+    <div class="card">
         <div class="calories-section">
             <div class="calories-ring">
                 <svg viewBox="0 0 100 100">
                     <circle class="bg" cx="50" cy="50" r="40"/>
-                    <circle class="progress" id="caloriesProgress" cx="50" cy="50" r="40"/>
+                    <circle class="bg" cx="50" cy="50" r="33"/>
+                    <circle class="bg" cx="50" cy="50" r="26"/>
+                    <circle class="protein-progress" id="proteinProgress" cx="50" cy="50" r="40"/>
+                    <circle class="fat-progress" id="fatProgress" cx="50" cy="50" r="33"/>
+                    <circle class="carbs-progress" id="carbsProgress" cx="50" cy="50" r="26"/>
                 </svg>
                 <div class="calories-text">
                     <div class="calories-value" id="caloriesValue">0</div>
@@ -314,34 +437,17 @@
             <div class="macros">
                 <div class="macro-item">
                     <span class="macro-name">Білки</span>
-                    <span class="macro-value" id="proteinValue">0/193 г</span>
+                    <span class="macro-value" id="proteinValue">0/150 г</span>
                 </div>
                 <div class="macro-item">
                     <span class="macro-name">Жири</span>
-                    <span class="macro-value" id="fatValue">0/86 г</span>
+                    <span class="macro-value" id="fatValue">0/80 г</span>
                 </div>
                 <div class="macro-item">
                     <span class="macro-name">Вуглеводи</span>
-                    <span class="macro-value" id="carbsValue">0/408 г</span>
+                    <span class="macro-value" id="carbsValue">0/250 г</span>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="water-header">
-            <span class="water-icon">💧</span>
-            <h3>Вода</h3>
-        </div>
-        <div class="water-display">
-            <span class="water-current" id="waterCurrent">0 мл</span>
-            <span class="water-total">/ 3210 мл</span>
-        </div>
-        <div class="water-buttons">
-            <button class="water-btn" data-amount="100">+100 мл</button>
-            <button class="water-btn" data-amount="200">+200 мл</button>
-            <button class="water-btn" data-amount="250">+250 мл</button>
-            <button class="water-btn" data-amount="500">+500 мл</button>
         </div>
     </div>
 
@@ -361,19 +467,19 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="#" class="nav-item active" data-tab="today">
+        <a href="/nutrition" class="nav-item active">
             <span class="nav-icon">📅</span>
             <span>Сьогодні</span>
         </a>
-        <a href="#" class="nav-item" data-tab="stats">
+        <a href="#" class="nav-item">
             <span class="nav-icon">📊</span>
             <span>Статистика</span>
         </a>
-        <a href="#" class="nav-item" data-tab="profile">
+        <a href="/profile" class="nav-item">
             <span class="nav-icon">👤</span>
             <span>Профіль</span>
         </a>
-        <a href="#" class="nav-item" data-tab="settings">
+        <a href="#" class="nav-item">
             <span class="nav-icon">⚙️</span>
             <span>Налаштування</span>
         </a>
@@ -387,9 +493,19 @@
 
         // State
         let waterAmount = 0;
-        const waterGoal = 3210;
-        const caloriesGoal = 2500;
+        let waterHistory = []; // History of water changes
+        let waterGoal = 2500;
+        let caloriesGoal = 2500;
+        let proteinGoal = 150;
+        let fatsGoal = 80;
+        let carbsGoal = 250;
         let currentCalories = 0;
+        let currentProtein = 0;
+        let currentFats = 0;
+        let currentCarbs = 0;
+
+        // User settings from API
+        let userSettings = null;
 
         // Set current date
         function setCurrentDate() {
@@ -402,40 +518,328 @@
                 `${now.getDate()} ${months[now.getMonth()]}`;
         }
 
-        // Update calories ring
-        function updateCaloriesRing(calories) {
-            const progress = Math.min(calories / caloriesGoal, 1);
-            const circumference = 251;
-            const offset = circumference - (progress * circumference);
-            document.getElementById('caloriesProgress').style.strokeDashoffset = offset;
-            document.getElementById('caloriesValue').textContent = calories;
+        // Update macros rings
+        function updateMacrosRings() {
+            // Protein ring (outer, radius 40)
+            const proteinProgressRaw = currentProtein / proteinGoal;
+            const proteinProgress = Math.min(proteinProgressRaw, 1.5); // Cap at 150%
+            const proteinCircumference = 251;
+            const proteinOffset = proteinCircumference - (proteinProgress * proteinCircumference);
+            const proteinElement = document.getElementById('proteinProgress');
+            proteinElement.style.strokeDashoffset = proteinOffset;
+            // Change color when exceeding goal
+            if (proteinProgressRaw > 1) {
+                proteinElement.style.stroke = '#ef4444'; // Red when over goal
+            } else {
+                proteinElement.style.stroke = '#3b82f6'; // Blue normal
+            }
+
+            // Fat ring (middle, radius 33)
+            const fatProgressRaw = currentFats / fatsGoal;
+            const fatProgress = Math.min(fatProgressRaw, 1.5); // Cap at 150%
+            const fatCircumference = 207;
+            const fatOffset = fatCircumference - (fatProgress * fatCircumference);
+            const fatElement = document.getElementById('fatProgress');
+            fatElement.style.strokeDashoffset = fatOffset;
+            // Change color when exceeding goal
+            if (fatProgressRaw > 1) {
+                fatElement.style.stroke = '#ef4444'; // Red when over goal
+            } else {
+                fatElement.style.stroke = '#f59e0b'; // Orange normal
+            }
+
+            // Carbs ring (inner, radius 26)
+            const carbsProgressRaw = currentCarbs / carbsGoal;
+            const carbsProgress = Math.min(carbsProgressRaw, 1.5); // Cap at 150%
+            const carbsCircumference = 163;
+            const carbsOffset = carbsCircumference - (carbsProgress * carbsCircumference);
+            const carbsElement = document.getElementById('carbsProgress');
+            carbsElement.style.strokeDashoffset = carbsOffset;
+            // Change color when exceeding goal
+            if (carbsProgressRaw > 1) {
+                carbsElement.style.stroke = '#ef4444'; // Red when over goal
+            } else {
+                carbsElement.style.stroke = '#10b981'; // Green normal
+            }
+
+            // Update calories value
+            document.getElementById('caloriesValue').textContent = currentCalories;
+        }
+
+        // Update macros display
+        function updateMacrosDisplay() {
+            document.getElementById('proteinValue').textContent = `${currentProtein}/${proteinGoal} г`;
+            document.getElementById('fatValue').textContent = `${currentFats}/${fatsGoal} г`;
+            document.getElementById('carbsValue').textContent = `${currentCarbs}/${carbsGoal} г`;
         }
 
         // Update water display
-        function updateWater(amount) {
+        async function updateWater(amount) {
+            const previousAmount = waterAmount;
             waterAmount = Math.max(0, waterAmount + amount);
+
+            // Save to history
+            waterHistory.push(previousAmount);
+            if (waterHistory.length > 50) {
+                waterHistory.shift(); // Keep max 50 items
+            }
+
+            // Update UI
             document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
+            document.getElementById('undoWaterBtn').disabled = false;
+            updateWaterProgressBar();
 
             // Haptic feedback
             if (tg.HapticFeedback) {
                 tg.HapticFeedback.impactOccurred('light');
             }
+
+            // Save only the increment to server
+            await saveWaterIncrement(amount);
+        }
+
+        // Update water goal display
+        function updateWaterGoalDisplay() {
+            document.getElementById('waterGoal').textContent = `/ ${waterGoal} мл`;
+        }
+
+        // Update water progress bar
+        function updateWaterProgressBar() {
+            const progress = Math.min((waterAmount / waterGoal) * 100, 100);
+            const fillElement = document.getElementById('waterProgressFill');
+            fillElement.style.width = `${progress}%`;
+
+            // Change color if over goal
+            if (waterAmount >= waterGoal) {
+                fillElement.classList.add('over-goal');
+            } else {
+                fillElement.classList.remove('over-goal');
+            }
+        }
+
+        // Undo last water change
+        async function undoWater() {
+            if (waterHistory.length > 0) {
+                const previousAmount = waterHistory.pop();
+                const difference = waterAmount - previousAmount;
+                waterAmount = previousAmount;
+
+                document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
+                updateWaterProgressBar();
+
+                if (waterHistory.length === 0) {
+                    document.getElementById('undoWaterBtn').disabled = true;
+                }
+
+                // Haptic feedback
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.impactOccurred('light');
+                }
+
+                // Save negative increment to server
+                await saveWaterIncrement(-difference);
+            }
+        }
+
+        // Save water increment to server (not total amount)
+        async function saveWaterIncrement(increment) {
+            try {
+                const response = await fetch('/api/nutrition/daily', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        water_ml: increment,
+                        calories: 0,
+                        protein: 0,
+                        fats: 0,
+                        carbs: 0
+                    })
+                });
+
+                if (!response.ok) {
+                    console.error('Failed to save water increment:', response.status);
+                }
+            } catch (error) {
+                console.error('Error saving water increment:', error);
+            }
+        }
+
+        // Load user settings from API
+        async function loadUserSettings() {
+            try {
+                const response = await fetch('/api/user/settings', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        userSettings = result.data;
+                        applyUserSettings(userSettings);
+                    }
+                } else {
+                    console.error('Failed to load user settings:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading user settings:', error);
+            }
+        }
+
+        // Load today's nutrition data from API
+        async function loadDailyNutrition() {
+            try {
+                const response = await fetch('/api/nutrition/daily', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        waterAmount = result.data.water_ml || 0;
+                        currentCalories = result.data.calories || 0;
+                        currentProtein = result.data.protein || 0;
+                        currentFats = result.data.fats || 0;
+                        currentCarbs = result.data.carbs || 0;
+
+                        // Clear history when loading initial data
+                        waterHistory = [];
+                        document.getElementById('undoWaterBtn').disabled = true;
+
+                        // Update displays
+                        document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
+                        updateWaterProgressBar();
+                        updateMacrosRings();
+                        updateMacrosDisplay();
+                    }
+                } else {
+                    console.error('Failed to load daily nutrition:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading daily nutrition:', error);
+            }
+        }
+
+        // Load today's meals list
+        async function loadMealsList() {
+            try {
+                const response = await fetch('/api/nutrition/meals', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        displayMealsList(result.data);
+                    }
+                } else {
+                    console.error('Failed to load meals list:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading meals list:', error);
+            }
+        }
+
+        // Display meals list
+        function displayMealsList(meals) {
+            const mealsEmpty = document.getElementById('mealsEmpty');
+            const mealsList = document.getElementById('mealsList');
+
+            if (meals.length === 0) {
+                mealsEmpty.style.display = 'block';
+                mealsList.innerHTML = '';
+            } else {
+                mealsEmpty.style.display = 'none';
+                mealsList.innerHTML = meals.map(meal => {
+                    const date = new Date(meal.created_at);
+                    const time = date.toLocaleTimeString('uk-UA', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+
+                    return `
+                        <div class="meal-item">
+                            <div class="meal-header">
+                                <span class="meal-time">${time}</span>
+                                <span class="meal-calories">${meal.calories} ккал</span>
+                            </div>
+                            <div class="meal-macros">
+                                <span class="meal-macro protein">🔵 ${meal.protein}г</span>
+                                <span class="meal-macro fat">🟠 ${meal.fats}г</span>
+                                <span class="meal-macro carbs">🟢 ${meal.carbs}г</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Apply user settings to UI
+        function applyUserSettings(settings) {
+            if (settings.daily_water_ml) {
+                waterGoal = settings.daily_water_ml;
+                updateWaterGoalDisplay();
+            }
+            if (settings.daily_calories) {
+                caloriesGoal = settings.daily_calories;
+            }
+            if (settings.daily_protein) {
+                proteinGoal = settings.daily_protein;
+            }
+            if (settings.daily_fats) {
+                fatsGoal = settings.daily_fats;
+            }
+            if (settings.daily_carbs) {
+                carbsGoal = settings.daily_carbs;
+            }
+
+            // Update displays with new goals
+            updateWaterProgressBar();
+            updateMacrosRings();
+            updateMacrosDisplay();
         }
 
         // Water buttons
-        document.querySelectorAll('.water-btn').forEach(btn => {
+        document.querySelectorAll('.water-btn:not(.undo-water)').forEach(btn => {
             btn.addEventListener('click', () => {
                 const amount = parseInt(btn.dataset.amount);
                 updateWater(amount);
             });
         });
 
+        // Undo button
+        document.getElementById('undoWaterBtn').addEventListener('click', () => {
+            undoWater();
+        });
+
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                e.preventDefault();
-                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
+                const href = item.getAttribute('href');
+
+                if (href === '#') {
+                    e.preventDefault();
+                    tg.showAlert('Розділ буде доступний незабаром!');
+                } else if (href && href !== '/nutrition') {
+                    // Allow navigation to other pages
+                    return;
+                } else {
+                    e.preventDefault();
+                }
 
                 if (tg.HapticFeedback) {
                     tg.HapticFeedback.selectionChanged();
@@ -452,17 +856,34 @@
             tg.showAlert('Функція додавання фото буде доступна незабаром!');
         });
 
-        // Edit button
+        // Edit button - open meal entry page
         document.querySelector('.edit-btn').addEventListener('click', () => {
             if (tg.HapticFeedback) {
                 tg.HapticFeedback.impactOccurred('light');
             }
-            // TODO: Open edit mode
+
+            // Navigate to meal entry page within webapp
+            window.location.href = '/meal-entry';
+        });
+
+        // Listen for page visibility to reload data when returning
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                // Page became visible - reload data
+                loadDailyNutrition();
+                loadMealsList();
+            }
         });
 
         // Initialize
         setCurrentDate();
-        updateCaloriesRing(currentCalories);
+        updateMacrosRings();
+        updateMacrosDisplay();
+
+        // Load user settings and today's nutrition data
+        loadUserSettings();
+        loadDailyNutrition();
+        loadMealsList();
 
         // Back button handler
         tg.BackButton.onClick(() => {

@@ -5,11 +5,16 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    postgresql-client \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY pyproject.toml ./
 COPY src ./src
+COPY alembic.ini ./
+COPY alembic ./alembic
+COPY scripts/migrate.py ./scripts/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -e .

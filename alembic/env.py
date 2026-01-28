@@ -1,11 +1,10 @@
 """Alembic environment configuration."""
 
-import asyncio
 from logging.config import fileConfig
 
 from sqlalchemy import pool
+from sqlalchemy import engine_from_config
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
@@ -29,10 +28,19 @@ try:
     from src.config import get_settings
     settings = get_settings()
     database_url = settings.database_url
+    # Convert async URL to sync for Alembic
+    if database_url.startswith("postgresql+asyncpg://"):
+        database_url = database_url.replace(
+            "postgresql+asyncpg://", "postgresql://"
+        )
 except Exception:
     # Use default SQLite if config fails
     import os
-    database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./gym_bot.db")
+    database_url = os.getenv("DATABASE_URL", "sqlite:///./gym_bot.db")
+    if database_url.startswith("postgresql+asyncpg://"):
+        database_url = database_url.replace(
+            "postgresql+asyncpg://", "postgresql://"
+        )
 
 # this is the Alembic Config object
 config = context.config
@@ -85,23 +93,16 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    """Run migrations in 'online' mode with async engine."""
-    connectable = async_engine_from_config(
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    asyncio.run(run_async_migrations())
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
 
 
 if context.is_offline_mode():

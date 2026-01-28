@@ -1,7 +1,6 @@
 """Application configuration using pydantic-settings."""
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,7 +27,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./gym_bot.db"
 
     # Google API
-    google_credentials_file: Path = Path("credentials.json")
+    google_credentials_file_base64: str = ""
     google_calendar_id: str = ""
     google_spreadsheet_id: str = ""
 

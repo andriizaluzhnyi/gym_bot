@@ -1,6 +1,8 @@
 """Google Calendar integration service."""
 
 import asyncio
+import base64
+import json
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -23,19 +25,21 @@ class GoogleCalendarService:
 
     def __init__(self):
         self.calendar_id = settings.google_calendar_id
-        self.credentials_file = settings.google_credentials_file
+        self.credentials_base64 = settings.google_credentials_file_base64
         self._service = None
 
     def _get_service(self):
         """Get or create Google Calendar service."""
         if self._service is None:
-            if not self.credentials_file.exists():
-                raise FileNotFoundError(
-                    f"Google credentials file not found: {self.credentials_file}"
-                )
+            if not self.credentials_base64:
+                raise ValueError("Google credentials not configured")
 
-            credentials = Credentials.from_service_account_file(
-                str(self.credentials_file),
+            # Decode base64 credentials
+            credentials_json = base64.b64decode(self.credentials_base64).decode('utf-8')
+            credentials_info = json.loads(credentials_json)
+
+            credentials = Credentials.from_service_account_info(
+                credentials_info,
                 scopes=SCOPES,
             )
             self._service = build("calendar", "v3", credentials=credentials)

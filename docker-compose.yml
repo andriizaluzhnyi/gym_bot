@@ -1,23 +1,43 @@
-version: '3.8'
-
 services:
   bot:
     build: .
     container_name: gym_bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "2020:2020"
     env_file:
       - .env
     volumes:
       - ./data:/app/data
-      - ./credentials.json:/app/credentials.json:ro
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./data/gym_bot.db
-      - GOOGLE_CREDENTIALS_FILE=/app/credentials.json
+      DATABASE_URL: 'postgresql+asyncpg://gym:password@gym_postgres:5432/gymdb'
+      POSTGRES_USER: gym
+      POSTGRES_DB: gymdb
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
       interval: 30s
       timeout: 10s
       retries: 3
 
+  postgres:
+    image: postgres:17.7-alpine
+    container_name: gym_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gym
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: gymdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   data:
+  postgres_data:

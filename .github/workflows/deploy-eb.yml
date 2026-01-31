@@ -125,7 +125,8 @@ jobs:
               --solution-stack-name "64bit Amazon Linux 2023 v4.9.2 running Docker" \
               --option-settings \
                 Namespace=aws:autoscaling:launchconfiguration,OptionName=IamInstanceProfile,Value=aws-elasticbeanstalk-ec2-role \
-                Namespace=aws:elasticbeanstalk:environment,OptionName=ServiceRole,Value=aws-elasticbeanstalk-service-role
+                Namespace=aws:elasticbeanstalk:environment,OptionName=ServiceRole,Value=aws-elasticbeanstalk-service-role \
+                Namespace=aws:elasticbeanstalk:environment,OptionName=EnvironmentType,Value=SingleInstance
             
             echo "Waiting for environment to be Ready..."
             aws elasticbeanstalk wait environment-exists --application-name ${{ secrets.EB_APP_NAME }} --environment-names ${{ env.ENV_NAME }}

@@ -107,24 +107,31 @@ jobs:
 
       - name: Create EB Environment if not exists
         run: |
-          # Перевіряємо, чи існує оточення
+          # Отримуємо статус оточення
           STATUS=$(aws elasticbeanstalk describe-environments \
             --application-name ${{ secrets.EB_APP_NAME }} \
             --environment-names ${{ env.ENV_NAME }} \
             --query "Environments[0].Status" --output text)
 
-          if [ "$STATUS" == "None" ]; then
-            echo "Environment doesn't exist. Creating..."
+          echo "Current status of ${{ env.ENV_NAME }} is: $STATUS"
+
+          # If status None or Terminated — create again
+          if [ "$STATUS" == "None" ] || [ "$STATUS" == "Terminated" ]; then
+            echo "Environment doesn't exist or was terminated. Creating..."
             aws elasticbeanstalk create-environment \
               --application-name ${{ secrets.EB_APP_NAME }} \
               --environment-name ${{ env.ENV_NAME }} \
-              --solution-stack-name "64bit Amazon Linux 2023 v4.9.2 running Docker" \
+              --solution-stack-name "64bit Amazon Linux 2023 v4.4.1 running Docker" \
               --option-settings Namespace=aws:autoscaling:launchconfiguration,OptionName=IamInstanceProfile,Value=aws-elasticbeanstalk-ec2-role
             
             echo "Waiting for environment to be Ready..."
             aws elasticbeanstalk wait environment-exists --application-name ${{ secrets.EB_APP_NAME }} --environment-names ${{ env.ENV_NAME }}
+          
+          elif [ "$STATUS" == "Terminating" ]; then
+            echo "Environment is currently terminating. Please wait a few minutes and retry."
+            exit 1
           else
-            echo "Environment already exists with status: $STATUS"
+            echo "Environment is active with status: $STATUS"
           fi
 
       - name: Deploy to Elastic Beanstalk

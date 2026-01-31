@@ -51,8 +51,8 @@ jobs:
 
       - name: Build & Push image
         run: |
-          ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-          IMAGE="$ECR/${{ secrets.ECR_REPOSITORY }}:$VERSION"
+          ECR="649141187099.dkr.ecr.eu-west-3.amazonaws.com"
+          IMAGE="$ECR/gymbro:$VERSION"
 
           docker build -t "$IMAGE" .
           docker push "$IMAGE"

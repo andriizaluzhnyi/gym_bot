@@ -1,4 +1,4 @@
-name: EB Docker Deploy
+name: EB Docker Pipeline
 
 on:
   push:
@@ -17,38 +17,27 @@ permissions:
   id-token: write
   contents: read
 
+# ======================
+# BUILD IMAGE (ALWAYS)
+# ======================
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
-    if: |
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.merged == false &&
-        contains(github.event.pull_request.labels.*.name, 'deploy')
-      )
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # ---------- AWS AUTH ----------
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      - uses: aws-actions/amazon-ecr-login@v2
 
-      # ---------- DEPLOY PARAMS ----------
-      - name: Set deployment parameters
+      - name: Set image version
         run: |
           VERSION="latest"
-          ENV_NAME="prod"
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
@@ -56,16 +45,11 @@ jobs:
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             VERSION="pr-${{ github.event.pull_request.number }}"
-            ENV_NAME="pr-${{ github.event.pull_request.number }}"
           fi
 
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
 
-          echo "Deploy version=$VERSION to env=$ENV_NAME"
-
-      # ---------- BUILD & PUSH ----------
-      - name: Build & Push Docker image
+      - name: Build & Push image
         run: |
           ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
           IMAGE="$ECR/${{ secrets.ECR_REPOSITORY }}:$VERSION"
@@ -75,33 +59,54 @@ jobs:
 
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-      # ---------- EB APP VERSION ----------
+# ======================
+# DEPLOY (ONLY WITH LABEL)
+# ======================
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    if: |
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'deploy')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Prepare EB environment
+        run: |
+          ENV_NAME="prod"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ENV_NAME="pr-${{ github.event.pull_request.number }}"
+          fi
+
+          echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+
       - name: Create Dockerrun.aws.json
         run: |
           cat > Dockerrun.aws.json <<EOF
           {
             "AWSEBDockerrunVersion": 1,
             "Image": {
-              "Name": "${IMAGE}",
+              "Name": "${{ needs.build.outputs.IMAGE || env.IMAGE }}",
               "Update": "true"
             },
-            "Ports": [
-              {
-                "ContainerPort": 8000
-              }
-            ]
+            "Ports": [{ "ContainerPort": 8000 }]
           }
           EOF
 
-      - name: Zip Dockerrun
-        run: zip deploy.zip Dockerrun.aws.json
-
-      # ---------- EB DEPLOY ----------
       - name: Deploy to Elastic Beanstalk
         uses: einaregilsson/beanstalk-deploy@v22
         with:
           application_name: ${{ secrets.EB_APP_NAME }}
           environment_name: ${{ env.ENV_NAME }}
           region: ${{ secrets.AWS_REGION }}
-          version_label: ${{ env.VERSION }}-${{ github.sha }}
-          deployment_package: deploy.zip
+          version_label: ${{ github.sha }}
+          deployment_package: Dockerrun.aws.json

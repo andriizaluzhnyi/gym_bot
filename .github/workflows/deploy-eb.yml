@@ -14,8 +14,9 @@ on:
         required: false
 
 permissions:
-  id-token: write
+  pull-requests: write
   contents: read
+  id-token: write
 
 # ======================
 # BUILD IMAGE (ALWAYS)
@@ -121,7 +122,7 @@ jobs:
             aws elasticbeanstalk create-environment \
               --application-name ${{ secrets.EB_APP_NAME }} \
               --environment-name ${{ env.ENV_NAME }} \
-              --solution-stack-name "64bit Amazon Linux 2023 v4.4.1 running Docker" \
+              --solution-stack-name "64bit Amazon Linux 2023 v4.9.2 running Docker" \
               --option-settings Namespace=aws:autoscaling:launchconfiguration,OptionName=IamInstanceProfile,Value=aws-elasticbeanstalk-ec2-role
             
             echo "Waiting for environment to be Ready..."
@@ -148,3 +149,28 @@ jobs:
           version_label: ${{ github.sha }}
           deployment_package: Dockerrun.aws.json
           use_existing_version_if_available: true
+
+
+      - name: Get Elastic Beanstalk URL
+        id: get_url
+        run: |
+          # Отримуємо CNAME нашого оточення
+          EB_CNAME=$(aws elasticbeanstalk describe-environments \
+            --application-name ${{ secrets.EB_APP_NAME }} \
+            --environment-names ${{ env.ENV_NAME }} \
+            --query "Environments[0].CNAME" --output text)
+          
+          # Зберігаємо в output для наступних кроків
+          echo "eb_url=http://$EB_CNAME" >> $GITHUB_OUTPUT
+
+      - name: Comment PR with Environment Link
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## 🚀 PR Environment Ready!
+            Ваше тимчасове оточення для тестування створено:
+            **URL:** [${{ steps.get_url.outputs.eb_url }}](${{ steps.get_url.outputs.eb_url }})
+            
+            *Статус:* Створено автоматично через GitHub Actions.
+          edit-mode: replace

@@ -3,12 +3,14 @@ name: EB Docker Deploy
 on:
   push:
     branches: [ main ]
+
   pull_request:
-    types: [opened, labeled, synchronize, closed]
+    types: [opened, labeled, synchronize]
+
   workflow_dispatch:
     inputs:
       version:
-        description: 'Docker image version to deploy (optional)'
+        description: Docker image version (optional)
         required: false
 
 permissions:
@@ -18,53 +20,88 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == false
+
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged == false &&
+        contains(github.event.pull_request.labels.*.name, 'deploy')
+      )
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # AWS OIDC
-      - uses: aws-actions/configure-aws-credentials@v4
+      # ---------- AWS AUTH ----------
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
-      # Deployment params
+      # ---------- DEPLOY PARAMS ----------
       - name: Set deployment parameters
         run: |
           VERSION="latest"
+          ENV_NAME="prod"
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
           fi
 
-          ENV_NAME="my-env-prod"
-
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if [ "${{ github.event.action }}" = "closed" ]; then
-              echo "PR closed, skipping deploy."
-              exit 0
-            fi
-
-            LABELS="${{ github.event.pull_request.labels.*.name }}"
-            if [[ "$LABELS" == *"deploy"* ]]; then
-              ENV_NAME="pr-${{ github.event.pull_request.number }}"
-            else
-              echo "No deploy label."
-              exit 0
-            fi
+            VERSION="pr-${{ github.event.pull_request.number }}"
+            ENV_NAME="pr-${{ github.event.pull_request.number }}"
           fi
 
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
 
+          echo "Deploy version=$VERSION to env=$ENV_NAME"
 
-      # Build & push Docker image
+      # ---------- BUILD & PUSH ----------
       - name: Build & Push Docker image
         run: |
           ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+          IMAGE="$ECR/${{ secrets.ECR_REPOSITORY }}:$VERSION"
 
-          docker build -t my-app:${GITHUB_SHA} .
-          docker tag
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      # ---------- EB APP VERSION ----------
+      - name: Create Dockerrun.aws.json
+        run: |
+          cat > Dockerrun.aws.json <<EOF
+          {
+            "AWSEBDockerrunVersion": 1,
+            "Image": {
+              "Name": "${IMAGE}",
+              "Update": "true"
+            },
+            "Ports": [
+              {
+                "ContainerPort": 8000
+              }
+            ]
+          }
+          EOF
+
+      - name: Zip Dockerrun
+        run: zip deploy.zip Dockerrun.aws.json
+
+      # ---------- EB DEPLOY ----------
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v22
+        with:
+          application_name: ${{ secrets.EB_APP_NAME }}
+          environment_name: ${{ env.ENV_NAME }}
+          region: ${{ secrets.AWS_REGION }}
+          version_label: ${{ env.VERSION }}-${{ github.sha }}
+          deployment_package: deploy.zip

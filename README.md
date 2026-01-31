@@ -1,4 +1,4 @@
-# Gym Bot 🏋️
+# Gym Bot 🏋️122
 
 Telegram бот для управління записами на тренування з синхронізацією Google Calendar та Google Sheets.
 

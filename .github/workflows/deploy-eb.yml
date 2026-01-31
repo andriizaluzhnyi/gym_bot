@@ -33,7 +33,10 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          region: ${{ secrets.AWS_REGION }}
 
       - name: Set image version
         run: |
@@ -51,8 +54,8 @@ jobs:
 
       - name: Build & Push image
         run: |
-          ECR="649141187099.dkr.ecr.eu-west-3.amazonaws.com"
-          IMAGE="$ECR/gymbro:$VERSION"
+          ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+          IMAGE="$ECR/${{ secrets.ECR_REPOSITORY }}:$VERSION"
 
           docker build -t "$IMAGE" .
           docker push "$IMAGE"

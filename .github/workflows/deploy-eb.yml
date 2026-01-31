@@ -2,10 +2,10 @@ name: EB Docker Deploy
 
 on:
   push:
-    branches: [ main ]  # Авто деплой prod після merge
+    branches: [ main ]
   pull_request:
-    types: [opened, labeled, synchronize, closed]  # PR events
-  workflow_dispatch:  # Ручний деплой
+    types: [opened, labeled, synchronize, closed]
+  workflow_dispatch:
     inputs:
       version:
         description: 'Docker image version to deploy (optional)'
@@ -19,35 +19,32 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == false
+
     steps:
       - uses: actions/checkout@v4
 
       # AWS OIDC
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::649141187099:role/github-deploy
-          aws-region: eu-west-3
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - uses: aws-actions/amazon-ecr-login@v2
 
-      # Визначаємо Docker тег і середовище
+      # Deployment params
       - name: Set deployment parameters
-        id: params
         run: |
-          # Встановлюємо версію Docker
           if [ -n "${{ github.event.inputs.version }}" ]; then
             echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
           else
             echo "VERSION=latest" >> $GITHUB_ENV
           fi
 
-          # Визначаємо environment
           ENV_NAME="my-env-prod"
 
-          # Якщо це PR
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             if [ "${{ github.event.action }}" == "closed" ]; then
-              echo "PR closed, skipping deploy steps."
+              echo "PR closed, skipping deploy."
               exit 0
             fi
 
@@ -55,7 +52,7 @@ jobs:
             if [[ "$LABELS" == *"deploy"* ]]; then
               ENV_NAME="pr-${{ github.event.pull_request.number }}"
             else
-              echo "No deploy label, skipping PR deployment."
+              echo "No deploy label."
               exit 0
             fi
           fi
@@ -65,41 +62,7 @@ jobs:
       # Build & push Docker image
       - name: Build & Push Docker image
         run: |
+          ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+
           docker build -t my-app:${GITHUB_SHA} .
-          docker tag my-app:${GITHUB_SHA} <ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/my-app:${VERSION}
-          docker push <ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/my-app:${VERSION}
-
-      # Update Dockerrun
-      - name: Update Dockerrun
-        run: |
-          sed -i "s|<ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/my-app:.*|<ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/my-app:${VERSION}|g" Dockerrun.aws.json
-          zip deploy.zip Dockerrun.aws.json
-
-      # Deploy to EB
-      - name: Deploy to EB
-        run: |
-          aws elasticbeanstalk create-application-version \
-            --application-name my-app \
-            --version-label $VERSION \
-            --source-bundle S3Bucket=my-eb-bucket,S3Key=deploy.zip
-
-          aws elasticbeanstalk update-environment \
-            --environment-name $ENV_NAME \
-            --version-label $VERSION
-
-  cleanup-pr-env:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-deploy
-          aws-region: eu-central-1
-
-      - name: Delete PR EB environment
-        run: |
-          ENV_NAME="pr-${{ github.event.pull_request.number }}"
-          echo "Deleting temporary EB environment: $ENV_NAME"
-          aws elasticbeanstalk terminate-environment --environment-name $ENV_NAME --no-wait
+          docker tag

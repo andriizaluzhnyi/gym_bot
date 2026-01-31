@@ -34,16 +34,16 @@ jobs:
       # Deployment params
       - name: Set deployment parameters
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-          else
-            echo "VERSION=latest" >> $GITHUB_ENV
+          VERSION="latest"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
           fi
 
           ENV_NAME="my-env-prod"
 
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            if [ "${{ github.event.action }}" == "closed" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ github.event.action }}" = "closed" ]; then
               echo "PR closed, skipping deploy."
               exit 0
             fi
@@ -57,7 +57,9 @@ jobs:
             fi
           fi
 
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
+
 
       # Build & push Docker image
       - name: Build & Push Docker image

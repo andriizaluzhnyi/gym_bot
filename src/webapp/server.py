@@ -20,6 +20,20 @@ logger = logging.getLogger(__name__)
 TEMPLATES_DIR = Path(__file__).parent / 'templates'
 settings = get_settings()
 
+# Global bot instance (will be set by run_bot)
+_bot_instance = None
+
+
+def set_bot_instance(bot):
+    """Set the global bot instance."""
+    global _bot_instance
+    _bot_instance = bot
+
+
+def get_bot_instance():
+    """Get the global bot instance."""
+    return _bot_instance
+
 
 def validate_telegram_webapp_data(init_data: str) -> dict | None:
     """Validate Telegram WebApp initData and return user data.
@@ -442,7 +456,7 @@ async def api_get_workout_program(request: web.Request) -> web.Response:
 async def api_get_last_workout_log(request: web.Request) -> web.Response:
     """API endpoint to get previous workout data for diff display.
 
-    Query params: user, exercises (comma-separated).
+    Query params: user, exercises (comma-separated), day (optional).
     Expects Authorization header with Telegram initData.
     """
     init_data = request.headers.get('Authorization', '')
@@ -453,6 +467,7 @@ async def api_get_last_workout_log(request: web.Request) -> web.Response:
 
     user_name = request.query.get('user', '')
     exercises_str = request.query.get('exercises', '')
+    day_str = request.query.get('day', '')
 
     if not user_name or not exercises_str:
         return web.json_response(
@@ -460,11 +475,12 @@ async def api_get_last_workout_log(request: web.Request) -> web.Response:
         )
 
     exercises = [e.strip() for e in exercises_str.split(',') if e.strip()]
+    day = int(day_str) if day_str and day_str.isdigit() else None
 
     try:
         sheets_service = GoogleSheetsService()
         last_logs = await sheets_service.get_last_workout_log(
-            user_name, exercises
+            user_name, exercises, day
         )
 
         return web.json_response({
@@ -556,6 +572,68 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
         )
 
 
+async def api_start_rest_timer(request: web.Request) -> web.Response:
+    """API endpoint to start rest timer and send notification after 60 seconds.
+
+    Expects Authorization header with Telegram initData.
+    Body: { duration_seconds: 60 }
+    """
+    init_data = request.headers.get('Authorization', '')
+    user_data = validate_telegram_webapp_data(init_data)
+
+    if not user_data:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    duration_seconds = body.get('duration_seconds', 60)
+    telegram_user_id = user_data.get('id')
+
+    if not telegram_user_id:
+        return web.json_response(
+            {'error': 'Missing telegram user id'}, status=400
+        )
+
+    # Schedule notification using bot
+    try:
+        import asyncio
+
+        bot = get_bot_instance()
+        if not bot:
+            return web.json_response(
+                {'error': 'Bot instance not available'}, status=503
+            )
+
+        async def send_delayed_notification():
+            await asyncio.sleep(duration_seconds)
+            try:
+                await bot.send_message(
+                    telegram_user_id,
+                    '⏱️ *Час відпочинку закінчився!*\n\n'
+                    'Готові до наступного підходу? 💪',
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.error(f'Failed to send rest timer notification: {e}')
+
+        # Start task in background
+        asyncio.create_task(send_delayed_notification())
+
+        return web.json_response({
+            'success': True,
+            'message': f'Notification scheduled in {duration_seconds}s'
+        })
+
+    except Exception as e:
+        logger.error(f'Error scheduling rest timer notification: {e}')
+        return web.json_response(
+            {'error': 'Failed to schedule notification'}, status=500
+        )
+
+
 async def _sync_workout_to_calendar(
     user_name: str,
     day: str,
@@ -588,7 +666,6 @@ async def _sync_workout_to_calendar(
     start_time = workout_time - timedelta(seconds=duration_seconds)
 
     # Build workout summary
-    exercise_names = [ex.get('exercise', '') for ex in exercises]
     total_sets = sum(len(ex.get('sets', [])) for ex in exercises)
     title_parts = [f'{user_name}']
     if muscle:
@@ -662,6 +739,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/workout/program', api_get_workout_program)
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
     app.router.add_post('/api/workout/log', api_save_workout_log)
+    app.router.add_post('/api/workout/rest-timer', api_start_rest_timer)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')
@@ -669,7 +747,9 @@ def create_webapp() -> web.Application:
     return app
 
 
-async def start_webapp(host: str = '0.0.0.0', port: int = 8080) -> web.AppRunner | None:
+async def start_webapp(
+    host: str = '0.0.0.0', port: int = 8080
+) -> web.AppRunner | None:
     """
     Start the web application server.
 

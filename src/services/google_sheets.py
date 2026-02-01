@@ -1206,7 +1206,7 @@ class GoogleSheetsService:
             return False
 
     async def get_last_workout_log(
-        self, user_name: str, exercises: list[str]
+        self, user_name: str, exercises: list[str], day: int | None = None
     ) -> dict[str, dict]:
         """Get the most recent workout log data for given exercises.
 
@@ -1216,6 +1216,7 @@ class GoogleSheetsService:
         Args:
             user_name: Username whose log sheet to read
             exercises: List of exercise names to look up
+            day: Optional day number to filter by (e.g., 1 for "День 1")
 
         Returns:
             Dict mapping exercise name to its last log data:
@@ -1264,9 +1265,15 @@ class GoogleSheetsService:
 
                 date = row[0]
                 exercise = row[1]
+                log_day = row[3] if len(row) > 3 else None
 
                 if exercise not in exercises_set:
                     continue
+
+                # Filter by day if specified
+                if day is not None:
+                    if not log_day or str(log_day).strip() != str(day):
+                        continue
 
                 set_number = row[4]
                 weight = row[5]

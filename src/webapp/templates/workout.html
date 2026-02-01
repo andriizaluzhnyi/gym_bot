@@ -510,6 +510,85 @@
             color: #fff;
         }
 
+        /* Add Set Modal */
+        .add-set-modal .modal-content {
+            max-width: 400px;
+        }
+
+        .add-set-field {
+            margin-bottom: 20px;
+        }
+
+        .add-set-field-label {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-bottom: 8px;
+            text-align: left;
+        }
+
+        .add-set-field-value {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .add-set-field-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--accent);
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        .add-set-field-btn:active {
+            background-color: var(--accent-light);
+        }
+
+        .add-set-field-input {
+            width: 120px;
+            height: 56px;
+            font-size: 32px;
+            font-weight: 600;
+            text-align: center;
+            background-color: transparent;
+            border: none;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            outline: none;
+        }
+
+        .add-set-effort-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .effort-btn {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-text-color, var(--text-secondary));
+            font-size: 13px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
+        }
+
+        .effort-btn.selected {
+            background-color: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
         /* Loading */
         .loading {
             display: flex;
@@ -584,6 +663,57 @@
         let workoutTimerInterval = null;
         let restStartTime = null;
         let restTimerInterval = null;
+        let restTimerDuration = 60; // 1 minute in seconds
+        let restTimerAudio = null;
+
+        // Storage key for current session
+        const STORAGE_KEY = `workout_session_${PARAM_USER}_${PARAM_DAY}_${PARAM_MUSCLE}`;
+
+        function saveWorkoutSession() {
+            try {
+                const sessionData = {
+                    exercises: exercises,
+                    workoutStartTime: workoutStartTime,
+                    activeExerciseIndex: activeExerciseIndex,
+                    savedAt: Date.now()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
+            } catch (error) {
+                console.log('Failed to save session:', error);
+            }
+        }
+
+        function loadWorkoutSession() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (!saved) return false;
+
+                const sessionData = JSON.parse(saved);
+
+                // Check if session is less than 24 hours old
+                const age = Date.now() - sessionData.savedAt;
+                if (age > 24 * 60 * 60 * 1000) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    return false;
+                }
+
+                exercises = sessionData.exercises;
+                workoutStartTime = sessionData.workoutStartTime;
+                activeExerciseIndex = sessionData.activeExerciseIndex;
+                return true;
+            } catch (error) {
+                console.log('Failed to load session:', error);
+                return false;
+            }
+        }
+
+        function clearWorkoutSession() {
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch (error) {
+                console.log('Failed to clear session:', error);
+            }
+        }
 
         function setBackButton(handler) {
             if (backButtonHandler) {
@@ -633,6 +763,112 @@
             });
         }
 
+        function showAddSetModal(onConfirm) {
+            const ex = exercises[activeExerciseIndex];
+            const setIndex = ex._sets.length;
+            const plannedReps = getPlannedRepsForSet(ex.sets_reps, setIndex);
+            const lastLog = lastLogs[ex.exercise];
+            const prevSet = lastLog && lastLog.sets && lastLog.sets[setIndex];
+
+            let weight = prevSet ? prevSet.weight : '';
+            let reps = plannedReps || (prevSet ? prevSet.reps : '');
+
+            const container = document.getElementById('modalContainer');
+
+            function render() {
+                container.innerHTML = `
+                    <div class="modal-overlay add-set-modal" id="modalOverlay">
+                        <div class="modal-content">
+                            <div class="modal-title">Додати підхід</div>
+
+                            <div class="add-set-field">
+                                <div class="add-set-field-label">Weight</div>
+                                <div class="add-set-field-value">
+                                    <button class="add-set-field-btn" id="weightMinus">−</button>
+                                    <input type="number" class="add-set-field-input" id="weightInput"
+                                           inputmode="decimal" value="${weight}" placeholder="0">
+                                    <button class="add-set-field-btn" id="weightPlus">+</button>
+                                </div>
+                            </div>
+
+                            <div class="add-set-field">
+                                <div class="add-set-field-label">Repeats</div>
+                                <div class="add-set-field-value">
+                                    <button class="add-set-field-btn" id="repsMinus">−</button>
+                                    <input type="number" class="add-set-field-input" id="repsInput"
+                                           inputmode="numeric" value="${reps}" placeholder="0">
+                                    <button class="add-set-field-btn" id="repsPlus">+</button>
+                                </div>
+                            </div>
+
+                            <div class="modal-buttons">
+                                <button class="modal-btn modal-btn-cancel" id="modalCancel">CANCEL</button>
+                                <button class="modal-btn modal-btn-confirm" id="modalAdd">ADD</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Weight controls
+                const weightInput = document.getElementById('weightInput');
+                document.getElementById('weightMinus').addEventListener('click', () => {
+                    const val = parseFloat(weightInput.value) || 0;
+                    weight = Math.max(0, val - 2.5);
+                    weightInput.value = weight;
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                });
+                document.getElementById('weightPlus').addEventListener('click', () => {
+                    const val = parseFloat(weightInput.value) || 0;
+                    weight = val + 2.5;
+                    weightInput.value = weight;
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                });
+                weightInput.addEventListener('focus', () => {
+                    weightInput.select();
+                });
+                weightInput.addEventListener('input', (e) => {
+                    weight = e.target.value;
+                });
+
+                // Reps controls
+                const repsInput = document.getElementById('repsInput');
+                document.getElementById('repsMinus').addEventListener('click', () => {
+                    const val = parseInt(repsInput.value) || 0;
+                    reps = Math.max(0, val - 1);
+                    repsInput.value = reps;
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                });
+                document.getElementById('repsPlus').addEventListener('click', () => {
+                    const val = parseInt(repsInput.value) || 0;
+                    reps = val + 1;
+                    repsInput.value = reps;
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                });
+                repsInput.addEventListener('focus', () => {
+                    repsInput.select();
+                });
+                repsInput.addEventListener('input', (e) => {
+                    reps = e.target.value;
+                });
+
+                // Cancel/Add buttons
+                document.getElementById('modalCancel').addEventListener('click', () => {
+                    container.innerHTML = '';
+                });
+                document.getElementById('modalAdd').addEventListener('click', () => {
+                    container.innerHTML = '';
+                    onConfirm({ weight, reps });
+                });
+                document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                    if (e.target === e.currentTarget) {
+                        container.innerHTML = '';
+                    }
+                });
+            }
+
+            render();
+        }
+
         // --- Timer functions ---
 
         function formatTimer(seconds) {
@@ -642,7 +878,10 @@
         }
 
         function startWorkoutTimer() {
-            workoutStartTime = Date.now();
+            if (!workoutStartTime) {
+                workoutStartTime = Date.now();
+                saveWorkoutSession();
+            }
             workoutTimerInterval = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - workoutStartTime) / 1000);
                 document.getElementById('workoutTimerValue').textContent = formatTimer(elapsed);
@@ -655,12 +894,95 @@
 
             const restEl = document.getElementById('restTimer');
             restEl.classList.add('rest-timer-active');
-            document.getElementById('restTimerValue').textContent = '00:00';
+            document.getElementById('restTimerValue').textContent = formatTimer(restTimerDuration);
+
+            // Schedule Telegram notification via bot
+            scheduleRestTimerNotification(restTimerDuration);
 
             restTimerInterval = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - restStartTime) / 1000);
-                document.getElementById('restTimerValue').textContent = formatTimer(elapsed);
+                const remaining = restTimerDuration - elapsed;
+
+                if (remaining <= 0) {
+                    clearInterval(restTimerInterval);
+                    document.getElementById('restTimerValue').textContent = '00:00';
+                    playRestTimerSound();
+                    restEl.classList.remove('rest-timer-active');
+                } else {
+                    document.getElementById('restTimerValue').textContent = formatTimer(remaining);
+                }
             }, 1000);
+        }
+
+        async function scheduleRestTimerNotification(durationSeconds) {
+            try {
+                const response = await fetch('/api/workout/rest-timer', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': tg.initData,
+                    },
+                    body: JSON.stringify({
+                        duration_seconds: durationSeconds,
+                    }),
+                });
+
+                if (!response.ok) {
+                    console.log('Failed to schedule notification');
+                }
+            } catch (error) {
+                console.log('Error scheduling notification:', error);
+            }
+        }
+
+        function playRestTimerSound() {
+            // Try multiple methods to notify user when phone might be locked
+
+            // Method 1: Telegram Haptic Feedback (works even when locked)
+            if (tg.HapticFeedback) {
+                // Triple notification for stronger feedback
+                tg.HapticFeedback.notificationOccurred('warning');
+                setTimeout(() => tg.HapticFeedback.notificationOccurred('warning'), 100);
+                setTimeout(() => tg.HapticFeedback.notificationOccurred('success'), 200);
+            }
+
+            // Method 2: Strong vibration pattern (works when phone unlocked)
+            if (navigator.vibrate) {
+                // Longer vibration pattern to ensure user notices
+                navigator.vibrate([300, 100, 300, 100, 300]);
+            }
+
+            // Method 3: Web Audio API (only works when app is active)
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const audioContext = new AudioContext();
+
+                const playTone = (freq, startTime, duration) => {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.value = freq;
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.3, startTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+                    oscillator.start(startTime);
+                    oscillator.stop(startTime + duration);
+                };
+
+                // Two-tone notification: high-low
+                const now = audioContext.currentTime;
+                playTone(1000, now, 0.15);        // First tone: 1000 Hz
+                playTone(800, now + 0.17, 0.2);   // Second tone: 800 Hz
+            } catch (error) {
+                console.log('Audio playback failed:', error);
+            }
+
+            // Note: Telegram bot notification will be sent separately
         }
 
         // --- Parsing ---
@@ -713,11 +1035,19 @@
         }
 
         function diffHtml(current, previous) {
-            if (previous === undefined || previous === null || current === '') return '';
+            // Don't show diff if no previous value exists or current is empty
+            if (previous === undefined || previous === null || current === '' || current === null) {
+                return '';
+            }
+
             const cur = parseFloat(current);
-            if (isNaN(cur)) return '';
             const prev = parseFloat(previous);
-            if (isNaN(prev)) return '';
+
+            // Don't show diff if either value is not a valid number
+            if (isNaN(cur) || isNaN(prev)) {
+                return '';
+            }
+
             const diff = cur - prev;
             if (diff > 0) return `<span class="diff diff-positive">+${diff}</span>`;
             if (diff < 0) return `<span class="diff diff-negative">${diff}</span>`;
@@ -860,7 +1190,7 @@
                 html += `<tbody>`;
 
                 ex._sets.forEach((s, sIdx) => {
-                    const prevSet = lastLog && lastLog.sets[sIdx];
+                    const prevSet = lastLog && lastLog.sets && lastLog.sets[sIdx];
                     const prevWeight = prevSet ? prevSet.weight : undefined;
                     const prevReps = prevSet ? prevSet.reps : undefined;
 
@@ -962,24 +1292,28 @@
             const setIdx = parseInt(e.target.dataset.set);
             const field = e.target.dataset.field;
             exercises[exIdx]._sets[setIdx][field] = e.target.value;
+            saveWorkoutSession();
         }
 
         function onAddSet() {
-            const ex = exercises[activeExerciseIndex];
-            const nextSetNum = ex._sets.length + 1;
-            const setIndex = ex._sets.length;
-            const plannedReps = getPlannedRepsForSet(ex.sets_reps, setIndex);
+            showAddSetModal((data) => {
+                const ex = exercises[activeExerciseIndex];
+                const nextSetNum = ex._sets.length + 1;
+                const setIndex = ex._sets.length;
+                const plannedReps = getPlannedRepsForSet(ex.sets_reps, setIndex);
 
-            ex._sets.push({
-                set: nextSetNum,
-                plannedReps: plannedReps,
-                weight: '',
-                reps: plannedReps ? String(plannedReps) : '',
+                ex._sets.push({
+                    set: nextSetNum,
+                    plannedReps: plannedReps,
+                    weight: data.weight || '',
+                    reps: data.reps || '',
+                });
+
+                showDetailView();
+                resetRestTimer();
+                saveWorkoutSession();
+                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
             });
-
-            showDetailView();
-            resetRestTimer();
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         }
 
         function onRemoveSet(e) {
@@ -988,6 +1322,7 @@
             exercises[exIdx]._sets.splice(setIdx, 1);
             exercises[exIdx]._sets.forEach((s, i) => { s.set = i + 1; });
             showDetailView();
+            saveWorkoutSession();
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         }
 
@@ -1007,6 +1342,7 @@
                 );
             } else {
                 ex._completed = true;
+                saveWorkoutSession();
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
                 goBackToList();
             }
@@ -1015,6 +1351,14 @@
         // --- API ---
 
         async function loadProgram() {
+            // First try to restore session
+            const sessionRestored = loadWorkoutSession();
+            if (sessionRestored) {
+                console.log('Workout session restored from localStorage');
+                return;
+            }
+
+            // If no session, load fresh program
             try {
                 const params = new URLSearchParams({
                     user: PARAM_USER,
@@ -1052,6 +1396,11 @@
                     user: PARAM_USER,
                     exercises: exerciseNames,
                 });
+
+                // Add day parameter if available
+                if (PARAM_DAY) {
+                    params.append('day', PARAM_DAY);
+                }
 
                 const response = await fetch(`/api/workout/last-log?${params}`, {
                     headers: { 'Authorization': tg.initData },
@@ -1110,6 +1459,8 @@
                 });
 
                 if (response.ok) {
+                    // Clear saved session after successful save
+                    clearWorkoutSession();
                     if (tg.HapticFeedback) {
                         tg.HapticFeedback.notificationOccurred('success');
                     }
@@ -1151,6 +1502,18 @@
 
             startWorkoutTimer();
             showListView();
+
+            // Add click handler for rest timer
+            document.getElementById('restTimer').addEventListener('click', function() {
+                if (restTimerInterval) {
+                    // Stop the timer
+                    clearInterval(restTimerInterval);
+                    restTimerInterval = null;
+                    this.classList.remove('rest-timer-active');
+                    document.getElementById('restTimerValue').textContent = formatTimer(restTimerDuration);
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+                }
+            });
         }
 
         init();

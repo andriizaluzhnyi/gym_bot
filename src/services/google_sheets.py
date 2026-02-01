@@ -588,6 +588,152 @@ class GoogleSheetsService:
             print(f"Error adding workout program: {e}")
             return False
 
+    async def delete_workout_day(
+        self, user_name: str, day: str
+    ) -> bool:
+        """Delete all exercises for a specific day from workout program.
+
+        Args:
+            user_name: User name
+            day: Day number to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id:
+            return False
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            sheet_name = f"Програми ({user_name})"
+
+            # Get all data
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:F")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+            if len(values) <= 1:
+                return False
+
+            # Find rows to delete (keep header)
+            new_values = [values[0]]  # Header
+            for row in values[1:]:
+                if len(row) > 0 and row[0] != day:
+                    new_values.append(row)
+
+            # Clear sheet and write filtered data
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .clear(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A2:F")
+                .execute(),
+            )
+
+            if len(new_values) > 1:
+                await loop.run_in_executor(
+                    None,
+                    lambda: service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{sheet_name}!A2",
+                        valueInputOption="RAW",
+                        body={"values": new_values[1:]},
+                    )
+                    .execute(),
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"Error deleting workout day: {e}")
+            return False
+
+    async def delete_exercise(
+        self, user_name: str, day: str, exercise: str
+    ) -> bool:
+        """Delete a specific exercise from workout program.
+
+        Args:
+            user_name: User name
+            day: Day number
+            exercise: Exercise name to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id:
+            return False
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            sheet_name = f"Програми ({user_name})"
+
+            # Get all data
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:F")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+            if len(values) <= 1:
+                return False
+
+            # Find row to delete (keep header)
+            new_values = [values[0]]  # Header
+            deleted = False
+            for row in values[1:]:
+                # Skip row if it matches day and exercise
+                if len(row) > 2 and row[0] == day and row[2] == exercise:
+                    deleted = True
+                    continue
+                new_values.append(row)
+
+            if not deleted:
+                return False
+
+            # Clear sheet and write filtered data
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .clear(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A2:F")
+                .execute(),
+            )
+
+            if len(new_values) > 1:
+                await loop.run_in_executor(
+                    None,
+                    lambda: service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{sheet_name}!A2",
+                        valueInputOption="RAW",
+                        body={"values": new_values[1:]},
+                    )
+                    .execute(),
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"Error deleting exercise: {e}")
+            return False
+
     async def get_workout_programs(
         self, limit: int = 50, user_name: str | None = None
     ) -> list[dict]:
@@ -1279,6 +1425,10 @@ class GoogleSheetsService:
                 weight = row[5]
                 reps = row[6]
 
+                # Skip sets with empty weight or reps (incomplete sets)
+                if not weight or not reps:
+                    continue
+
                 if exercise not in exercise_dates:
                     exercise_dates[exercise] = {}
                 if date not in exercise_dates[exercise]:
@@ -1287,8 +1437,8 @@ class GoogleSheetsService:
                 try:
                     exercise_dates[exercise][date].append({
                         "set": int(set_number),
-                        "weight": float(weight) if weight else 0,
-                        "reps": int(reps) if reps else 0,
+                        "weight": float(weight),
+                        "reps": int(reps),
                     })
                 except (ValueError, TypeError):
                     continue

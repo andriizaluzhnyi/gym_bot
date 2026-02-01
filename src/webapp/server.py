@@ -591,15 +591,29 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
 
     duration_seconds = body.get('duration_seconds', 60)
     telegram_user_id = user_data.get('id')
+    workout_user = body.get('user', '')
+    workout_day = body.get('day', '')
+    workout_muscle = body.get('muscle', '')
 
     if not telegram_user_id:
         return web.json_response(
             {'error': 'Missing telegram user id'}, status=400
         )
 
+    # Log received parameters for debugging
+    logger.info(
+        f"Rest timer request: user={workout_user}, "
+        f"day={workout_day}, muscle={workout_muscle}"
+    )
+
     # Schedule notification using bot
     try:
         import asyncio
+        from aiogram.types import (
+            InlineKeyboardMarkup,
+            InlineKeyboardButton,
+            WebAppInfo,
+        )
 
         bot = get_bot_instance()
         if not bot:
@@ -610,11 +624,39 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
         async def send_delayed_notification():
             await asyncio.sleep(duration_seconds)
             try:
+                # Build WebApp URL with parameters (URL-encoded)
+                from urllib.parse import urlencode
+
+                params = {'user': workout_user, 'day': workout_day}
+                if workout_muscle:  # Only add muscle if not empty
+                    params['muscle'] = workout_muscle
+
+                webapp_url = (
+                    f"{settings.webapp_url}/workout?{urlencode(params)}"
+                )
+
+                logger.info(
+                    f"Sending rest timer notification with URL: {webapp_url}"
+                )
+
+                # Create inline keyboard with button to return to workout
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🏋️ Повернутися до тренування",
+                                web_app=WebAppInfo(url=webapp_url)
+                            )
+                        ]
+                    ]
+                )
+
                 await bot.send_message(
                     telegram_user_id,
                     '⏱️ *Час відпочинку закінчився!*\n\n'
                     'Готові до наступного підходу? 💪',
-                    parse_mode='Markdown'
+                    parse_mode='Markdown',
+                    reply_markup=keyboard
                 )
             except Exception as e:
                 logger.error(f'Failed to send rest timer notification: {e}')
@@ -631,6 +673,86 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
         logger.error(f'Error scheduling rest timer notification: {e}')
         return web.json_response(
             {'error': 'Failed to schedule notification'}, status=500
+        )
+
+
+async def api_delete_workout_day(request: web.Request) -> web.Response:
+    """API endpoint to delete entire workout day.
+
+    Query params: user, day.
+    Expects Authorization header with Telegram initData.
+    """
+    init_data = request.headers.get('Authorization', '')
+    user_data = validate_telegram_webapp_data(init_data)
+
+    if not user_data:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    user_name = request.query.get('user', '')
+    day = request.query.get('day', '')
+
+    if not user_name or not day:
+        return web.json_response(
+            {'error': 'Missing required params: user, day'}, status=400
+        )
+
+    try:
+        sheets_service = GoogleSheetsService()
+        success = await sheets_service.delete_workout_day(user_name, day)
+
+        if success:
+            return web.json_response({'success': True})
+        else:
+            return web.json_response(
+                {'error': 'Failed to delete day'}, status=500
+            )
+
+    except Exception as e:
+        logger.error(f'Error deleting workout day: {e}')
+        return web.json_response(
+            {'error': 'Failed to delete day'}, status=500
+        )
+
+
+async def api_delete_exercise(request: web.Request) -> web.Response:
+    """API endpoint to delete specific exercise from workout program.
+
+    Query params: user, day, exercise.
+    Expects Authorization header with Telegram initData.
+    """
+    init_data = request.headers.get('Authorization', '')
+    user_data = validate_telegram_webapp_data(init_data)
+
+    if not user_data:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    user_name = request.query.get('user', '')
+    day = request.query.get('day', '')
+    exercise = request.query.get('exercise', '')
+
+    if not user_name or not day or not exercise:
+        return web.json_response(
+            {'error': 'Missing required params: user, day, exercise'},
+            status=400
+        )
+
+    try:
+        sheets_service = GoogleSheetsService()
+        success = await sheets_service.delete_exercise(
+            user_name, day, exercise
+        )
+
+        if success:
+            return web.json_response({'success': True})
+        else:
+            return web.json_response(
+                {'error': 'Exercise not found'}, status=404
+            )
+
+    except Exception as e:
+        logger.error(f'Error deleting exercise: {e}')
+        return web.json_response(
+            {'error': 'Failed to delete exercise'}, status=500
         )
 
 
@@ -740,6 +862,8 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
     app.router.add_post('/api/workout/log', api_save_workout_log)
     app.router.add_post('/api/workout/rest-timer', api_start_rest_timer)
+    app.router.add_delete('/api/workout/day', api_delete_workout_day)
+    app.router.add_delete('/api/workout/exercise', api_delete_exercise)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

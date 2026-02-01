@@ -608,6 +608,50 @@
         .empty-state p {
             margin-bottom: 8px;
         }
+
+        /* Delete buttons */
+        .delete-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            color: #ef4444;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            -webkit-tap-highlight-color: transparent;
+            transition: background-color 0.15s;
+        }
+
+        .delete-btn:active {
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+
+        .delete-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+
+        .header-delete-btn {
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            color: #ef4444;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 8px;
+            -webkit-tap-highlight-color: transparent;
+            transition: background-color 0.15s;
+        }
+
+        .header-delete-btn:active {
+            background-color: rgba(239, 68, 68, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -616,6 +660,9 @@
             <div class="header-date" id="headerDate"></div>
             <div class="header-user" id="headerUser"></div>
         </div>
+        <button class="header-delete-btn" id="deleteDayBtn" style="display:none;">
+            Видалити день
+        </button>
     </div>
 
     <div id="mainContainer">
@@ -665,6 +712,7 @@
         let restTimerInterval = null;
         let restTimerDuration = 60; // 1 minute in seconds
         let restTimerAudio = null;
+        let restNotificationScheduled = false; // Track if notification is already scheduled
 
         // Storage key for current session
         const STORAGE_KEY = `workout_session_${PARAM_USER}_${PARAM_DAY}_${PARAM_MUSCLE}`;
@@ -896,8 +944,11 @@
             restEl.classList.add('rest-timer-active');
             document.getElementById('restTimerValue').textContent = formatTimer(restTimerDuration);
 
-            // Schedule Telegram notification via bot
-            scheduleRestTimerNotification(restTimerDuration);
+            // Schedule Telegram notification only if not already scheduled
+            if (!restNotificationScheduled) {
+                scheduleRestTimerNotification(restTimerDuration);
+                restNotificationScheduled = true;
+            }
 
             restTimerInterval = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - restStartTime) / 1000);
@@ -908,6 +959,7 @@
                     document.getElementById('restTimerValue').textContent = '00:00';
                     playRestTimerSound();
                     restEl.classList.remove('rest-timer-active');
+                    restNotificationScheduled = false; // Reset flag when timer completes
                 } else {
                     document.getElementById('restTimerValue').textContent = formatTimer(remaining);
                 }
@@ -924,6 +976,9 @@
                     },
                     body: JSON.stringify({
                         duration_seconds: durationSeconds,
+                        user: PARAM_USER,
+                        day: PARAM_DAY,
+                        muscle: PARAM_MUSCLE,
                     }),
                 });
 
@@ -1118,6 +1173,15 @@
                             ${ex.comment ? `<div class="exercise-list-comment">${ex.comment}</div>` : ''}
                         </div>
                         <div class="exercise-list-status">${statusHtml}</div>
+                        <button class="delete-btn" data-exercise-idx="${idx}" onclick="deleteExercise(event, ${idx})">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 6h18"></path>
+                                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path>
+                                <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                            </svg>
+                        </button>
                     </div>
                 `;
             });
@@ -1135,7 +1199,10 @@
             container.innerHTML = html;
 
             container.querySelectorAll('.exercise-list-item').forEach(item => {
-                item.addEventListener('click', () => {
+                item.addEventListener('click', (e) => {
+                    // Don't open detail view if clicking delete button
+                    if (e.target.closest('.delete-btn')) return;
+
                     const idx = parseInt(item.dataset.index);
                     activeExerciseIndex = idx;
                     showDetailView();
@@ -1146,6 +1213,13 @@
             const finishBtn = document.getElementById('finishWorkoutBtn');
             if (finishBtn) {
                 finishBtn.addEventListener('click', saveWorkout);
+            }
+
+            // Show delete day button
+            const deleteDayBtn = document.getElementById('deleteDayBtn');
+            if (deleteDayBtn) {
+                deleteDayBtn.style.display = 'block';
+                deleteDayBtn.onclick = deleteWorkoutDay;
             }
 
             setBackButton(() => { tg.close(); });
@@ -1162,6 +1236,12 @@
             const container = document.getElementById('mainContainer');
             const ex = exercises[activeExerciseIndex];
             const lastLog = lastLogs[ex.exercise];
+
+            // Hide delete day button in detail view
+            const deleteDayBtn = document.getElementById('deleteDayBtn');
+            if (deleteDayBtn) {
+                deleteDayBtn.style.display = 'none';
+            }
 
             let html = `<div class="exercise-detail">`;
 
@@ -1485,6 +1565,84 @@
         // Hide main button (we use in-page button instead)
         tg.MainButton.hide();
 
+        // Delete functions
+        async function deleteExercise(event, idx) {
+            event.stopPropagation();
+
+            const ex = exercises[idx];
+            const exerciseName = ex.exercise;
+
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+
+            tg.showConfirm(
+                `Видалити вправу "${exerciseName}"?`,
+                async (confirmed) => {
+                    if (!confirmed) return;
+
+                    try {
+                        const response = await fetch(
+                            `/api/workout/exercise?user=${encodeURIComponent(PARAM_USER)}&day=${encodeURIComponent(PARAM_DAY)}&exercise=${encodeURIComponent(exerciseName)}`,
+                            {
+                                method: 'DELETE',
+                                headers: {
+                                    'Authorization': tg.initData,
+                                },
+                            }
+                        );
+
+                        if (response.ok) {
+                            if (tg.HapticFeedback) {
+                                tg.HapticFeedback.notificationOccurred('success');
+                            }
+                            // Reload the program
+                            await loadProgram();
+                            showListView();
+                        } else {
+                            tg.showAlert('Помилка видалення вправи');
+                        }
+                    } catch (err) {
+                        console.error('Failed to delete exercise:', err);
+                        tg.showAlert('Помилка видалення вправи');
+                    }
+                }
+            );
+        }
+
+        async function deleteWorkoutDay() {
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+
+            tg.showConfirm(
+                `Видалити всі вправи з дня ${PARAM_DAY}?`,
+                async (confirmed) => {
+                    if (!confirmed) return;
+
+                    try {
+                        const response = await fetch(
+                            `/api/workout/day?user=${encodeURIComponent(PARAM_USER)}&day=${encodeURIComponent(PARAM_DAY)}`,
+                            {
+                                method: 'DELETE',
+                                headers: {
+                                    'Authorization': tg.initData,
+                                },
+                            }
+                        );
+
+                        if (response.ok) {
+                            if (tg.HapticFeedback) {
+                                tg.HapticFeedback.notificationOccurred('success');
+                            }
+                            tg.close();
+                        } else {
+                            tg.showAlert('Помилка видалення дня');
+                        }
+                    } catch (err) {
+                        console.error('Failed to delete day:', err);
+                        tg.showAlert('Помилка видалення дня');
+                    }
+                }
+            );
+        }
+
         // Initialize
         async function init() {
             initHeader();
@@ -1511,6 +1669,7 @@
                     restTimerInterval = null;
                     this.classList.remove('rest-timer-active');
                     document.getElementById('restTimerValue').textContent = formatTimer(restTimerDuration);
+                    restNotificationScheduled = false; // Reset flag when manually stopped
                     if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
                 }
             });

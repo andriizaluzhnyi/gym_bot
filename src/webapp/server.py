@@ -12,6 +12,8 @@ from aiohttp import web
 from src.config import get_settings
 from src.database.repository import DailyNutritionRepository, UserRepository
 from src.database.session import async_session_maker
+from src.services.google_calendar import GoogleCalendarService
+from src.services.google_sheets import GoogleSheetsService
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +381,267 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
         })
 
 
+async def workout_handler(request: web.Request) -> web.Response:
+    """Serve the workout tracking Mini App."""
+    html_path = TEMPLATES_DIR / 'workout.html'
+    return web.FileResponse(html_path)
+
+
+async def api_get_workout_program(request: web.Request) -> web.Response:
+    """API endpoint to get workout program exercises for a session.
+
+    Query params: user, day, muscle (optional).
+    Expects Authorization header with Telegram initData.
+    """
+    init_data = request.headers.get('Authorization', '')
+    user_data = validate_telegram_webapp_data(init_data)
+
+    if not user_data:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    user_name = request.query.get('user', '')
+    day = request.query.get('day', '')
+    muscle = request.query.get('muscle', '')
+
+    if not user_name or not day:
+        return web.json_response(
+            {'error': 'Missing required params: user, day'}, status=400
+        )
+
+    try:
+        sheets_service = GoogleSheetsService()
+        programs = await sheets_service.get_workout_programs(
+            limit=100, user_name=user_name
+        )
+
+        # Filter by day
+        programs = [
+            p for p in programs if str(p.get('day', '')) == str(day)
+        ]
+
+        # Filter by muscle group if provided
+        if muscle:
+            programs = [
+                p for p in programs if p.get('muscle_group') == muscle
+            ]
+
+        return web.json_response({
+            'success': True,
+            'data': {
+                'exercises': programs,
+            },
+        })
+
+    except Exception as e:
+        logger.error(f'Error loading workout program: {e}')
+        return web.json_response(
+            {'error': 'Failed to load program'}, status=500
+        )
+
+
+async def api_get_last_workout_log(request: web.Request) -> web.Response:
+    """API endpoint to get previous workout data for diff display.
+
+    Query params: user, exercises (comma-separated).
+    Expects Authorization header with Telegram initData.
+    """
+    init_data = request.headers.get('Authorization', '')
+    user_data = validate_telegram_webapp_data(init_data)
+
+    if not user_data:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    user_name = request.query.get('user', '')
+    exercises_str = request.query.get('exercises', '')
+
+    if not user_name or not exercises_str:
+        return web.json_response(
+            {'error': 'Missing required params: user, exercises'}, status=400
+        )
+
+    exercises = [e.strip() for e in exercises_str.split(',') if e.strip()]
+
+    try:
+        sheets_service = GoogleSheetsService()
+        last_logs = await sheets_service.get_last_workout_log(
+            user_name, exercises
+        )
+
+        return web.json_response({
+            'success': True,
+            'data': last_logs,
+        })
+
+    except Exception as e:
+        logger.error(f'Error loading last workout log: {e}')
+        return web.json_response(
+            {'error': 'Failed to load logs'}, status=500
+        )
+
+
+async def api_save_workout_log(request: web.Request) -> web.Response:
+    """API endpoint to save a completed workout log.
+
+    Expects Authorization header with Telegram initData.
+    Body: { user, day, exercises: [{ exercise, muscle_group,
+            planned_sets_reps, sets: [{ set, weight, reps }] }] }
+    """
+    init_data = request.headers.get('Authorization', '')
+    user_data = validate_telegram_webapp_data(init_data)
+
+    if not user_data:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    user_name = body.get('user', '')
+    day = body.get('day', '')
+    muscle = body.get('muscle', '')
+    duration_seconds = body.get('duration_seconds', 0)
+    exercises = body.get('exercises', [])
+
+    if not user_name or not exercises:
+        return web.json_response(
+            {'error': 'Missing required fields: user, exercises'}, status=400
+        )
+
+    from datetime import datetime
+
+    now = datetime.now()
+    date_str = now.strftime('%d.%m.%Y')
+    timestamp_str = now.strftime('%d.%m.%Y %H:%M')
+
+    log_entries = []
+    for ex in exercises:
+        for s in ex.get('sets', []):
+            log_entries.append({
+                'date': date_str,
+                'exercise': ex.get('exercise', ''),
+                'muscle_group': ex.get('muscle_group', ''),
+                'day': day,
+                'set_number': s.get('set', ''),
+                'weight': s.get('weight', ''),
+                'reps': s.get('reps', ''),
+                'planned_sets_reps': ex.get('planned_sets_reps', ''),
+                'timestamp': timestamp_str,
+            })
+
+    try:
+        sheets_service = GoogleSheetsService()
+        saved = await sheets_service.save_workout_log(user_name, log_entries)
+
+        if not saved:
+            return web.json_response(
+                {'error': 'Failed to save'}, status=500
+            )
+
+        # Sync workout to Google Calendar
+        try:
+            await _sync_workout_to_calendar(
+                user_name, day, muscle, exercises,
+                duration_seconds, now,
+            )
+        except Exception as cal_err:
+            logger.warning(f'Calendar sync failed (non-critical): {cal_err}')
+
+        return web.json_response({'success': True})
+
+    except Exception as e:
+        logger.error(f'Error saving workout log: {e}')
+        return web.json_response(
+            {'error': 'Failed to save workout'}, status=500
+        )
+
+
+async def _sync_workout_to_calendar(
+    user_name: str,
+    day: str,
+    muscle: str,
+    exercises: list,
+    duration_seconds: int,
+    workout_time,
+) -> None:
+    """Sync completed workout to Google Calendar as a past event.
+
+    Creates a calendar event for the workout that was just completed.
+    Non-critical: failures are logged but do not affect workout saving.
+
+    Args:
+        user_name: Username for the event title
+        day: Program day number
+        muscle: Muscle group name
+        exercises: List of exercise dicts with sets data
+        duration_seconds: Total workout duration in seconds
+        workout_time: datetime when workout was saved
+    """
+    from datetime import timedelta
+
+    calendar_service = GoogleCalendarService()
+
+    if not calendar_service.calendar_id:
+        return
+
+    duration_minutes = max(duration_seconds // 60, 1)
+    start_time = workout_time - timedelta(seconds=duration_seconds)
+
+    # Build workout summary
+    exercise_names = [ex.get('exercise', '') for ex in exercises]
+    total_sets = sum(len(ex.get('sets', [])) for ex in exercises)
+    title_parts = [f'{user_name}']
+    if muscle:
+        title_parts.append(muscle)
+    elif day:
+        title_parts.append(f'День {day}')
+
+    summary = f'🏋️ {" — ".join(title_parts)}'
+
+    # Build description with exercise details
+    description_lines = [
+        f'Тривалість: {duration_minutes} хв',
+        f'Вправ: {len(exercises)}, Підходів: {total_sets}',
+        '',
+    ]
+    for ex in exercises:
+        sets = ex.get('sets', [])
+        sets_info = ', '.join(
+            f'{s.get("weight", "?")}x{s.get("reps", "?")}'
+            for s in sets
+        )
+        description_lines.append(f'• {ex.get("exercise", "")} — {sets_info}')
+
+    description = '\n'.join(description_lines)
+
+    import asyncio
+
+    service = calendar_service._get_service()
+
+    event = {
+        'summary': summary,
+        'description': description,
+        'start': {
+            'dateTime': start_time.isoformat(),
+            'timeZone': settings.timezone,
+        },
+        'end': {
+            'dateTime': workout_time.isoformat(),
+            'timeZone': settings.timezone,
+        },
+    }
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: service.events()
+        .insert(calendarId=calendar_service.calendar_id, body=event)
+        .execute(),
+    )
+
+    logger.info(f'Workout synced to calendar for {user_name}')
+
+
 def create_webapp() -> web.Application:
     """Create and configure the web application."""
     app = web.Application()
@@ -387,6 +650,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/nutrition', nutrition_handler)
     app.router.add_get('/profile', profile_handler)
     app.router.add_get('/meal-entry', meal_entry_handler)
+    app.router.add_get('/workout', workout_handler)
 
     # API endpoints
     app.router.add_get('/api/user/settings', api_get_user_settings)
@@ -395,6 +659,9 @@ def create_webapp() -> web.Application:
     app.router.add_post('/api/nutrition/daily', api_save_daily_nutrition)
     app.router.add_post('/api/nutrition/meal', api_add_meal)
     app.router.add_get('/api/nutrition/meals', api_get_today_meals)
+    app.router.add_get('/api/workout/program', api_get_workout_program)
+    app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
+    app.router.add_post('/api/workout/log', api_save_workout_log)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

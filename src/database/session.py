@@ -10,7 +10,7 @@ from src.database.models import Base
 settings = get_settings()
 
 engine = create_async_engine(
-    settings.database_url,
+    settings.db_url,
     echo=False,
 )
 

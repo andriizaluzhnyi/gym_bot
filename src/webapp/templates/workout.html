@@ -917,6 +917,105 @@
             render();
         }
 
+        function showRestTimerModal() {
+            const container = document.getElementById('modalContainer');
+
+            const presetTimes = [
+                { label: '30 сек', value: 30 },
+                { label: '1 хв', value: 60 },
+                { label: '1.5 хв', value: 90 },
+                { label: '2 хв', value: 120 },
+                { label: '3 хв', value: 180 },
+                { label: '5 хв', value: 300 },
+            ];
+
+            container.innerHTML = `
+                <div class="modal-overlay add-set-modal" id="modalOverlay">
+                    <div class="modal-content">
+                        <div class="modal-title">Час відпочинку</div>
+
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px;">
+                            ${presetTimes.map(t => `
+                                <button class="modal-btn modal-btn-confirm preset-time-btn" data-time="${t.value}">
+                                    ${t.label}
+                                </button>
+                            `).join('')}
+                        </div>
+
+                        <div class="add-set-field" style="margin-bottom: 16px;">
+                            <div class="add-set-field-label">Або власний час (сек)</div>
+                            <div class="add-set-field-value">
+                                <button class="add-set-field-btn" id="timeMinus">−</button>
+                                <input type="number" class="add-set-field-input" id="customTimeInput"
+                                       inputmode="numeric" value="${restTimerDuration}" placeholder="60">
+                                <button class="add-set-field-btn" id="timePlus">+</button>
+                            </div>
+                        </div>
+
+                        <div class="modal-buttons">
+                            <button class="modal-btn modal-btn-cancel" id="modalCancel">Скасувати</button>
+                            <button class="modal-btn modal-btn-confirm" id="modalStart">Старт</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Preset time buttons
+            container.querySelectorAll('.preset-time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const time = parseInt(btn.dataset.time);
+                    restTimerDuration = time;
+                    container.innerHTML = '';
+                    resetRestTimer();
+                    if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+                });
+            });
+
+            // Custom time controls
+            let customTime = restTimerDuration;
+            const customInput = document.getElementById('customTimeInput');
+
+            document.getElementById('timeMinus').addEventListener('click', () => {
+                const val = parseInt(customInput.value) || 0;
+                customTime = Math.max(10, val - 10);
+                customInput.value = customTime;
+                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+            });
+
+            document.getElementById('timePlus').addEventListener('click', () => {
+                const val = parseInt(customInput.value) || 0;
+                customTime = val + 10;
+                customInput.value = customTime;
+                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+            });
+
+            customInput.addEventListener('focus', () => {
+                customInput.select();
+            });
+
+            customInput.addEventListener('input', (e) => {
+                customTime = parseInt(e.target.value) || 60;
+            });
+
+            // Cancel/Start buttons
+            document.getElementById('modalCancel').addEventListener('click', () => {
+                container.innerHTML = '';
+            });
+
+            document.getElementById('modalStart').addEventListener('click', () => {
+                restTimerDuration = customTime;
+                container.innerHTML = '';
+                resetRestTimer();
+                if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+            });
+
+            document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) {
+                    container.innerHTML = '';
+                }
+            });
+        }
+
         // --- Timer functions ---
 
         function formatTimer(seconds) {
@@ -1664,14 +1763,15 @@
             // Add click handler for rest timer
             document.getElementById('restTimer').addEventListener('click', function() {
                 if (restTimerInterval) {
-                    // Stop the timer
+                    // If timer is running, stop it and show modal to change time
                     clearInterval(restTimerInterval);
                     restTimerInterval = null;
                     this.classList.remove('rest-timer-active');
-                    document.getElementById('restTimerValue').textContent = formatTimer(restTimerDuration);
-                    restNotificationScheduled = false; // Reset flag when manually stopped
+                    restNotificationScheduled = false;
                     if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
                 }
+                // Show modal to select new timer duration
+                showRestTimerModal();
             });
         }
 

@@ -404,7 +404,7 @@ async def workout_handler(request: web.Request) -> web.Response:
 async def api_get_workout_program(request: web.Request) -> web.Response:
     """API endpoint to get workout program exercises for a session.
 
-    Query params: user, day, muscle (optional).
+    Query params: user, day (optional), muscle (optional).
     Expects Authorization header with Telegram initData.
     """
     init_data = request.headers.get('Authorization', '')
@@ -417,9 +417,9 @@ async def api_get_workout_program(request: web.Request) -> web.Response:
     day = request.query.get('day', '')
     muscle = request.query.get('muscle', '')
 
-    if not user_name or not day:
+    if not user_name:
         return web.json_response(
-            {'error': 'Missing required params: user, day'}, status=400
+            {'error': 'Missing required param: user'}, status=400
         )
 
     try:
@@ -428,10 +428,11 @@ async def api_get_workout_program(request: web.Request) -> web.Response:
             limit=100, user_name=user_name
         )
 
-        # Filter by day
-        programs = [
-            p for p in programs if str(p.get('day', '')) == str(day)
-        ]
+        # Filter by day if provided
+        if day:
+            programs = [
+                p for p in programs if str(p.get('day', '')) == str(day)
+            ]
 
         # Filter by muscle group if provided
         if muscle:

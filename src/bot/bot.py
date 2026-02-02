@@ -69,13 +69,30 @@ async def run_bot() -> None:
 
     logger.info("Starting bot...")
 
-    # Initialize database
-    await init_db()
-    logger.info("Database initialized")
+    # Run Alembic migrations
+    try:
+        from alembic import command
+        from alembic.config import Config
+        from pathlib import Path
+
+        alembic_ini = Path(__file__).parent.parent.parent / 'alembic.ini'
+        alembic_cfg = Config(str(alembic_ini))
+        logger.info("Running database migrations...")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations completed")
+    except Exception as e:
+        logger.warning(f"Migration failed, falling back to create_all: {e}")
+        # Fallback to simple create_all if migrations fail
+        await init_db()
+        logger.info("Database initialized via create_all")
 
     # Create bot and dispatcher
     bot = create_bot()
     dp = Dispatcher()
+
+    # Set bot instance for webapp
+    from src.webapp.server import set_bot_instance
+    set_bot_instance(bot)
 
     # Setup routers
     main_router = setup_routers()
@@ -95,7 +112,9 @@ async def run_bot() -> None:
     # Start polling
     try:
         logger.info("Bot started polling")
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(
+            bot, allowed_updates=dp.resolve_used_update_types()
+        )
     finally:
         scheduler.shutdown()
         if webapp_runner:

@@ -588,6 +588,152 @@ class GoogleSheetsService:
             print(f"Error adding workout program: {e}")
             return False
 
+    async def delete_workout_day(
+        self, user_name: str, day: str
+    ) -> bool:
+        """Delete all exercises for a specific day from workout program.
+
+        Args:
+            user_name: User name
+            day: Day number to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id:
+            return False
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            sheet_name = f"Програми ({user_name})"
+
+            # Get all data
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:F")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+            if len(values) <= 1:
+                return False
+
+            # Find rows to delete (keep header)
+            new_values = [values[0]]  # Header
+            for row in values[1:]:
+                if len(row) > 0 and row[0] != day:
+                    new_values.append(row)
+
+            # Clear sheet and write filtered data
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .clear(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A2:F")
+                .execute(),
+            )
+
+            if len(new_values) > 1:
+                await loop.run_in_executor(
+                    None,
+                    lambda: service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{sheet_name}!A2",
+                        valueInputOption="RAW",
+                        body={"values": new_values[1:]},
+                    )
+                    .execute(),
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"Error deleting workout day: {e}")
+            return False
+
+    async def delete_exercise(
+        self, user_name: str, day: str, exercise: str
+    ) -> bool:
+        """Delete a specific exercise from workout program.
+
+        Args:
+            user_name: User name
+            day: Day number
+            exercise: Exercise name to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id:
+            return False
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            sheet_name = f"Програми ({user_name})"
+
+            # Get all data
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A:F")
+                .execute(),
+            )
+
+            values = result.get("values", [])
+            if len(values) <= 1:
+                return False
+
+            # Find row to delete (keep header)
+            new_values = [values[0]]  # Header
+            deleted = False
+            for row in values[1:]:
+                # Skip row if it matches day and exercise
+                if len(row) > 2 and row[0] == day and row[2] == exercise:
+                    deleted = True
+                    continue
+                new_values.append(row)
+
+            if not deleted:
+                return False
+
+            # Clear sheet and write filtered data
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .clear(spreadsheetId=self.spreadsheet_id, range=f"{sheet_name}!A2:F")
+                .execute(),
+            )
+
+            if len(new_values) > 1:
+                await loop.run_in_executor(
+                    None,
+                    lambda: service.spreadsheets()
+                    .values()
+                    .update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{sheet_name}!A2",
+                        valueInputOption="RAW",
+                        body={"values": new_values[1:]},
+                    )
+                    .execute(),
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"Error deleting exercise: {e}")
+            return False
+
     async def get_workout_programs(
         self, limit: int = 50, user_name: str | None = None
     ) -> list[dict]:
@@ -1063,3 +1209,269 @@ class GoogleSheetsService:
 
         except Exception as e:
             print(f"Error formatting visualization sheet: {e}")
+
+    async def _ensure_workout_log_sheet_exists(self, user_name: str) -> None:
+        """Ensure workout log sheet exists for a specific user.
+
+        Creates sheet 'Логи ({user_name})' with appropriate headers
+        if it does not already exist.
+
+        Args:
+            user_name: Username to create log sheet for
+        """
+        if not self.spreadsheet_id or not user_name:
+            return
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            spreadsheet = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .get(spreadsheetId=self.spreadsheet_id)
+                .execute(),
+            )
+
+            existing_sheets = {
+                sheet["properties"]["title"]
+                for sheet in spreadsheet.get("sheets", [])
+            }
+
+            log_sheet = f"Логи ({user_name})"
+
+            if log_sheet in existing_sheets:
+                return
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .batchUpdate(
+                    spreadsheetId=self.spreadsheet_id,
+                    body={
+                        "requests": [
+                            {"addSheet": {"properties": {"title": log_sheet}}}
+                        ]
+                    },
+                )
+                .execute(),
+            )
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .update(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"{log_sheet}!A1",
+                    valueInputOption="RAW",
+                    body={
+                        "values": [
+                            [
+                                "Дата",
+                                "Вправа",
+                                "Група м'язів",
+                                "День",
+                                "Сет",
+                                "Вага",
+                                "Повторення",
+                                "Плановані Підходи/Повторення",
+                                "Час",
+                            ]
+                        ]
+                    },
+                )
+                .execute(),
+            )
+
+        except Exception as e:
+            print(f"Error ensuring workout log sheet exists: {e}")
+
+    async def save_workout_log(
+        self, user_name: str, log_entries: list[dict]
+    ) -> bool:
+        """Save workout log entries to the user's log sheet.
+
+        Each entry represents one set of one exercise.
+
+        Args:
+            user_name: Username whose log sheet to write to
+            log_entries: List of dicts with keys: date, exercise,
+                muscle_group, day, set_number, weight, reps,
+                planned_sets_reps, timestamp
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.spreadsheet_id or not user_name:
+            return False
+
+        try:
+            await self._ensure_workout_log_sheet_exists(user_name)
+
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            rows = []
+            for entry in log_entries:
+                rows.append([
+                    entry.get("date", ""),
+                    entry.get("exercise", ""),
+                    entry.get("muscle_group", ""),
+                    str(entry.get("day", "")),
+                    str(entry.get("set_number", "")),
+                    str(entry.get("weight", "")),
+                    str(entry.get("reps", "")),
+                    entry.get("planned_sets_reps", ""),
+                    entry.get("timestamp", ""),
+                ])
+
+            log_sheet = f"Логи ({user_name})"
+
+            await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .append(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"{log_sheet}!A:I",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": rows},
+                )
+                .execute(),
+            )
+
+            return True
+
+        except HttpError as e:
+            print(f"Google Sheets API error saving workout log: {e}")
+            return False
+        except Exception as e:
+            print(f"Error saving workout log: {e}")
+            return False
+
+    async def get_last_workout_log(
+        self, user_name: str, exercises: list[str], day: int | None = None
+    ) -> dict[str, dict]:
+        """Get the most recent workout log data for given exercises.
+
+        Reads the entire log sheet once and filters in memory to avoid
+        multiple API calls.
+
+        Args:
+            user_name: Username whose log sheet to read
+            exercises: List of exercise names to look up
+            day: Optional day number to filter by (e.g., 1 for "День 1")
+
+        Returns:
+            Dict mapping exercise name to its last log data:
+            {
+                "Exercise Name": {
+                    "date": "05.01.2026",
+                    "sets": [
+                        {"set": 1, "weight": 50, "reps": 20},
+                        {"set": 2, "weight": 70, "reps": 12},
+                    ]
+                }
+            }
+        """
+        if not self.spreadsheet_id or not user_name:
+            return {}
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            log_sheet = f"Логи ({user_name})"
+
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .values()
+                .get(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"{log_sheet}!A:I",
+                )
+                .execute(),
+            )
+
+            values = result.get("values", [])
+
+            if len(values) <= 1:
+                return {}
+
+            exercises_set = set(exercises)
+            # Group by exercise -> date -> sets
+            exercise_dates: dict[str, dict[str, list]] = {}
+
+            for row in values[1:]:
+                if len(row) < 7:
+                    continue
+
+                date = row[0]
+                exercise = row[1]
+                log_day = row[3] if len(row) > 3 else None
+
+                if exercise not in exercises_set:
+                    continue
+
+                # Filter by day if specified
+                if day is not None:
+                    if not log_day or str(log_day).strip() != str(day):
+                        continue
+
+                set_number = row[4]
+                weight = row[5]
+                reps = row[6]
+
+                # Skip sets with empty weight or reps (incomplete sets)
+                if not weight or not reps:
+                    continue
+
+                if exercise not in exercise_dates:
+                    exercise_dates[exercise] = {}
+                if date not in exercise_dates[exercise]:
+                    exercise_dates[exercise][date] = []
+
+                try:
+                    exercise_dates[exercise][date].append({
+                        "set": int(set_number),
+                        "weight": float(weight),
+                        "reps": int(reps),
+                    })
+                except (ValueError, TypeError):
+                    continue
+
+            # For each exercise, find the most recent date
+            output: dict[str, dict] = {}
+            for exercise_name, dates_data in exercise_dates.items():
+                if not dates_data:
+                    continue
+
+                # Sort dates (format DD.MM.YYYY) to find the latest
+                sorted_dates = sorted(
+                    dates_data.keys(),
+                    key=lambda d: datetime.strptime(d, "%d.%m.%Y")
+                    if d
+                    else datetime.min,
+                    reverse=True,
+                )
+
+                latest_date = sorted_dates[0]
+                sets = sorted(
+                    dates_data[latest_date], key=lambda s: s["set"]
+                )
+
+                output[exercise_name] = {
+                    "date": latest_date,
+                    "sets": sets,
+                }
+
+            return output
+
+        except HttpError:
+            return {}
+        except Exception as e:
+            print(f"Error getting last workout log: {e}")
+            return {}

@@ -5,6 +5,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    WebAppInfo,
 )
 
 from src.database.models import Training
@@ -237,6 +238,27 @@ def get_day_selection_keyboard(last_day: int = 0) -> InlineKeyboardMarkup:
     )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_start_workout_keyboard(webapp_url: str) -> InlineKeyboardMarkup:
+    """Get inline keyboard with Start Workout WebApp button.
+
+    Args:
+        webapp_url: Full URL for the workout WebApp including query params
+
+    Returns:
+        Inline keyboard with WebApp button
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text='🏋️ Почати тренування',
+                    web_app=WebAppInfo(url=webapp_url),
+                )
+            ]
+        ]
+    )
 
 
 def get_phone_request_keyboard() -> ReplyKeyboardMarkup:

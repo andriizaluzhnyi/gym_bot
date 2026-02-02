@@ -7,6 +7,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
+from urllib.parse import quote
+
 from src.bot.keyboards import (
     get_add_more_exercise_keyboard,
     get_admin_menu_keyboard,
@@ -14,6 +16,7 @@ from src.bot.keyboards import (
     get_muscle_group_keyboard,
     get_reps_keyboard,
     get_sets_keyboard,
+    get_start_workout_keyboard,
     get_user_selection_keyboard,
     get_view_day_filter_keyboard,
     get_view_muscle_filter_keyboard,
@@ -693,6 +696,9 @@ async def _show_programs_filtered(
 ) -> None:
     """Show programs filtered by muscle group and/or day.
 
+    After displaying the program, shows a 'Start Workout' WebApp button
+    when a specific day is selected.
+
     Args:
         message: Message to reply to
         user_name: User name to filter by
@@ -767,6 +773,22 @@ async def _show_programs_filtered(
             text = text[:3900] + "\n\n_...і ще записи_"
 
         await message.answer(text, parse_mode="Markdown")
+
+        # Show "Start Workout" WebApp button when a specific day is selected
+        webapp_url = settings.webapp_url
+        if webapp_url and user_name and day is not None:
+            muscle_param = quote(muscle_group) if muscle_group else ''
+            workout_url = (
+                f'{webapp_url}/workout'
+                f'?user={quote(user_name)}'
+                f'&day={day}'
+                f'&muscle={muscle_param}'
+            )
+            keyboard = get_start_workout_keyboard(workout_url)
+            await message.answer(
+                '👇 Готові тренуватися?',
+                reply_markup=keyboard,
+            )
 
     except Exception as e:
         await message.answer(

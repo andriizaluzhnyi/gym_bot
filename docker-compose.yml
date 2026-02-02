@@ -12,10 +12,6 @@ services:
       - .env
     volumes:
       - ./data:/app/data
-    environment:
-      DATABASE_URL: 'postgresql+asyncpg://gym:password@gym_postgres:5432/gymdb'
-      POSTGRES_USER: gym
-      POSTGRES_DB: gymdb
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
       interval: 30s
@@ -26,10 +22,8 @@ services:
     image: postgres:17.7-alpine
     container_name: gym_postgres
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: gym
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: gymdb
+    env_file:
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

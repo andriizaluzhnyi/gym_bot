@@ -93,18 +93,18 @@ jobs:
 
           echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
 
-      - name: Create Dockerrun.aws.json
-        run: |
-          cat > Dockerrun.aws.json <<EOF
-          {
-            "AWSEBDockerrunVersion": 1,
-            "Image": {
-              "Name": "${{ needs.build.outputs.IMAGE || env.IMAGE }}",
-              "Update": "true"
-            },
-            "Ports": [{ "ContainerPort": 8000 }]
-          }
-          EOF
+      # - name: Create Dockerrun.aws.json
+      #   run: |
+      #     cat > Dockerrun.aws.json <<EOF
+      #     {
+      #       "AWSEBDockerrunVersion": 1,
+      #       "Image": {
+      #         "Name": "${{ needs.build.outputs.IMAGE || env.IMAGE }}",
+      #         "Update": "true"
+      #       },
+      #       "Ports": [{ "ContainerPort": 8000 }]
+      #     }
+      #     EOF
 
       - name: Create EB Environment if not exists
         run: |
@@ -177,3 +177,4 @@ jobs:
             
             *Статус:* Створено автоматично через GitHub Actions.
           edit-mode: replace
+

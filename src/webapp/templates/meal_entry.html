@@ -13,14 +13,17 @@
         }
 
         :root {
-            --bg-color: #0a0a0a;
-            --card-bg: #1a1a1a;
-            --card-border: #2a2a2a;
-            --text-primary: #ffffff;
-            --text-secondary: #888888;
-            --text-muted: #666666;
+            --bg-color: #0a0a14;
+            --card-bg: rgba(255, 255, 255, 0.06);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-highlight: rgba(255, 255, 255, 0.12);
+            --text-primary: #f0f0f5;
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --text-muted: rgba(255, 255, 255, 0.4);
             --accent-green: #4ade80;
-            --input-bg: #2a2a2a;
+            --input-bg: rgba(255, 255, 255, 0.06);
+            --glass-blur: 24px;
+            --glass-saturate: 180%;
         }
 
         body {
@@ -30,6 +33,22 @@
             min-height: 100vh;
             padding: 16px;
             padding-bottom: 24px;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(ellipse at 25% 40%, rgba(94, 156, 255, 0.12) 0%, transparent 55%),
+                radial-gradient(ellipse at 75% 25%, rgba(74, 222, 128, 0.10) 0%, transparent 50%),
+                radial-gradient(ellipse at 60% 80%, rgba(251, 146, 60, 0.08) 0%, transparent 50%);
+            z-index: -1;
+            pointer-events: none;
         }
 
         .header {
@@ -54,17 +73,20 @@
         .form-input {
             width: 100%;
             padding: 12px 14px;
-            background-color: var(--tg-theme-secondary-bg-color, var(--input-bg));
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
             color: var(--tg-theme-text-color, var(--text-primary));
             font-size: 16px;
             outline: none;
-            transition: border-color 0.2s;
+            transition: all 0.2s;
         }
 
         .form-input:focus {
-            border-color: var(--tg-theme-button-color, var(--accent-green));
+            border-color: rgba(74, 222, 128, 0.5);
+            box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.12), 0 0 12px rgba(74, 222, 128, 0.15);
         }
 
         .form-input::placeholder {
@@ -93,29 +115,47 @@
 
         .macro-input {
             padding: 12px 14px;
-            background-color: var(--tg-theme-secondary-bg-color, var(--input-bg));
-            border: 1px solid var(--card-border);
-            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
             color: var(--tg-theme-text-color, var(--text-primary));
             font-size: 16px;
             outline: none;
             flex: 1;
+            transition: all 0.2s;
         }
 
         .macro-input:focus {
-            border-color: var(--tg-theme-button-color, var(--accent-green));
+            box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.12), 0 0 12px rgba(74, 222, 128, 0.15);
         }
 
         .macro-input.protein {
-            border-color: #3b82f6;
+            border-color: rgba(96, 165, 250, 0.4);
+        }
+
+        .macro-input.protein:focus {
+            border-color: rgba(96, 165, 250, 0.6);
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.12), 0 0 12px rgba(96, 165, 250, 0.2);
         }
 
         .macro-input.fat {
-            border-color: #f59e0b;
+            border-color: rgba(251, 191, 36, 0.4);
+        }
+
+        .macro-input.fat:focus {
+            border-color: rgba(251, 191, 36, 0.6);
+            box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.12), 0 0 12px rgba(251, 191, 36, 0.2);
         }
 
         .macro-input.carbs {
-            border-color: #10b981;
+            border-color: rgba(52, 211, 153, 0.4);
+        }
+
+        .macro-input.carbs:focus {
+            border-color: rgba(52, 211, 153, 0.6);
+            box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.12), 0 0 12px rgba(52, 211, 153, 0.2);
         }
 
         .button-group {
@@ -128,7 +168,7 @@
             flex: 1;
             padding: 14px;
             border: none;
-            border-radius: 12px;
+            border-radius: 14px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
@@ -137,17 +177,28 @@
         }
 
         .btn-primary {
-            background-color: var(--tg-theme-button-color, var(--accent-green));
-            color: var(--tg-theme-button-text-color, #000);
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.3), rgba(34, 197, 94, 0.2));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            color: #fff;
+            box-shadow: 0 4px 20px rgba(74, 222, 128, 0.15);
         }
 
         .btn-secondary {
-            background-color: var(--card-border);
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
         .btn:active {
             transform: scale(0.98);
+        }
+
+        .btn-primary:active {
+            box-shadow: 0 4px 24px rgba(74, 222, 128, 0.25);
         }
 
         .btn:disabled {
@@ -156,13 +207,19 @@
         }
 
         .calories-preview {
-            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+            -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
             padding: 14px 16px;
             margin-top: 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow:
+                0 4px 16px rgba(0, 0, 0, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
         }
 
         .calories-label {

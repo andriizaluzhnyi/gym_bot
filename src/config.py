@@ -33,7 +33,10 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        """Get database URL - use DATABASE_URL if set, otherwise build from components."""
+        """
+        Get database URL - use DATABASE_URL if set,
+        otherwise build from components.
+        """
         if self.database_url:
             return self.database_url
         return (

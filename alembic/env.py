@@ -21,6 +21,7 @@ sys.path.insert(0, str(project_root))
 models_path = project_root / "src" / "database" / "models.py"
 spec = importlib.util.spec_from_file_location("models", models_path)
 models = importlib.util.module_from_spec(spec)
+sys.modules["models"] = models
 spec.loader.exec_module(models)
 
 # Try to import config, but handle if env vars are missing
@@ -51,8 +52,10 @@ except Exception:
 config = context.config
 
 # Interpret the config file for Python logging.
+# disable_existing_loggers=False so this does not silence loggers the host
+# application (e.g. src.bot.bot) already configured before invoking Alembic.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Set database URL
 config.set_main_option("sqlalchemy.url", database_url)

@@ -22,6 +22,19 @@ load_dotenv(Path(__file__).parent.parent.parent / '.env')
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+def _configure_logging() -> None:
+    """Apply the application's logging configuration.
+
+    Alembic's ``env.py`` loads ``alembic.ini`` via ``fileConfig``, which
+    unconditionally overwrites the root logger's level and handlers
+    (forcing the level to WARNING) regardless of ``disable_existing_loggers``.
+    Call this again after running migrations to restore INFO-level logging.
+    """
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, force=True)
+
 
 def create_bot() -> Bot:
     """Create and configure the bot instance."""
@@ -62,10 +75,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 async def run_bot() -> None:
     """Run the bot."""
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    _configure_logging()
 
     logger.info("Starting bot...")
 
@@ -85,6 +95,10 @@ async def run_bot() -> None:
         # Fallback to simple create_all if migrations fail
         await init_db()
         logger.info("Database initialized via create_all")
+    finally:
+        # alembic.ini's fileConfig (loaded by alembic/env.py) overwrites the
+        # root logger's level/handlers; restore the app's own configuration.
+        _configure_logging()
 
     # Create bot and dispatcher
     bot = create_bot()

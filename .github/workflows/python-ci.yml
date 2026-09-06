@@ -6,7 +6,7 @@ on:
 
 jobs:
   python-ci:
-    uses: https://github.com/andriizaluzhnyi/shared_workflow/python-ci.yml@v1
+    uses: andriizaluzhnyi/shared_workflow/python-ci.yml@v1
     with:
       python-version: "3.13"
       run-lint: true

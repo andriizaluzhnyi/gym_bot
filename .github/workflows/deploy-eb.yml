@@ -1,180 +1,27 @@
-name: EB Docker Pipeline
+name: Deploy
 
 on:
-  push:
-    branches: [ main ]
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches:
+      - master
 
-  pull_request:
-    types: [opened, labeled, synchronize]
-
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Docker image version (optional)
-        required: false
-
-permissions:
-  pull-requests: write
-  contents: read
-  id-token: write
-
-# ======================
-# BUILD IMAGE (ALWAYS)
-# ======================
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
-        with:
-          region: ${{ secrets.AWS_REGION }}
-
-      - name: Set image version
-        run: |
-          VERSION="latest"
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            VERSION="pr-${{ github.event.pull_request.number }}"
-          fi
-
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Build & Push image
-        run: |
-          ECR="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-          IMAGE="$ECR/${{ secrets.ECR_REPOSITORY }}:$VERSION"
-
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
-
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-
-# ======================
-# DEPLOY (ONLY WITH LABEL)
-# ======================
   deploy:
-    needs: build
     runs-on: ubuntu-latest
-
-    if: |
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'deploy')
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Prepare EB environment
-        run: |
-          ENV_NAME="prod"
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            ENV_NAME="pr-${{ github.event.pull_request.number }}"
-          fi
-
-          echo "ENV_NAME=$ENV_NAME" >> $GITHUB_ENV
-
-      # - name: Create Dockerrun.aws.json
-      #   run: |
-      #     cat > Dockerrun.aws.json <<EOF
-      #     {
-      #       "AWSEBDockerrunVersion": 1,
-      #       "Image": {
-      #         "Name": "${{ needs.build.outputs.IMAGE || env.IMAGE }}",
-      #         "Update": "true"
-      #       },
-      #       "Ports": [{ "ContainerPort": 8000 }]
-      #     }
-      #     EOF
-
-      - name: Create EB Environment if not exists
-        run: |
-          # Отримуємо статус оточення
-          STATUS=$(aws elasticbeanstalk describe-environments \
-            --application-name ${{ secrets.EB_APP_NAME }} \
-            --environment-names ${{ env.ENV_NAME }} \
-            --query "Environments[0].Status" --output text)
-
-          echo "Current status of ${{ env.ENV_NAME }} is: $STATUS"
-
-          # If status None or Terminated — create again
-          if [ "$STATUS" == "None" ] || [ "$STATUS" == "Terminated" ]; then
-            echo "Environment doesn't exist or was terminated. Creating..."
-            aws elasticbeanstalk create-environment \
-              --application-name ${{ secrets.EB_APP_NAME }} \
-              --environment-name ${{ env.ENV_NAME }} \
-              --solution-stack-name "64bit Amazon Linux 2023 v4.9.2 running Docker" \
-              --option-settings \
-                Namespace=aws:autoscaling:launchconfiguration,OptionName=IamInstanceProfile,Value=aws-elasticbeanstalk-ec2-role \
-                Namespace=aws:elasticbeanstalk:environment,OptionName=ServiceRole,Value=aws-elasticbeanstalk-service-role \
-                Namespace=aws:elasticbeanstalk:environment,OptionName=EnvironmentType,Value=SingleInstance
-            
-            echo "Waiting for environment to be Ready..."
-            aws elasticbeanstalk wait environment-exists --application-name ${{ secrets.EB_APP_NAME }} --environment-names ${{ env.ENV_NAME }}
-          
-          elif [ "$STATUS" == "Terminating" ]; then
-            echo "Environment is currently terminating. Please wait a few minutes and retry."
-            exit 1
-          else
-            echo "Environment is active with status: $STATUS"
-          fi
-
-      - name: Deploy to Elastic Beanstalk
-        uses: einaregilsson/beanstalk-deploy@v22
-        with:
-          # Явно передаємо облікові дані з OIDC
-          aws_access_key: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws_secret_key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws_session_token: ${{ env.AWS_SESSION_TOKEN }} # КРИТИЧНО для OIDC
-          
-          application_name: ${{ secrets.EB_APP_NAME }}
-          environment_name: ${{ env.ENV_NAME }}
-          region: ${{ secrets.AWS_REGION }}
-          version_label: ${{ github.sha }}
-          deployment_package: Dockerrun.aws.json
-          use_existing_version_if_available: true
-
-
-      - name: Get Elastic Beanstalk URL
-        id: get_url
-        run: |
-          # Отримуємо CNAME нашого оточення
-          EB_CNAME=$(aws elasticbeanstalk describe-environments \
-            --application-name ${{ secrets.EB_APP_NAME }} \
-            --environment-names ${{ env.ENV_NAME }} \
-            --query "Environments[0].CNAME" --output text)
-          
-          # Зберігаємо в output для наступних кроків
-          echo "eb_url=http://$EB_CNAME" >> $GITHUB_OUTPUT
-
-      - name: Comment PR with Environment Link
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## 🚀 PR Environment Ready!
-            Ваше тимчасове оточення для тестування створено:
-            **URL:** [${{ steps.get_url.outputs.eb_url }}](${{ steps.get_url.outputs.eb_url }})
-            
-            *Статус:* Створено автоматично через GitHub Actions.
-          edit-mode: replace
-
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/my-app
+            git pull origin master
+            docker compose up -d --build
+            docker image prune -f

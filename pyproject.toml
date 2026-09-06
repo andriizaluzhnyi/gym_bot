@@ -34,11 +34,30 @@ dependencies = [
 test = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
-]
-
-dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
+]
+
+test = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov",
+]
+
+lint = [
+    "flake8==7.3.0",
+    "flake8-bugbear==25.11.29",
+    "flake8-builtins==3.1.0",
+    "flake8-comprehensions==3.17.0",
+    "flake8-debugger==4.1.2",
+    "flake8-simplify==0.30.0",
+    "pep8-naming==0.15.1",
+]
+
+typing = [
+    "types-cachetools==7.0.0.20260713",
+    "mypy",
+    "types-requests",
 ]
 
 [project.scripts]

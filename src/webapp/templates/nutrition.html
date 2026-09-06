@@ -13,13 +13,16 @@
         }
 
         :root {
-            --bg-color: #0a0a0a;
-            --card-bg: #1a1a1a;
-            --card-border: #2a2a2a;
-            --text-primary: #ffffff;
-            --text-secondary: #888888;
-            --text-muted: #666666;
+            --bg-color: #0a0a14;
+            --card-bg: rgba(255, 255, 255, 0.06);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-highlight: rgba(255, 255, 255, 0.12);
+            --text-primary: #f0f0f5;
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --text-muted: rgba(255, 255, 255, 0.4);
             --accent-green: #4ade80;
+            --glass-blur: 24px;
+            --glass-saturate: 180%;
         }
 
         body {
@@ -29,6 +32,23 @@
             min-height: 100vh;
             padding: 12px;
             padding-bottom: 90px;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(ellipse at 15% 30%, rgba(94, 156, 255, 0.15) 0%, transparent 55%),
+                radial-gradient(ellipse at 85% 15%, rgba(74, 222, 128, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 85%, rgba(168, 85, 247, 0.10) 0%, transparent 55%),
+                radial-gradient(ellipse at 75% 60%, rgba(251, 146, 60, 0.08) 0%, transparent 45%);
+            z-index: -1;
+            pointer-events: none;
         }
 
         .date {
@@ -39,10 +59,16 @@
         }
 
         .card {
-            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
-            border-radius: 16px;
+            background: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+            -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
             padding: 16px;
             margin-bottom: 12px;
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
         }
 
         /* Calories Section */
@@ -63,6 +89,7 @@
             transform: rotate(-90deg);
             width: 90px;
             height: 90px;
+            filter: drop-shadow(0 0 6px rgba(94, 156, 255, 0.3));
         }
 
         .calories-ring circle {
@@ -71,31 +98,34 @@
         }
 
         .calories-ring .bg {
-            stroke: var(--card-border);
+            stroke: rgba(255, 255, 255, 0.08);
         }
 
         .calories-ring .protein-progress {
-            stroke: #3b82f6;
+            stroke: #60a5fa;
             stroke-linecap: round;
             stroke-dasharray: 251;
             stroke-dashoffset: 251;
             transition: stroke-dashoffset 0.5s ease;
+            filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.5));
         }
 
         .calories-ring .fat-progress {
-            stroke: #f59e0b;
+            stroke: #fbbf24;
             stroke-linecap: round;
             stroke-dasharray: 207;
             stroke-dashoffset: 207;
             transition: stroke-dashoffset 0.5s ease;
+            filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.5));
         }
 
         .calories-ring .carbs-progress {
-            stroke: #10b981;
+            stroke: #34d399;
             stroke-linecap: round;
             stroke-dasharray: 163;
             stroke-dashoffset: 163;
             transition: stroke-dashoffset 0.5s ease;
+            filter: drop-shadow(0 0 4px rgba(52, 211, 153, 0.5));
         }
 
         .calories-text {
@@ -136,17 +166,17 @@
         }
 
         .macro-name.protein {
-            color: #3b82f6;
+            color: #60a5fa;
             font-weight: 500;
         }
 
         .macro-name.fat {
-            color: #f59e0b;
+            color: #fbbf24;
             font-weight: 500;
         }
 
         .macro-name.carbs {
-            color: #10b981;
+            color: #34d399;
             font-weight: 500;
         }
 
@@ -194,7 +224,7 @@
         .water-progress-bar {
             width: 100%;
             height: 8px;
-            background-color: var(--card-border);
+            background-color: rgba(255, 255, 255, 0.08);
             border-radius: 4px;
             overflow: hidden;
             margin-bottom: 16px;
@@ -206,10 +236,12 @@
             border-radius: 4px;
             transition: width 0.3s ease;
             width: 0%;
+            box-shadow: 0 0 12px rgba(74, 222, 128, 0.4);
         }
 
         .water-progress-fill.over-goal {
             background: linear-gradient(90deg, #60a5fa 0%, #3b82f6 100%);
+            box-shadow: 0 0 12px rgba(96, 165, 250, 0.4);
         }
 
         .water-buttons {
@@ -219,8 +251,10 @@
         }
 
         .water-btn {
-            background-color: var(--card-border);
-            border: none;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 20px;
             padding: 10px 16px;
             color: var(--tg-theme-hint-color, var(--text-secondary));
@@ -231,12 +265,11 @@
         }
 
         .water-btn.undo-water {
-            /* background-color: #ff6b6b; */
             color: #ffffff;
         }
 
         .water-btn.undo-water:disabled {
-            background-color: var(--card-border);
+            background: rgba(255, 255, 255, 0.04);
             color: var(--text-muted);
             opacity: 0.5;
             cursor: not-allowed;
@@ -244,8 +277,9 @@
 
         .water-btn:active {
             transform: scale(0.95);
-            background-color: var(--tg-theme-button-color, var(--accent-green));
-            color: var(--tg-theme-button-text-color, #000);
+            background: rgba(74, 222, 128, 0.25);
+            border-color: rgba(74, 222, 128, 0.4);
+            color: var(--tg-theme-button-text-color, #fff);
         }
 
         /* Meals Section */
@@ -283,13 +317,19 @@
         }
 
         .edit-btn {
-            background-color: var(--card-border);
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
         .photo-btn {
-            background-color: var(--tg-theme-button-color, var(--accent-green));
-            color: var(--tg-theme-button-text-color, #000);
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.3), rgba(34, 197, 94, 0.2));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            color: #fff;
             padding: 10px 16px;
             border-radius: 20px;
             width: auto;
@@ -320,11 +360,14 @@
 
         /* Meals List */
         .meal-item {
-            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 14px;
             padding: 14px;
             margin-bottom: 10px;
-            border: 1px solid var(--card-border);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
         .meal-header {
@@ -356,15 +399,15 @@
         }
 
         .meal-macro.protein {
-            color: #3b82f6;
+            color: #60a5fa;
         }
 
         .meal-macro.fat {
-            color: #f59e0b;
+            color: #fbbf24;
         }
 
         .meal-macro.carbs {
-            color: #10b981;
+            color: #34d399;
         }
 
         /* Bottom Navigation */
@@ -373,12 +416,14 @@
             bottom: 0;
             left: 0;
             right: 0;
-            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            background: rgba(10, 10, 20, 0.6);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
             display: flex;
             justify-content: space-around;
             padding: 12px 0;
             padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
-            border-top: 1px solid var(--card-border);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         .nav-item {
@@ -395,6 +440,7 @@
 
         .nav-item.active {
             color: var(--tg-theme-button-color, var(--accent-green));
+            text-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
         }
 
         .nav-icon {
@@ -403,8 +449,11 @@
 
         /* Workout Section */
         .workout-day-card {
-            background-color: var(--card-border);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
             padding: 16px;
             cursor: pointer;
             transition: all 0.2s;
@@ -412,11 +461,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
         }
 
         .workout-day-card:active {
             transform: scale(0.98);
-            background-color: var(--tg-theme-button-color, var(--accent-green));
+            background: rgba(74, 222, 128, 0.15);
+            border-color: rgba(74, 222, 128, 0.3);
         }
 
         .workout-day-info {

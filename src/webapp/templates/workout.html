@@ -13,18 +13,21 @@
         }
 
         :root {
-            --bg-color: #0a0a0a;
-            --card-bg: #1a1a1a;
-            --card-border: #2a2a2a;
-            --text-primary: #ffffff;
-            --text-secondary: #888888;
-            --text-muted: #666666;
+            --bg-color: #0a0a14;
+            --card-bg: rgba(255, 255, 255, 0.06);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-highlight: rgba(255, 255, 255, 0.12);
+            --text-primary: #f0f0f5;
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --text-muted: rgba(255, 255, 255, 0.4);
             --accent: #5e9cff;
-            --accent-light: rgba(94, 156, 255, 0.1);
+            --accent-light: rgba(94, 156, 255, 0.15);
             --accent-green: #4ade80;
             --diff-positive: #4ade80;
             --diff-negative: #ef4444;
-            --input-bg: #111111;
+            --input-bg: rgba(255, 255, 255, 0.06);
+            --glass-blur: 24px;
+            --glass-saturate: 180%;
         }
 
         body {
@@ -34,6 +37,22 @@
             min-height: 100vh;
             padding: 0;
             padding-bottom: 100px;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(ellipse at 20% 20%, rgba(94, 156, 255, 0.15) 0%, transparent 55%),
+                radial-gradient(ellipse at 80% 70%, rgba(168, 85, 247, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(74, 222, 128, 0.08) 0%, transparent 55%);
+            z-index: -1;
+            pointer-events: none;
         }
 
         /* Header */
@@ -42,10 +61,12 @@
             justify-content: space-between;
             align-items: center;
             padding: 12px 16px;
-            border-bottom: 1px solid var(--card-border);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             position: sticky;
             top: 0;
-            background-color: var(--tg-theme-bg-color, var(--bg-color));
+            background: rgba(10, 10, 20, 0.7);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
             z-index: 10;
         }
 
@@ -64,7 +85,7 @@
             display: flex;
             align-items: center;
             padding: 14px 16px;
-            border-bottom: 1px solid var(--card-border);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
             transition: background-color 0.15s;
@@ -82,7 +103,10 @@
             width: 48px;
             height: 48px;
             border-radius: 50%;
-            background-color: var(--card-border);
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -143,6 +167,7 @@
         .exercise-list-status svg {
             width: 22px;
             height: 22px;
+            filter: drop-shadow(0 0 4px rgba(74, 222, 128, 0.4));
         }
 
         /* Exercise detail view */
@@ -173,10 +198,13 @@
         .muscle-group-badge {
             display: inline-block;
             font-size: 11px;
-            padding: 2px 8px;
+            padding: 3px 10px;
             border-radius: 10px;
-            background-color: var(--card-border);
-            color: var(--tg-theme-hint-color, var(--text-secondary));
+            background: rgba(94, 156, 255, 0.12);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(94, 156, 255, 0.2);
+            color: #93bbff;
             margin-bottom: 8px;
         }
 
@@ -213,7 +241,7 @@
         }
 
         .set-row {
-            border-bottom: 1px solid var(--card-border);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
 
         .set-row:last-child {
@@ -230,9 +258,11 @@
         .set-input {
             width: 60px;
             padding: 8px 4px;
-            border: none;
-            border-radius: 8px;
-            background-color: var(--tg-theme-secondary-bg-color, var(--input-bg));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             color: var(--tg-theme-text-color, var(--text-primary));
             font-size: 16px;
             font-weight: 600;
@@ -240,6 +270,7 @@
             outline: none;
             -webkit-appearance: none;
             -moz-appearance: textfield;
+            transition: all 0.2s;
         }
 
         .set-input::-webkit-inner-spin-button,
@@ -249,7 +280,8 @@
         }
 
         .set-input:focus {
-            box-shadow: 0 0 0 2px var(--tg-theme-button-color, var(--accent));
+            border-color: rgba(94, 156, 255, 0.5);
+            box-shadow: 0 0 0 2px rgba(94, 156, 255, 0.15), 0 0 12px rgba(94, 156, 255, 0.2);
         }
 
         .diff {
@@ -261,10 +293,12 @@
 
         .diff-positive {
             color: var(--diff-positive);
+            text-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
         }
 
         .diff-negative {
             color: var(--diff-negative);
+            text-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
         }
 
         .diff-zero {
@@ -301,11 +335,14 @@
             height: 60px;
             margin: 16px auto;
             border-radius: 50%;
-            border: 2px solid var(--accent);
-            background: transparent;
+            border: 2px solid rgba(94, 156, 255, 0.4);
+            background: rgba(94, 156, 255, 0.08);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
             transition: all 0.2s;
+            box-shadow: 0 0 20px rgba(94, 156, 255, 0.1);
         }
 
         .add-set-btn svg {
@@ -317,7 +354,8 @@
 
         .add-set-btn:active {
             transform: scale(0.9);
-            background-color: var(--accent-light);
+            background: rgba(94, 156, 255, 0.2);
+            box-shadow: 0 0 24px rgba(94, 156, 255, 0.25);
         }
 
         .remove-set-btn {
@@ -345,9 +383,11 @@
             width: calc(100% - 32px);
             margin: 20px auto 0;
             padding: 12px;
-            border: 1px solid var(--accent);
-            border-radius: 12px;
-            background: transparent;
+            border: 1px solid rgba(94, 156, 255, 0.3);
+            border-radius: 14px;
+            background: rgba(94, 156, 255, 0.08);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             color: var(--accent);
             font-size: 15px;
             font-weight: 500;
@@ -357,7 +397,8 @@
         }
 
         .complete-exercise-btn:active {
-            background-color: var(--accent-light);
+            background: rgba(94, 156, 255, 0.18);
+            box-shadow: 0 0 16px rgba(94, 156, 255, 0.15);
         }
 
         .complete-exercise-btn svg {
@@ -373,8 +414,10 @@
             bottom: 0;
             left: 0;
             right: 0;
-            background-color: var(--tg-theme-bg-color, var(--bg-color));
-            border-top: 1px solid var(--card-border);
+            background: rgba(10, 10, 20, 0.6);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
             padding: 10px 16px;
             display: flex;
             align-items: center;
@@ -417,10 +460,12 @@
 
         .rest-timer-active {
             color: var(--accent);
+            text-shadow: 0 0 8px rgba(94, 156, 255, 0.5);
         }
 
         .rest-timer-active svg {
             stroke: var(--accent);
+            filter: drop-shadow(0 0 4px rgba(94, 156, 255, 0.5));
         }
 
         .finish-workout-btn {
@@ -428,19 +473,23 @@
             width: calc(100% - 32px);
             margin: 20px auto;
             padding: 14px;
-            border: none;
-            border-radius: 12px;
-            background-color: var(--accent);
+            border: 1px solid rgba(94, 156, 255, 0.3);
+            border-radius: 14px;
+            background: linear-gradient(135deg, rgba(94, 156, 255, 0.25), rgba(94, 156, 255, 0.15));
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             color: #fff;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
-            transition: opacity 0.2s;
+            transition: all 0.2s;
+            box-shadow: 0 4px 20px rgba(94, 156, 255, 0.2);
         }
 
         .finish-workout-btn:active {
-            opacity: 0.8;
+            transform: scale(0.98);
+            box-shadow: 0 4px 24px rgba(94, 156, 255, 0.3);
         }
 
         .finish-workout-btn:disabled {
@@ -455,7 +504,9 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -464,12 +515,18 @@
         }
 
         .modal-content {
-            background-color: var(--tg-theme-bg-color, var(--card-bg));
-            border-radius: 16px;
+            background: rgba(30, 30, 50, 0.85);
+            backdrop-filter: blur(40px) saturate(200%);
+            -webkit-backdrop-filter: blur(40px) saturate(200%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
             padding: 24px;
             width: 100%;
             max-width: 320px;
             text-align: center;
+            box-shadow:
+                0 24px 48px rgba(0, 0, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
         .modal-title {
@@ -492,21 +549,24 @@
         .modal-btn {
             flex: 1;
             padding: 12px;
-            border-radius: 10px;
+            border-radius: 12px;
             font-size: 15px;
             font-weight: 500;
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
             border: none;
+            transition: all 0.2s;
         }
 
         .modal-btn-cancel {
-            background-color: var(--card-border);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: var(--tg-theme-text-color, var(--text-primary));
         }
 
         .modal-btn-confirm {
-            background-color: var(--accent);
+            background: linear-gradient(135deg, rgba(94, 156, 255, 0.3), rgba(94, 156, 255, 0.2));
+            border: 1px solid rgba(94, 156, 255, 0.3);
             color: #fff;
         }
 
@@ -536,9 +596,11 @@
         .add-set-field-btn {
             width: 48px;
             height: 48px;
-            border-radius: 12px;
-            border: 1px solid var(--card-border);
-            background-color: var(--card-bg);
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             color: var(--accent);
             font-size: 24px;
             display: flex;
@@ -547,10 +609,12 @@
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
             user-select: none;
+            transition: all 0.2s;
         }
 
         .add-set-field-btn:active {
-            background-color: var(--accent-light);
+            background: rgba(94, 156, 255, 0.15);
+            border-color: rgba(94, 156, 255, 0.3);
         }
 
         .add-set-field-input {
@@ -573,9 +637,9 @@
 
         .effort-btn {
             padding: 10px 16px;
-            border-radius: 8px;
-            border: 1px solid var(--card-border);
-            background-color: var(--card-bg);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.06);
             color: var(--tg-theme-text-color, var(--text-secondary));
             font-size: 13px;
             cursor: pointer;
@@ -584,9 +648,9 @@
         }
 
         .effort-btn.selected {
-            background-color: var(--accent);
+            background: linear-gradient(135deg, rgba(94, 156, 255, 0.3), rgba(94, 156, 255, 0.2));
             color: #fff;
-            border-color: var(--accent);
+            border-color: rgba(94, 156, 255, 0.4);
         }
 
         /* Loading */
@@ -626,7 +690,7 @@
         }
 
         .delete-btn:active {
-            background-color: rgba(239, 68, 68, 0.1);
+            background-color: rgba(239, 68, 68, 0.15);
         }
 
         .delete-btn svg {
@@ -650,7 +714,7 @@
         }
 
         .header-delete-btn:active {
-            background-color: rgba(239, 68, 68, 0.1);
+            background-color: rgba(239, 68, 68, 0.15);
         }
     </style>
 </head>

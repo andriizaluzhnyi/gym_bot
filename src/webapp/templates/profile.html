@@ -13,13 +13,16 @@
         }
 
         :root {
-            --bg-color: #0a0a0a;
-            --card-bg: #1a1a1a;
-            --card-border: #2a2a2a;
-            --text-primary: #ffffff;
-            --text-secondary: #888888;
-            --text-muted: #666666;
+            --bg-color: #0a0a14;
+            --card-bg: rgba(255, 255, 255, 0.06);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-highlight: rgba(255, 255, 255, 0.12);
+            --text-primary: #f0f0f5;
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --text-muted: rgba(255, 255, 255, 0.4);
             --accent-green: #4ade80;
+            --glass-blur: 24px;
+            --glass-saturate: 180%;
         }
 
         body {
@@ -29,6 +32,22 @@
             min-height: 100vh;
             padding: 16px;
             padding-bottom: 100px;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(ellipse at 30% 20%, rgba(74, 222, 128, 0.12) 0%, transparent 55%),
+                radial-gradient(ellipse at 70% 70%, rgba(94, 156, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(168, 85, 247, 0.08) 0%, transparent 55%);
+            z-index: -1;
+            pointer-events: none;
         }
 
         .header {
@@ -39,10 +58,16 @@
         }
 
         .card {
-            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
-            border-radius: 16px;
+            background: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+            -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
             padding: 20px;
             margin-bottom: 16px;
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
         }
 
         .card-title {
@@ -66,17 +91,20 @@
         .form-input {
             width: 100%;
             padding: 12px 16px;
-            background-color: var(--card-border);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
             color: var(--tg-theme-text-color, var(--text-primary));
             font-size: 16px;
             outline: none;
-            transition: border-color 0.2s;
+            transition: all 0.2s;
         }
 
         .form-input:focus {
-            border-color: var(--tg-theme-button-color, var(--accent-green));
+            border-color: rgba(74, 222, 128, 0.5);
+            box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.12), 0 0 12px rgba(74, 222, 128, 0.15);
         }
 
         .form-input::placeholder {
@@ -91,9 +119,11 @@
         .gender-btn {
             flex: 1;
             padding: 12px;
-            background-color: var(--card-border);
-            border: 2px solid var(--card-border);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
             color: var(--tg-theme-text-color, var(--text-primary));
             font-size: 16px;
             cursor: pointer;
@@ -102,9 +132,10 @@
         }
 
         .gender-btn.active {
-            background-color: var(--tg-theme-button-color, var(--accent-green));
-            border-color: var(--tg-theme-button-color, var(--accent-green));
-            color: var(--tg-theme-button-text-color, #000);
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.25), rgba(34, 197, 94, 0.15));
+            border-color: rgba(74, 222, 128, 0.4);
+            color: #fff;
+            box-shadow: 0 0 16px rgba(74, 222, 128, 0.15);
         }
 
         .info-row {
@@ -112,7 +143,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 12px 0;
-            border-bottom: 1px solid var(--card-border);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
 
         .info-row:last-child {
@@ -133,19 +164,23 @@
         .save-btn {
             width: 100%;
             padding: 16px;
-            background-color: var(--tg-theme-button-color, var(--accent-green));
-            border: none;
-            border-radius: 12px;
-            color: var(--tg-theme-button-text-color, #000);
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.3), rgba(34, 197, 94, 0.2));
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            border-radius: 14px;
+            color: #fff;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
             -webkit-tap-highlight-color: transparent;
+            box-shadow: 0 4px 20px rgba(74, 222, 128, 0.15);
         }
 
         .save-btn:active {
             transform: scale(0.98);
+            box-shadow: 0 4px 24px rgba(74, 222, 128, 0.25);
         }
 
         .save-btn:disabled {
@@ -159,12 +194,14 @@
             bottom: 0;
             left: 0;
             right: 0;
-            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            background: rgba(10, 10, 20, 0.6);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
             display: flex;
             justify-content: space-around;
             padding: 12px 0;
             padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
-            border-top: 1px solid var(--card-border);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         .nav-item {
@@ -181,6 +218,7 @@
 
         .nav-item.active {
             color: var(--tg-theme-button-color, var(--accent-green));
+            text-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
         }
 
         .nav-icon {
@@ -191,23 +229,29 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 12px;
-            background: linear-gradient(135deg, var(--tg-theme-button-color, var(--accent-green)) 0%, #22c55e 100%);
-            border-radius: 12px;
+            padding: 14px;
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.25), rgba(34, 197, 94, 0.15));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            border-radius: 14px;
             margin-top: 8px;
+            box-shadow:
+                0 4px 16px rgba(74, 222, 128, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
         .bmi-value {
             font-size: 24px;
             font-weight: 700;
-            color: var(--tg-theme-button-text-color, #000);
+            color: #fff;
             margin-right: 8px;
+            text-shadow: 0 0 12px rgba(74, 222, 128, 0.4);
         }
 
         .bmi-label {
             font-size: 14px;
-            color: var(--tg-theme-button-text-color, #000);
-            opacity: 0.8;
+            color: rgba(255, 255, 255, 0.8);
         }
     </style>
 </head>

@@ -12,7 +12,6 @@ from src.bot.keyboards import (
 )
 from src.database.repository import BookingRepository, TrainingRepository, UserRepository
 from src.database.session import async_session_maker
-from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
 
 router = Router()

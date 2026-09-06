@@ -1,6 +1,5 @@
 """Tests for database models."""
 
-import pytest
 from datetime import datetime
 
 from src.database.models import User, Training, Booking, BookingStatus

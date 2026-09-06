@@ -1,7 +1,7 @@
 """Interactive calendar picker for Telegram bot."""
 
 import calendar
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -232,7 +232,6 @@ def process_calendar_callback(callback_data: str) -> tuple[str, dict]:
         Tuple of (action, params dict)
     """
     parts = callback_data.split(":")
-    prefix = parts[0]
     action = parts[1] if len(parts) > 1 else ""
 
     params = {}

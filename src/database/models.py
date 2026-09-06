@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator, CHAR
 
-from src.utils.time import utcnow
+from src.utils.datetime_utils import utcnow
 
 
 class Base(DeclarativeBase):
@@ -81,7 +81,7 @@ class Profile(Base):
 
     __tablename__ = "profiles"
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(              # noqa: A003
         GUID, primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -128,7 +128,7 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)               # noqa: A003
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     first_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -165,7 +165,7 @@ class Training(Base):
 
     __tablename__ = "trainings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)              # noqa: A003
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     training_type: Mapped[str] = mapped_column(String(50), default=TrainingType.GROUP.value)
@@ -205,7 +205,7 @@ class Booking(Base):
 
     __tablename__ = "bookings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)              # noqa: A003
     user_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id"), nullable=False)
     training_id: Mapped[int] = mapped_column(Integer, ForeignKey("trainings.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default=BookingStatus.CONFIRMED.value)
@@ -229,7 +229,7 @@ class DailyNutrition(Base):
 
     __tablename__ = "daily_nutrition"
 
-    id: Mapped[int] = mapped_column(
+    id: Mapped[int] = mapped_column(                        # noqa: A003
         Integer, primary_key=True, autoincrement=True
     )
     user_id: Mapped[uuid.UUID] = mapped_column(

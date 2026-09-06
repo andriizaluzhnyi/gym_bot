@@ -43,7 +43,9 @@ if db_path.exists():
                 LIMIT 5
             """)
             for row in cursor.fetchall():
-                print(f"  ID={row[0]}, user_id={row[1]}, date={row[2]}, water={row[3]}мл, cal={row[4]}, P={row[5]}г, F={row[6]}г, C={row[7]}г")
+                print(
+                    f"  ID={row[0]}, user_id={row[1]}, date={row[2]}, "
+                    f"water={row[3]}мл, cal={row[4]}, P={row[5]}г, F={row[6]}г, C={row[7]}г")
     else:
         print("\n⚠️ Таблиця daily_nutrition НЕ знайдена!")
 

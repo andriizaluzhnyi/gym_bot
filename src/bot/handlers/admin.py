@@ -1,5 +1,6 @@
 """Admin handlers for managing trainings."""
 
+from contextlib import suppress
 from datetime import datetime
 
 from aiogram import F, Router
@@ -81,7 +82,7 @@ async def process_title(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("calendar:"))
 async def calendar_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle calendar navigation and date selection."""
-    current_state = await state.get_state()
+    _ = await state.get_state()
 
     action, params = process_calendar_callback(callback.data)
 
@@ -348,18 +349,16 @@ async def admin_cancel_training_callback(callback: CallbackQuery) -> None:
             return
 
         # Get participants to notify
-        bookings = await booking_repo.get_training_participants(training_id)
+        _ = await booking_repo.get_training_participants(training_id)
 
         # Cancel training
         await training_repo.cancel(training_id)
 
         # Cancel in Google Calendar
-        try:
+        with suppress(Exception):
             if training.google_calendar_event_id:
                 calendar_service = GoogleCalendarService()
                 await calendar_service.delete_event(training.google_calendar_event_id)
-        except Exception:
-            pass
 
         await session.commit()
 

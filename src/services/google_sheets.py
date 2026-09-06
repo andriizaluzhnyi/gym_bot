@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.config import get_settings
-from src.utils.time import utcnow
+from src.utils.datetime_utils import utcnow
 
 if TYPE_CHECKING:
     from src.database.models import Booking, Training, User
@@ -119,11 +119,11 @@ class GoogleSheetsService:
             "Відвідування": [
                 ["Дата", "Тренування", "Учасник", "Telegram", "Присутність"]
             ],
-        }
 
-        headers["Програми"] = [
-            ["День", "Група м'язів", "Вправа", "Підходи/Повторення", "Коментар", "Дата"]
-        ]
+            "Програми": [
+                ["День", "Група м'язів", "Вправа", "Підходи/Повторення", "Коментар", "Дата"]
+            ],
+        }
 
         try:
             service = self._get_service()
@@ -892,14 +892,13 @@ class GoogleSheetsService:
 
             max_day = 0
             for row in values[1:]:
-                if len(row) >= 2 and row[0] and row[1]:
-                    if row[1] == muscle_group:
-                        try:
-                            day = int(row[0])
-                            if day > max_day:
-                                max_day = day
-                        except ValueError:
-                            continue
+                if len(row) >= 2 and row[0] and row[1] == muscle_group:
+                    try:
+                        day = int(row[0])
+                        if day > max_day:
+                            max_day = day
+                    except ValueError:
+                        continue
 
             return max_day
 
@@ -1418,9 +1417,10 @@ class GoogleSheetsService:
                     continue
 
                 # Filter by day if specified
-                if day is not None:
-                    if not log_day or str(log_day).strip() != str(day):
-                        continue
+                if day is not None and (
+                    not log_day or str(log_day).strip() != str(day)
+                ):
+                    continue
 
                 set_number = row[4]
                 weight = row[5]

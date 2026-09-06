@@ -5,7 +5,7 @@ from aiogram import Router
 from src.bot.handlers.admin import router as admin_router
 from src.bot.handlers.booking import router as booking_router
 from src.bot.handlers.nutrition import router as nutrition_router
-from src.bot.handlers.profile import router as profile_router
+from src.bot.handlers.user_profile import router as profile_router
 from src.bot.handlers.schedule import router as schedule_router
 from src.bot.handlers.start import router as start_router
 from src.bot.handlers.workout_program import router as workout_program_router

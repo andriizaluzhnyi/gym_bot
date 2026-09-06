@@ -616,7 +616,7 @@ async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext)
             filter_muscle = None if action == "all" else action
             await state.clear()
             await callback.message.edit_text(
-                f"📋 *Завантаження програм...*",
+                "📋 *Завантаження програм...*",
                 parse_mode="Markdown"
             )
             await _show_programs_filtered(
@@ -676,7 +676,7 @@ async def process_view_day_filter(callback: CallbackQuery, state: FSMContext) ->
 
     await state.clear()
     await callback.message.edit_text(
-        f"📋 *Завантаження програм...*",
+        "📋 *Завантаження програм...*",
         parse_mode="Markdown"
     )
     await _show_programs_filtered(

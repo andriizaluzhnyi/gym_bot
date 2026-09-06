@@ -210,7 +210,7 @@ async def api_save_daily_nutrition(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Save daily nutrition record (increment only)
-        from src.utils.time import utcnow
+        from src.utils.datetime_utils import utcnow
         record = await daily_nutrition_repo.create(
             user_id=user.id,
             date=utcnow(),
@@ -262,7 +262,7 @@ async def api_get_daily_nutrition(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Get today's total (sum of all records)
-        from src.utils.time import utcnow
+        from src.utils.datetime_utils import utcnow
         totals = await daily_nutrition_repo.get_today_total(
             user.id, utcnow()
         )
@@ -303,7 +303,7 @@ async def api_add_meal(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Create meal record
-        from src.utils.time import utcnow
+        from src.utils.datetime_utils import utcnow
         record = await daily_nutrition_repo.create(
             user_id=user.id,
             date=utcnow(),
@@ -356,7 +356,7 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
         # Get today's meals (all records for today where water_ml is 0)
         from sqlalchemy import and_, select
         from src.database.models import DailyNutrition
-        from src.utils.time import utcnow
+        from src.utils.datetime_utils import utcnow
 
         start_of_day = utcnow().replace(
             hour=0, minute=0, second=0, microsecond=0

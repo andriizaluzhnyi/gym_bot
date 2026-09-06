@@ -7,7 +7,7 @@ from pathlib import Path
 from src.database.models import Base
 from src.database.repository import DailyNutritionRepository, UserRepository
 from src.database.session import async_session_maker, engine
-from src.utils.time import utcnow
+from src.utils.datetime_utils import utcnow
 
 
 async def test_multiple_entries():
@@ -75,7 +75,7 @@ async def test_multiple_entries():
         )
 
         print(f"\n✓ Today's total water: {totals['water_ml']}ml")
-        print(f"  Expected: 550ml")
+        print("  Expected: 550ml")
 
         if totals['water_ml'] == 550:
             print("\n✅ TEST PASSED!")

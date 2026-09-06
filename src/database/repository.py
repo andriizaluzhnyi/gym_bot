@@ -15,7 +15,7 @@ from src.database.models import (
     Training,
     User,
 )
-from src.utils.time import utcnow
+from src.utils.datetime_utils import utcnow
 
 
 class UserRepository:
@@ -633,4 +633,3 @@ class DailyNutritionRepository:
             'fats': row.fats or 0,
             'carbs': row.carbs or 0,
         }
-

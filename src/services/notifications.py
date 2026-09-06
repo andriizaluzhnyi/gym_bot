@@ -8,7 +8,7 @@ from src.config import get_settings
 from src.database.models import BookingStatus
 from src.database.repository import BookingRepository, TrainingRepository
 from src.database.session import async_session_maker
-from src.utils.time import utcnow
+from src.utils.datetime_utils import utcnow
 
 settings = get_settings()
 

@@ -6,14 +6,13 @@ These records have values equal to user goals instead of actual consumption.
 import asyncio
 import sys
 from pathlib import Path
+from sqlalchemy import delete
+from src.database.session import async_session_maker
+from src.database.models import DailyNutrition
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from sqlalchemy import delete
-from src.database.session import async_session_maker
-from src.database.models import DailyNutrition
 
 
 async def clean_data():

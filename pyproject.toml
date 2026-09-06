@@ -31,9 +31,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
+test = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+]
+
+dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]

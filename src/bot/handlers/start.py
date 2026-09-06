@@ -16,6 +16,9 @@ settings = get_settings()
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     """Handle /start command."""
+    if message.from_user is None:
+        return
+
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         user, is_new = await user_repo.get_or_create(
@@ -46,7 +49,7 @@ async def cmd_start(message: Message) -> None:
 
     await message.answer(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
 
-    if settings.webapp_url:
+    if settings.webapp_url and message.bot is not None:
         await message.bot.set_chat_menu_button(
             chat_id=message.chat.id,
             menu_button=MenuButtonWebApp(
@@ -86,6 +89,9 @@ async def cmd_help(message: Message) -> None:
 @router.message(F.contact)
 async def contact_handler(message: Message) -> None:
     """Handle contact sharing."""
+    if message.contact is None or message.from_user is None:
+        return
+
     if message.contact.user_id != message.from_user.id:
         await message.answer("❌ Будь ласка, поділіться своїм контактом")
         return

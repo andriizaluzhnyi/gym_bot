@@ -42,6 +42,9 @@ async def schedule_handler(message: Message) -> None:
 @router.callback_query(F.data == "back_to_schedule")
 async def back_to_schedule_callback(callback: CallbackQuery) -> None:
     """Handle back to schedule button."""
+    if not isinstance(callback.message, Message):
+        return
+
     async with async_session_maker() as session:
         training_repo = TrainingRepository(session)
         trainings = await training_repo.get_upcoming(limit=10)
@@ -61,6 +64,9 @@ async def back_to_schedule_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("training:"))
 async def training_detail_callback(callback: CallbackQuery) -> None:
     """Show training details."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     training_id = int(callback.data.split(":")[1])
 
     async with async_session_maker() as session:

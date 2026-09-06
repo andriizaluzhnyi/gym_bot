@@ -83,19 +83,19 @@ def validate_telegram_webapp_data(init_data: str) -> dict | None:
         return None
 
 
-async def nutrition_handler(request: web.Request) -> web.Response:
+async def nutrition_handler(request: web.Request) -> web.StreamResponse:
     """Serve the nutrition tracking Mini App."""
     html_path = TEMPLATES_DIR / 'nutrition.html'
     return web.FileResponse(html_path)
 
 
-async def profile_handler(request: web.Request) -> web.Response:
+async def profile_handler(request: web.Request) -> web.StreamResponse:
     """Serve the profile Mini App."""
     html_path = TEMPLATES_DIR / 'profile.html'
     return web.FileResponse(html_path)
 
 
-async def meal_entry_handler(request: web.Request) -> web.Response:
+async def meal_entry_handler(request: web.Request) -> web.StreamResponse:
     """Serve the meal entry Mini App."""
     html_path = TEMPLATES_DIR / 'meal_entry.html'
     return web.FileResponse(html_path)
@@ -395,7 +395,7 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
         })
 
 
-async def workout_handler(request: web.Request) -> web.Response:
+async def workout_handler(request: web.Request) -> web.StreamResponse:
     """Serve the workout tracking Mini App."""
     html_path = TEMPLATES_DIR / 'workout.html'
     return web.FileResponse(html_path)

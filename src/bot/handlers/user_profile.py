@@ -1,5 +1,7 @@
 """Profile handlers with nutrition settings."""
 
+from typing import Any
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -80,12 +82,17 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def _format_nutrition_settings(nutrition: dict) -> str:
+def _format_nutrition_settings(nutrition: dict[str, Any]) -> str:
     """Format nutrition settings for display."""
-    gender_text = {
-        Gender.MALE.value: "👨 Чоловік",
-        Gender.FEMALE.value: "👩 Жінка",
-    }.get(nutrition.get("gender"), "не вказано")
+    gender_value = nutrition.get("gender")
+    gender_text = (
+        {
+            Gender.MALE.value: "👨 Чоловік",
+            Gender.FEMALE.value: "👩 Жінка",
+        }.get(gender_value, "не вказано")
+        if isinstance(gender_value, str)
+        else "не вказано"
+    )
 
     age = nutrition.get("age")
     height = nutrition.get("height")
@@ -111,6 +118,9 @@ def _format_nutrition_settings(nutrition: dict) -> str:
 @router.message(F.text == "👤 Профіль")
 async def profile_handler(message: Message) -> None:
     """Handle profile button with nutrition settings."""
+    if message.from_user is None:
+        return
+
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         user = await user_repo.get_by_telegram_id(message.from_user.id)
@@ -138,6 +148,9 @@ async def profile_handler(message: Message) -> None:
 @router.callback_query(F.data == "profile:edit_nutrition")
 async def show_nutrition_settings(callback: CallbackQuery) -> None:
     """Show nutrition settings."""
+    if not isinstance(callback.message, Message):
+        return
+
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(callback.from_user.id)
@@ -168,6 +181,9 @@ async def open_webapp_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "edit:back")
 async def back_to_profile(callback: CallbackQuery, state: FSMContext) -> None:
     """Go back to profile."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.clear()
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
@@ -206,6 +222,9 @@ async def cancel_edit(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:age")
 async def start_edit_age(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing age."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_age)
     await callback.message.edit_text(
         "🎂 *Введіть ваш вік (число від 10 до 100):*",
@@ -218,6 +237,9 @@ async def start_edit_age(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(ProfileSettingsStates.edit_age)
 async def process_edit_age(message: Message, state: FSMContext) -> None:
     """Process age input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         age = int(message.text.strip())
         if not 10 <= age <= 100:
@@ -238,6 +260,8 @@ async def process_edit_age(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -246,6 +270,9 @@ async def process_edit_age(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:height")
 async def start_edit_height(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing height."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_height)
     await callback.message.edit_text(
         "📏 *Введіть ваш зріст в см (число від 100 до 250):*",
@@ -258,6 +285,9 @@ async def start_edit_height(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(ProfileSettingsStates.edit_height)
 async def process_edit_height(message: Message, state: FSMContext) -> None:
     """Process height input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         height = float(message.text.strip().replace(",", "."))
         if not 100 <= height <= 250:
@@ -277,6 +307,8 @@ async def process_edit_height(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -285,6 +317,9 @@ async def process_edit_height(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:weight")
 async def start_edit_weight(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing weight."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_weight)
     await callback.message.edit_text(
         "⚖️ *Введіть вашу вагу в кг (число від 30 до 300):*",
@@ -297,6 +332,9 @@ async def start_edit_weight(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(ProfileSettingsStates.edit_weight)
 async def process_edit_weight(message: Message, state: FSMContext) -> None:
     """Process weight input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         weight = float(message.text.strip().replace(",", "."))
         if not 30 <= weight <= 300:
@@ -316,6 +354,8 @@ async def process_edit_weight(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -324,6 +364,9 @@ async def process_edit_weight(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:gender")
 async def start_edit_gender(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing gender."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_gender)
     await callback.message.edit_text(
         "👤 *Оберіть стать:*",
@@ -336,6 +379,9 @@ async def start_edit_gender(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("gender:"))
 async def process_edit_gender(callback: CallbackQuery, state: FSMContext) -> None:
     """Process gender selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -357,6 +403,8 @@ async def process_edit_gender(callback: CallbackQuery, state: FSMContext) -> Non
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(callback.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -365,6 +413,9 @@ async def process_edit_gender(callback: CallbackQuery, state: FSMContext) -> Non
 @router.callback_query(F.data == "edit:water")
 async def start_edit_water(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing daily water goal."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_water)
     await callback.message.edit_text(
         "💧 *Введіть денну норму води в мл (від 500 до 10000):*",
@@ -377,6 +428,9 @@ async def start_edit_water(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(ProfileSettingsStates.edit_water)
 async def process_edit_water(message: Message, state: FSMContext) -> None:
     """Process water goal input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         water = int(message.text.strip())
         if not 500 <= water <= 10000:
@@ -396,6 +450,8 @@ async def process_edit_water(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -404,6 +460,9 @@ async def process_edit_water(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:calories")
 async def start_edit_calories(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing daily calories goal."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_calories)
     await callback.message.edit_text(
         "🔥 *Введіть денну норму калорій (від 1000 до 10000):*",
@@ -416,6 +475,9 @@ async def start_edit_calories(callback: CallbackQuery, state: FSMContext) -> Non
 @router.message(ProfileSettingsStates.edit_calories)
 async def process_edit_calories(message: Message, state: FSMContext) -> None:
     """Process calories goal input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         calories = int(message.text.strip())
         if not 1000 <= calories <= 10000:
@@ -435,6 +497,8 @@ async def process_edit_calories(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -443,6 +507,9 @@ async def process_edit_calories(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:protein")
 async def start_edit_protein(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing daily protein goal."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_protein)
     await callback.message.edit_text(
         "🥩 *Введіть денну норму білків в грамах (від 10 до 500):*",
@@ -455,6 +522,9 @@ async def start_edit_protein(callback: CallbackQuery, state: FSMContext) -> None
 @router.message(ProfileSettingsStates.edit_protein)
 async def process_edit_protein(message: Message, state: FSMContext) -> None:
     """Process protein goal input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         protein = int(message.text.strip())
         if not 10 <= protein <= 500:
@@ -474,6 +544,8 @@ async def process_edit_protein(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -482,6 +554,9 @@ async def process_edit_protein(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:fats")
 async def start_edit_fats(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing daily fats goal."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_fats)
     await callback.message.edit_text(
         "🧈 *Введіть денну норму жирів в грамах (від 10 до 300):*",
@@ -494,6 +569,9 @@ async def start_edit_fats(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(ProfileSettingsStates.edit_fats)
 async def process_edit_fats(message: Message, state: FSMContext) -> None:
     """Process fats goal input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         fats = int(message.text.strip())
         if not 10 <= fats <= 300:
@@ -513,6 +591,8 @@ async def process_edit_fats(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -521,6 +601,9 @@ async def process_edit_fats(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "edit:carbs")
 async def start_edit_carbs(callback: CallbackQuery, state: FSMContext) -> None:
     """Start editing daily carbs goal."""
+    if not isinstance(callback.message, Message):
+        return
+
     await state.set_state(ProfileSettingsStates.edit_carbs)
     await callback.message.edit_text(
         "🍞 *Введіть денну норму вуглеводів в грамах (від 10 до 700):*",
@@ -533,6 +616,9 @@ async def start_edit_carbs(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(ProfileSettingsStates.edit_carbs)
 async def process_edit_carbs(message: Message, state: FSMContext) -> None:
     """Process carbs goal input."""
+    if message.from_user is None or message.text is None:
+        return
+
     try:
         carbs = int(message.text.strip())
         if not 10 <= carbs <= 700:
@@ -552,6 +638,8 @@ async def process_edit_carbs(message: Message, state: FSMContext) -> None:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         nutrition = await user_repo.get_nutrition_settings(message.from_user.id)
+        if nutrition is None:
+            return
         text = _format_nutrition_settings(nutrition)
         keyboard = get_nutrition_settings_keyboard()
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")

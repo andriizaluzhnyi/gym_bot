@@ -20,6 +20,8 @@ sys.path.insert(0, str(project_root))
 # Import models.py directly without going through __init__.py to avoid config loading
 models_path = project_root / "src" / "database" / "models.py"
 spec = importlib.util.spec_from_file_location("models", models_path)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Could not load module spec for {models_path}")
 models = importlib.util.module_from_spec(spec)
 sys.modules["models"] = models
 spec.loader.exec_module(models)

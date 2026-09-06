@@ -1,6 +1,7 @@
 """Workout program handlers for creating training programs."""
 
 from datetime import datetime
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -98,6 +99,9 @@ async def start_workout_program(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("user:"))
 async def process_user_selection(callback: CallbackQuery, state: FSMContext) -> None:
     """Process user selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -141,6 +145,9 @@ async def process_user_selection(callback: CallbackQuery, state: FSMContext) -> 
 @router.callback_query(F.data.startswith("day:"))
 async def process_day_selection(callback: CallbackQuery, state: FSMContext) -> None:
     """Process day selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     parts = callback.data.split(":")
     action = parts[1]
 
@@ -170,6 +177,9 @@ async def process_day_selection(callback: CallbackQuery, state: FSMContext) -> N
 @router.callback_query(F.data.startswith("muscle:"))
 async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> None:
     """Process muscle group selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -222,6 +232,9 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
 @router.message(WorkoutProgramStates.exercise_name)
 async def process_exercise_name(message: Message, state: FSMContext) -> None:
     """Process exercise name input."""
+    if message.text is None:
+        return
+
     exercise_name = message.text.strip()
     await state.update_data(current_exercise=exercise_name)
     await state.set_state(WorkoutProgramStates.sets)
@@ -243,6 +256,9 @@ async def process_exercise_name(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("sets:"))
 async def process_sets_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Process sets selection from keyboard."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -272,6 +288,9 @@ async def process_sets_callback(callback: CallbackQuery, state: FSMContext) -> N
 @router.message(WorkoutProgramStates.sets)
 async def process_sets_text(message: Message, state: FSMContext) -> None:
     """Process manual sets input."""
+    if message.text is None:
+        return
+
     sets = message.text.strip()
 
     data = await state.get_data()
@@ -308,6 +327,9 @@ async def process_sets_text(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("reps:"))
 async def process_reps_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Process reps selection from keyboard."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -336,6 +358,9 @@ async def process_reps_callback(callback: CallbackQuery, state: FSMContext) -> N
 @router.message(WorkoutProgramStates.reps)
 async def process_reps_text(message: Message, state: FSMContext) -> None:
     """Process manual reps input."""
+    if message.text is None:
+        return
+
     reps = message.text.strip()
     await state.update_data(current_reps=reps)
     await state.set_state(WorkoutProgramStates.comment)
@@ -355,6 +380,9 @@ async def process_reps_text(message: Message, state: FSMContext) -> None:
 @router.message(WorkoutProgramStates.comment)
 async def process_comment(message: Message, state: FSMContext) -> None:
     """Process comment input and save exercise."""
+    if message.text is None:
+        return
+
     comment = message.text.strip() if message.text.strip() != "-" else ""
 
     data = await state.get_data()
@@ -402,6 +430,9 @@ async def process_comment(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("program:"))
 async def process_program_action(callback: CallbackQuery, state: FSMContext) -> None:
     """Process program actions (add more or finish)."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "add_more":
@@ -448,7 +479,7 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
         summary = f"✅ *День {day_num}{user_header} збережено!*\n\n"
 
         # Group by muscle group
-        by_group = {}
+        by_group: dict[str, list[dict[str, Any]]] = {}
         for ex in exercises:
             group = ex["muscle_group"]
             if group not in by_group:
@@ -529,7 +560,7 @@ async def _show_programs(message: Message, user_name: str | None = None) -> None
             return
 
         # Group by day
-        by_day = {}
+        by_day: dict[Any, list[dict[str, Any]]] = {}
         for p in programs:
             day = p.get("day", "?")
             if day not in by_day:
@@ -543,7 +574,7 @@ async def _show_programs(message: Message, user_name: str | None = None) -> None
             text += f"\n📅 *День {day}*\n"
 
             # Group by muscle in this day
-            by_muscle = {}
+            by_muscle: dict[Any, list[dict[str, Any]]] = {}
             for ex in by_day[day]:
                 muscle = ex.get("muscle_group", "Інше")
                 if muscle not in by_muscle:
@@ -579,6 +610,9 @@ async def _show_programs(message: Message, user_name: str | None = None) -> None
 @router.callback_query(F.data.startswith("view_muscle:"))
 async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext) -> None:
     """Process muscle group filter selection for viewing."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "cancel":
@@ -647,6 +681,9 @@ async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext)
 @router.callback_query(F.data.startswith("view_day:"))
 async def process_view_day_filter(callback: CallbackQuery, state: FSMContext) -> None:
     """Process day filter selection for viewing."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action = callback.data.split(":")[1]
 
     if action == "back":
@@ -733,7 +770,7 @@ async def _show_programs_filtered(
             return
 
         # Group by day
-        by_day = {}
+        by_day: dict[Any, list[dict[str, Any]]] = {}
         for p in programs:
             d = p.get("day", "?")
             if d not in by_day:
@@ -747,7 +784,7 @@ async def _show_programs_filtered(
             text += f"\n📅 *День {d}*\n"
 
             # Group by muscle in this day
-            by_muscle = {}
+            by_muscle: dict[Any, list[dict[str, Any]]] = {}
             for ex in by_day[d]:
                 m = ex.get("muscle_group", "Інше")
                 if m not in by_muscle:

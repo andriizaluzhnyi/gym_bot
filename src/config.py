@@ -75,4 +75,6 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
-    return Settings()
+    # Required fields (e.g. telegram_bot_token) are populated from environment
+    # variables by pydantic-settings at runtime, not by this call site.
+    return Settings()  # type: ignore[call-arg]

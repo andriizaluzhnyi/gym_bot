@@ -125,23 +125,20 @@ class GoogleSheetsService:
             ],
         }
 
+        def _update_header(sheet_name: str, header_rows: list) -> None:
+            service.spreadsheets().values().update(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"{sheet_name}!A1",
+                valueInputOption="RAW",
+                body={"values": header_rows},
+            ).execute()
+
         try:
             service = self._get_service()
             loop = asyncio.get_event_loop()
 
             for sheet_name, header_rows in headers.items():
-                await loop.run_in_executor(
-                    None,
-                    lambda sn=sheet_name, hr=header_rows: service.spreadsheets()
-                    .values()
-                    .update(
-                        spreadsheetId=self.spreadsheet_id,
-                        range=f"{sn}!A1",
-                        valueInputOption="RAW",
-                        body={"values": hr},
-                    )
-                    .execute(),
-                )
+                await loop.run_in_executor(None, _update_header, sheet_name, header_rows)
 
         except Exception as e:
             print(f"Error adding headers: {e}")

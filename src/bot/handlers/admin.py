@@ -82,6 +82,9 @@ async def process_title(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("calendar:"))
 async def calendar_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle calendar navigation and date selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     _ = await state.get_state()
 
     action, params = process_calendar_callback(callback.data)
@@ -135,6 +138,9 @@ async def calendar_callback(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("time:"))
 async def time_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle time selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     action, params = process_calendar_callback(callback.data)
 
     if action == "cancel":
@@ -169,6 +175,9 @@ async def time_callback(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("duration:"))
 async def duration_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle duration selection."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     parts = callback.data.split(":")
     action = parts[1]
 
@@ -194,6 +203,9 @@ async def duration_callback(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.startswith("participants:"))
 async def participants_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle participants selection and create training."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     parts = callback.data.split(":")
     action = parts[1]
 
@@ -296,6 +308,9 @@ async def statistics_handler(message: Message) -> None:
 @router.callback_query(F.data.startswith("admin_participants:"))
 async def admin_participants_callback(callback: CallbackQuery) -> None:
     """Show training participants for admin."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Немає доступу", show_alert=True)
         return
@@ -333,6 +348,9 @@ async def admin_participants_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("admin_cancel:"))
 async def admin_cancel_training_callback(callback: CallbackQuery) -> None:
     """Cancel training (admin)."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Немає доступу", show_alert=True)
         return
@@ -379,6 +397,9 @@ async def admin_cancel_training_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "admin_back")
 async def admin_back_callback(callback: CallbackQuery) -> None:
     """Go back to schedule (admin)."""
+    if not isinstance(callback.message, Message):
+        return
+
     async with async_session_maker() as session:
         training_repo = TrainingRepository(session)
         trainings = await training_repo.get_upcoming(limit=10)
@@ -395,6 +416,9 @@ async def admin_back_callback(callback: CallbackQuery) -> None:
 @router.message(Command("admin"))
 async def admin_command(message: Message) -> None:
     """Show admin menu."""
+    if message.from_user is None:
+        return
+
     if not is_admin(message.from_user.id):
         await message.answer("❌ У вас немає прав адміністратора")
         return

@@ -392,7 +392,7 @@ class BookingRepository:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, user_id: int, training_id: int) -> Booking:
+    async def create(self, user_id: uuid.UUID, training_id: int) -> Booking:
         """Create a new booking."""
         booking = Booking(
             user_id=user_id,
@@ -426,7 +426,7 @@ class BookingRepository:
             await self.session.flush()
         return booking
 
-    async def get_user_upcoming_bookings(self, user_id: int) -> list[Booking]:
+    async def get_user_upcoming_bookings(self, user_id: uuid.UUID) -> list[Booking]:
         """Get user's upcoming bookings."""
         result = await self.session.execute(
             select(Booking)

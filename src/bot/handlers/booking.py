@@ -21,6 +21,9 @@ router = Router()
 @router.message(F.text == "📝 Мої записи")
 async def my_bookings_handler(message: Message) -> None:
     """Show user's upcoming bookings."""
+    if message.from_user is None:
+        return
+
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
         booking_repo = BookingRepository(session)
@@ -52,6 +55,9 @@ async def my_bookings_handler(message: Message) -> None:
 @router.callback_query(F.data.startswith("book:"))
 async def book_training_callback(callback: CallbackQuery) -> None:
     """Handle booking request."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     training_id = int(callback.data.split(":")[1])
 
     async with async_session_maker() as session:
@@ -112,6 +118,9 @@ async def book_training_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("cancel_booking:"))
 async def cancel_booking_from_training_callback(callback: CallbackQuery) -> None:
     """Handle cancel booking request from training detail."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     training_id = int(callback.data.split(":")[1])
 
     text = (
@@ -127,6 +136,9 @@ async def cancel_booking_from_training_callback(callback: CallbackQuery) -> None
 @router.callback_query(F.data.startswith("confirm_cancel:"))
 async def confirm_cancel_callback(callback: CallbackQuery) -> None:
     """Confirm booking cancellation."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     training_id = int(callback.data.split(":")[1])
 
     async with async_session_maker() as session:
@@ -179,6 +191,9 @@ async def confirm_cancel_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("cancel_booking_id:"))
 async def cancel_booking_by_id_callback(callback: CallbackQuery) -> None:
     """Cancel booking by booking ID."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     booking_id = int(callback.data.split(":")[1])
 
     async with async_session_maker() as session:
@@ -212,6 +227,9 @@ async def cancel_booking_by_id_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("my_booking:"))
 async def my_booking_detail_callback(callback: CallbackQuery) -> None:
     """Show booking detail from my bookings list."""
+    if not callback.data or not isinstance(callback.message, Message):
+        return
+
     booking_id = int(callback.data.split(":")[1])
 
     async with async_session_maker() as session:

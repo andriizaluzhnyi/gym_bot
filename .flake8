@@ -1,0 +1,24 @@
+[flake8]
+# Basic Flake8 rules
+select = E, F, W
+
+# Enable plugin rules
+extend-select =
+    B,         # flake8-bugbear
+    A,         # flake8-builtins
+    C4,        # flake8-comprehensions
+    T10,       # flake8-debugger
+    SIM,       # flake8-simplify
+    N          # pep8-naming
+
+ignore = W503
+
+max-line-length = 127
+max-complexity = 10
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    build,
+    dist,
+    migrations

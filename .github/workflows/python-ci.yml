@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-ci:
+    uses: https://github.com/andriizaluzhnyi/shared_workflow/python-ci.yml@v1
+    with:
+      python-version: "3.13"
+      run-lint: true
+      run-type-check: true
+      run-tests: true
+      coverage-threshold: "80"

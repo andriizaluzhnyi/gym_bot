@@ -6,8 +6,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "2020:2020"
+    expose:
+      - "2010"
     env_file:
       - .env
     volumes:
@@ -17,6 +17,20 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: gym_caddy
+    restart: unless-stopped
+    depends_on:
+      - bot
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
   postgres:
     image: postgres:17.7-alpine
@@ -35,3 +49,5 @@ services:
 volumes:
   data:
   postgres_data:
+  caddy_data:
+  caddy_config:

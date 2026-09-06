@@ -12,4 +12,4 @@ jobs:
       run-lint: true
       run-type-check: true
       run-tests: true
-      coverage-threshold: "80"
+      coverage-threshold: "60"

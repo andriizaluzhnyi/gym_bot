@@ -8,6 +8,7 @@ from src.config import get_settings
 from src.database.models import BookingStatus
 from src.database.repository import BookingRepository, TrainingRepository
 from src.database.session import async_session_maker
+from src.utils.time import utcnow
 
 settings = get_settings()
 
@@ -83,7 +84,7 @@ class NotificationService:
             booking_repo = BookingRepository(session)
 
             # Get trainings in the reminder window
-            now = datetime.utcnow()
+            now = utcnow()
             target_time = now + timedelta(hours=hours_before)
             window_start = target_time - timedelta(minutes=30)
             window_end = target_time + timedelta(minutes=30)

@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.config import get_settings
+from src.utils.time import utcnow
 
 if TYPE_CHECKING:
     from src.database.models import Booking, Training, User
@@ -360,7 +361,7 @@ class GoogleSheetsService:
             loop = asyncio.get_event_loop()
 
             date_str = training.scheduled_at.strftime("%d.%m.%Y %H:%M")
-            created_str = datetime.utcnow().strftime("%d.%m.%Y %H:%M")
+            created_str = utcnow().strftime("%d.%m.%Y %H:%M")
 
             row = [
                 str(booking.id),

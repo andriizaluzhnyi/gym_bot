@@ -15,6 +15,7 @@ from src.database.models import (
     Training,
     User,
 )
+from src.utils.time import utcnow
 
 
 class UserRepository:
@@ -305,7 +306,7 @@ class TrainingRepository:
             .options(selectinload(Training.bookings))
             .where(
                 and_(
-                    Training.scheduled_at > datetime.utcnow(),
+                    Training.scheduled_at > utcnow(),
                     Training.is_cancelled == False,  # noqa: E712
                 )
             )
@@ -357,7 +358,7 @@ class TrainingRepository:
         """Get trainings that need reminder notifications."""
         from datetime import timedelta
 
-        now = datetime.utcnow()
+        now = utcnow()
         target_time = now + timedelta(hours=hours_before)
         window_start = target_time - timedelta(minutes=30)
         window_end = target_time + timedelta(minutes=30)
@@ -435,7 +436,7 @@ class BookingRepository:
                 and_(
                     Booking.user_id == user_id,
                     Booking.status == BookingStatus.CONFIRMED.value,
-                    Training.scheduled_at > datetime.utcnow(),
+                    Training.scheduled_at > utcnow(),
                     Training.is_cancelled == False,  # noqa: E712
                 )
             )
@@ -564,7 +565,7 @@ class DailyNutritionRepository:
                 record.fats = fats
             if carbs is not None:
                 record.carbs = carbs
-            record.updated_at = datetime.utcnow()
+            record.updated_at = utcnow()
         else:
             # Create new record
             record = DailyNutrition(

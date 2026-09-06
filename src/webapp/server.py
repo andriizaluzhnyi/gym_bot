@@ -210,10 +210,10 @@ async def api_save_daily_nutrition(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Save daily nutrition record (increment only)
-        from datetime import datetime
+        from src.utils.time import utcnow
         record = await daily_nutrition_repo.create(
             user_id=user.id,
-            date=datetime.utcnow(),
+            date=utcnow(),
             water_ml=body.get('water_ml'),
             calories=body.get('calories'),
             protein=body.get('protein'),
@@ -262,9 +262,9 @@ async def api_get_daily_nutrition(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Get today's total (sum of all records)
-        from datetime import datetime
+        from src.utils.time import utcnow
         totals = await daily_nutrition_repo.get_today_total(
-            user.id, datetime.utcnow()
+            user.id, utcnow()
         )
 
         return web.json_response({
@@ -303,10 +303,10 @@ async def api_add_meal(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Create meal record
-        from datetime import datetime
+        from src.utils.time import utcnow
         record = await daily_nutrition_repo.create(
             user_id=user.id,
-            date=datetime.utcnow(),
+            date=utcnow(),
             water_ml=0,
             calories=body.get('calories', 0),
             protein=body.get('protein', 0),
@@ -354,14 +354,14 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Get today's meals (all records for today where water_ml is 0)
-        from datetime import datetime
         from sqlalchemy import and_, select
         from src.database.models import DailyNutrition
+        from src.utils.time import utcnow
 
-        start_of_day = datetime.utcnow().replace(
+        start_of_day = utcnow().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        end_of_day = datetime.utcnow().replace(
+        end_of_day = utcnow().replace(
             hour=23, minute=59, second=59, microsecond=999999
         )
 

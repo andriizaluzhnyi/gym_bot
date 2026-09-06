@@ -2,12 +2,12 @@
 
 import asyncio
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 
 from src.database.models import Base
 from src.database.repository import DailyNutritionRepository, UserRepository
 from src.database.session import async_session_maker, engine
+from src.utils.time import utcnow
 
 
 async def test_multiple_entries():
@@ -36,7 +36,7 @@ async def test_multiple_entries():
         print("\nAdding water entries:")
         entry1 = await nutrition_repo.create(
             user_id=user.id,
-            date=datetime.utcnow(),
+            date=utcnow(),
             water_ml=100,
             calories=0,
             protein=0,
@@ -47,7 +47,7 @@ async def test_multiple_entries():
 
         entry2 = await nutrition_repo.create(
             user_id=user.id,
-            date=datetime.utcnow(),
+            date=utcnow(),
             water_ml=200,
             calories=0,
             protein=0,
@@ -58,7 +58,7 @@ async def test_multiple_entries():
 
         entry3 = await nutrition_repo.create(
             user_id=user.id,
-            date=datetime.utcnow(),
+            date=utcnow(),
             water_ml=250,
             calories=0,
             protein=0,
@@ -71,7 +71,7 @@ async def test_multiple_entries():
 
         # Get today's total
         totals = await nutrition_repo.get_today_total(
-            user.id, datetime.utcnow()
+            user.id, utcnow()
         )
 
         print(f"\n✓ Today's total water: {totals['water_ml']}ml")

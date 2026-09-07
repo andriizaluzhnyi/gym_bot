@@ -7,11 +7,15 @@ from pathlib import Path
 from aiohttp import web
 
 from src.config import get_settings
-from src.database.repository import DailyNutritionRepository, UserRepository
+from src.database.repository import (
+    DailyNutritionRepository,
+    UserRepository,
+    WorkoutSessionRepository,
+)
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
-from src.webapp.auth import validate_telegram_webapp_data
+from src.webapp.auth import validate_telegram_webapp_data, webapp_auth
 
 logger = logging.getLogger(__name__)
 
@@ -446,12 +450,75 @@ async def api_get_last_workout_log(request: web.Request) -> web.Response:
         )
 
 
+@webapp_auth
+async def api_get_sync_settings(request: web.Request) -> web.Response:
+    """API endpoint to get the caller's Google Sheets sync preference.
+
+    The database is always the source of truth for workout logs (GYM-2);
+    this setting only controls whether logs are *also* mirrored to Sheets.
+    Expects Authorization header with Telegram initData.
+    """
+    telegram_id = request['telegram_user'].get('id')
+    if not telegram_id:
+        return web.json_response({'error': 'Invalid user data'}, status=400)
+
+    async with async_session_maker() as session:
+        user = await UserRepository(session).get_by_telegram_id(telegram_id)
+        if not user:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        return web.json_response({
+            'success': True,
+            'data': {'sync_workout_to_sheets': user.sync_workout_to_sheets},
+        })
+
+
+@webapp_auth
+async def api_update_sync_settings(request: web.Request) -> web.Response:
+    """API endpoint to toggle Google Sheets sync for workout logs.
+
+    Expects Authorization header with Telegram initData.
+    Body: { sync_workout_to_sheets: bool }
+    """
+    telegram_id = request['telegram_user'].get('id')
+    if not telegram_id:
+        return web.json_response({'error': 'Invalid user data'}, status=400)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    enabled = bool(body.get('sync_workout_to_sheets'))
+
+    async with async_session_maker() as session:
+        user = await UserRepository(session).set_sync_workout_to_sheets(
+            telegram_id, enabled
+        )
+        if not user:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        await session.commit()
+
+        return web.json_response({
+            'success': True,
+            'data': {'sync_workout_to_sheets': user.sync_workout_to_sheets},
+        })
+
+
 async def api_save_workout_log(request: web.Request) -> web.Response:
     """API endpoint to save a completed workout log.
 
     Expects Authorization header with Telegram initData.
     Body: { user, day, exercises: [{ exercise, muscle_group,
             planned_sets_reps, sets: [{ set, weight, reps }] }] }
+
+    The database is the source of truth (GYM-2): the session and its sets
+    are saved there first, and that write must succeed for the request to
+    succeed. Google Sheets is written to afterwards, and only if the
+    workout's owner opted in via ``/api/user/sync-settings``; a Sheets
+    failure is logged but never fails the request (the DB copy already
+    exists).
     """
     init_data = request.headers.get('Authorization', '')
     user_data = validate_telegram_webapp_data(init_data)
@@ -477,50 +544,104 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
 
     from datetime import datetime
 
+    from src.utils.datetime_utils import utcnow
+
+    # `now` drives the Sheets row / calendar event, same as before
+    # (server-local time). `performed_at` is the UTC timestamp stored on
+    # the DB session, per GYM-2.
     now = datetime.now()
+    performed_at = utcnow()
     date_str = now.strftime('%d.%m.%Y')
     timestamp_str = now.strftime('%d.%m.%Y %H:%M')
+    day_int = int(day) if str(day).isdigit() else None
 
     log_entries = []
+    db_sets = []
     for ex in exercises:
         for s in ex.get('sets', []):
+            weight = s.get('weight', '')
+            reps = s.get('reps', '')
+
             log_entries.append({
                 'date': date_str,
                 'exercise': ex.get('exercise', ''),
                 'muscle_group': ex.get('muscle_group', ''),
                 'day': day,
                 'set_number': s.get('set', ''),
-                'weight': s.get('weight', ''),
-                'reps': s.get('reps', ''),
+                'weight': weight,
+                'reps': reps,
                 'planned_sets_reps': ex.get('planned_sets_reps', ''),
                 'timestamp': timestamp_str,
             })
 
-    try:
-        sheets_service = GoogleSheetsService()
-        saved = await sheets_service.save_workout_log(user_name, log_entries)
+            # Skip incomplete sets (empty weight/reps), same as
+            # GoogleSheetsService.get_last_workout_log.
+            if not weight or not reps:
+                continue
 
-        if not saved:
-            return web.json_response(
-                {'error': 'Failed to save'}, status=500
-            )
+            db_sets.append({
+                'exercise_name': ex.get('exercise', ''),
+                'muscle_group': ex.get('muscle_group') or None,
+                'set_number': s.get('set'),
+                'weight': float(weight),
+                'reps': int(reps),
+                'planned_sets_reps': ex.get('planned_sets_reps') or None,
+            })
 
-        # Sync workout to Google Calendar
+    async with async_session_maker() as session:
+        owner = await UserRepository(session).get_by_username(user_name)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
         try:
-            await _sync_workout_to_calendar(
-                user_name, day, muscle, exercises,
-                duration_seconds, now,
+            await WorkoutSessionRepository(session).create_session_with_sets(
+                user_id=owner.id,
+                performed_at=performed_at,
+                day=day_int,
+                muscle_group=muscle or None,
+                duration_seconds=duration_seconds,
+                sets=db_sets,
             )
-        except Exception as cal_err:
-            logger.warning(f'Calendar sync failed (non-critical): {cal_err}')
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.error(f'Error saving workout to DB: {e}')
+            return web.json_response(
+                {'error': 'Failed to save workout'}, status=500
+            )
 
-        return web.json_response({'success': True})
+        sync_to_sheets = owner.sync_workout_to_sheets
 
-    except Exception as e:
-        logger.error(f'Error saving workout log: {e}')
-        return web.json_response(
-            {'error': 'Failed to save workout'}, status=500
+    # Optional Sheets mirror, opt-in via settings. Never fails the request:
+    # the workout is already durably saved in the DB above.
+    synced_to_sheets = False
+    if sync_to_sheets:
+        try:
+            sheets_service = GoogleSheetsService()
+            synced_to_sheets = await sheets_service.save_workout_log(
+                user_name, log_entries
+            )
+            if not synced_to_sheets:
+                logger.warning(
+                    f'Google Sheets sync returned false for {user_name} '
+                    '(non-critical, workout already saved to DB)'
+                )
+        except Exception as sheets_err:
+            logger.warning(f'Google Sheets sync failed (non-critical): {sheets_err}')
+
+    # Sync workout to Google Calendar
+    try:
+        await _sync_workout_to_calendar(
+            user_name, day, muscle, exercises,
+            duration_seconds, now,
         )
+    except Exception as cal_err:
+        logger.warning(f'Calendar sync failed (non-critical): {cal_err}')
+
+    return web.json_response({
+        'success': True,
+        'synced_to_sheets': synced_to_sheets,
+    })
 
 
 async def api_start_rest_timer(request: web.Request) -> web.Response:
@@ -805,6 +926,8 @@ def create_webapp() -> web.Application:
     # API endpoints
     app.router.add_get('/api/user/settings', api_get_user_settings)
     app.router.add_post('/api/user/settings', api_update_user_settings)
+    app.router.add_get('/api/user/sync-settings', api_get_sync_settings)
+    app.router.add_post('/api/user/sync-settings', api_update_sync_settings)
     app.router.add_get('/api/nutrition/daily', api_get_daily_nutrition)
     app.router.add_post('/api/nutrition/daily', api_save_daily_nutrition)
     app.router.add_post('/api/nutrition/meal', api_add_meal)

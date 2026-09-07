@@ -209,6 +209,71 @@
             color: var(--tg-theme-button-text-color, #000);
             opacity: 0.8;
         }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .toggle-label {
+            font-size: 16px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .toggle-hint {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-top: 4px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            flex-shrink: 0;
+            width: 48px;
+            height: 28px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background-color: var(--card-border);
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .toggle-slider::before {
+            content: "";
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            left: 3px;
+            top: 3px;
+            background-color: #fff;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(20px);
+        }
+
+        .toggle-switch input:disabled + .toggle-slider {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -291,6 +356,25 @@
         <div class="info-row">
             <span class="info-label">Рекомендована норма</span>
             <span class="info-value" id="tdeeValue">—</span>
+        </div>
+    </div>
+
+    <!-- Синхронізація тренувань -->
+    <div class="card">
+        <div class="card-title">Тренування</div>
+
+        <div class="toggle-row">
+            <div>
+                <div class="toggle-label">Дублювати в Google Sheets</div>
+                <div class="toggle-hint">
+                    Логи тренувань завжди зберігаються надійно в базі даних.
+                    Увімкніть, щоб додатково писати їх у ваш аркуш Google Sheets.
+                </div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="sheetsSyncToggle">
+                <span class="toggle-slider"></span>
+            </label>
         </div>
     </div>
 
@@ -477,6 +561,64 @@
             }
         }
 
+        // Load Google Sheets sync setting
+        async function loadSyncSettings() {
+            try {
+                const response = await fetch('/api/user/sync-settings', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        document.getElementById('sheetsSyncToggle').checked =
+                            !!result.data.sync_workout_to_sheets;
+                    }
+                } else {
+                    console.error('Failed to load sync settings:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading sync settings:', error);
+            }
+        }
+
+        // Toggle Google Sheets sync (saves immediately, independent of the
+        // nutrition profile's "Зберегти" button)
+        const sheetsSyncToggle = document.getElementById('sheetsSyncToggle');
+        sheetsSyncToggle.addEventListener('change', async () => {
+            const enabled = sheetsSyncToggle.checked;
+            sheetsSyncToggle.disabled = true;
+
+            try {
+                const response = await fetch('/api/user/sync-settings', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sync_workout_to_sheets: enabled })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save sync setting');
+                }
+
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('success');
+                }
+            } catch (error) {
+                console.error('Error saving sync setting:', error);
+                sheetsSyncToggle.checked = !enabled;
+                tg.showAlert('❌ Не вдалося зберегти налаштування синхронізації');
+            } finally {
+                sheetsSyncToggle.disabled = false;
+            }
+        });
+
         // Save button
         document.getElementById('saveBtn').addEventListener('click', () => {
             if (tg.HapticFeedback) {
@@ -506,6 +648,7 @@
 
         // Initialize
         loadUserProfile();
+        loadSyncSettings();
 
         // Back button handler
         tg.BackButton.onClick(() => {

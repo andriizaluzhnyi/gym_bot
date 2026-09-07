@@ -87,6 +87,20 @@ class UserRepository:
             await self.session.flush()
         return user
 
+    async def set_sync_workout_to_sheets(
+        self, telegram_id: int, enabled: bool
+    ) -> User | None:
+        """Toggle whether workout logs are also mirrored to Google Sheets.
+
+        The DB is always the primary store (GYM-2); this only controls the
+        optional duplicate write, configured from the WebApp settings screen.
+        """
+        user = await self.get_by_telegram_id(telegram_id)
+        if user:
+            user.sync_workout_to_sheets = enabled
+            await self.session.flush()
+        return user
+
     async def get_all_with_notifications(self) -> list[User]:
         """Get all users with notifications enabled."""
         result = await self.session.execute(

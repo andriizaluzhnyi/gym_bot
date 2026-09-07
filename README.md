@@ -45,6 +45,7 @@ pip install -e .
 ```
 
 Встановлені пакети включають:
+
 - `aiogram 3.3.0+` — Telegram Bot API
 - `sqlalchemy 2.0.0+` — ORM з async підтримкою
 - `alembic 1.13.0+` — Міграції бази даних
@@ -95,8 +96,8 @@ DATABASE_URL=sqlite+aiosqlite:///./gym_bot.db
 #### Варіант Б: PostgreSQL (для production)
 
 **5.1. Встановлення PostgreSQL**
-
 Linux (Ubuntu/Debian):
+
 ```bash
 sudo apt update
 sudo apt install postgresql postgresql-contrib
@@ -105,15 +106,16 @@ sudo systemctl enable postgresql
 ```
 
 macOS (через Homebrew):
+
 ```bash
 brew install postgresql
 brew services start postgresql
 ```
 
 Windows:
+
 - Завантажте інсталятор з [postgresql.org](https://www.postgresql.org/download/windows/)
 - Запустіть інсталятор та слідуйте інструкціям
-
 **5.2. Створення бази даних та користувача**
 
 ```bash

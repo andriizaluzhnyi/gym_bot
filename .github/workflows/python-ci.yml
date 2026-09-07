@@ -7,6 +7,7 @@ on:
 jobs:
   python-ci:
     uses: andriizaluzhnyi/shared_workflow/.github/workflows/python-ci.yml@v1
+    secrets: inherit
     with:
       python-version: "3.13"
       run-lint: true

@@ -1,11 +1,8 @@
 """Web server for Telegram Mini App."""
 
-import hashlib
-import hmac
 import json
 import logging
 from pathlib import Path
-from urllib.parse import parse_qsl
 
 from aiohttp import web
 
@@ -14,6 +11,7 @@ from src.database.repository import DailyNutritionRepository, UserRepository
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
+from src.webapp.auth import validate_telegram_webapp_data
 
 logger = logging.getLogger(__name__)
 
@@ -33,54 +31,6 @@ def set_bot_instance(bot):
 def get_bot_instance():
     """Get the global bot instance."""
     return _bot_instance
-
-
-def validate_telegram_webapp_data(init_data: str) -> dict | None:
-    """Validate Telegram WebApp initData and return user data.
-
-    Args:
-        init_data: The initData string from Telegram WebApp
-
-    Returns:
-        Dictionary with user data if valid, None otherwise
-    """
-    if not init_data:
-        return None
-
-    try:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-        received_hash = parsed.pop('hash', None)
-
-        if not received_hash:
-            return None
-
-        data_check_string = '\n'.join(
-            f'{k}={v}' for k, v in sorted(parsed.items())
-        )
-
-        secret_key = hmac.new(
-            b'WebAppData',
-            settings.telegram_bot_token.encode(),
-            hashlib.sha256
-        ).digest()
-
-        calculated_hash = hmac.new(
-            secret_key,
-            data_check_string.encode(),
-            hashlib.sha256
-        ).hexdigest()
-
-        if calculated_hash != received_hash:
-            return None
-
-        user_data = parsed.get('user')
-        if user_data:
-            return json.loads(user_data)
-
-        return None
-    except Exception as e:
-        logger.error(f'Error validating Telegram WebApp data: {e}')
-        return None
 
 
 async def nutrition_handler(request: web.Request) -> web.StreamResponse:

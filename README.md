@@ -513,5 +513,4 @@ python -m src.main
 - [alembic/README.md](alembic/README.md) — Повна документація Alembic
 
 ## Ліцензія
-
 MIT

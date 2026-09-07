@@ -14,6 +14,8 @@ from src.database.models import (
     Profile,
     Training,
     User,
+    WorkoutSession,
+    WorkoutSet,
 )
 from src.utils.datetime_utils import utcnow
 
@@ -28,6 +30,18 @@ class UserRepository:
         """Get user by Telegram ID."""
         result = await self.session.execute(
             select(User).where(User.telegram_id == telegram_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_username(self, username: str) -> User | None:
+        """Get user by Telegram username.
+
+        Used to resolve the *owner* of a workout log (``body["user"]``),
+        which may differ from the ``telegram_id`` in ``initData`` when a
+        trainer logs a workout on behalf of a client.
+        """
+        result = await self.session.execute(
+            select(User).where(User.username == username)
         )
         return result.scalar_one_or_none()
 
@@ -633,3 +647,110 @@ class DailyNutritionRepository:
             'fats': row.fats or 0,
             'carbs': row.carbs or 0,
         }
+
+
+class WorkoutSessionRepository:
+    """Repository for WorkoutSession operations."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create_session_with_sets(
+        self,
+        user_id: uuid.UUID,
+        performed_at: datetime,
+        sets: list[dict],
+        day: int | None = None,
+        muscle_group: str | None = None,
+        duration_seconds: int | None = None,
+    ) -> WorkoutSession:
+        """Create a workout session together with all its sets.
+
+        ``sets`` is a list of dicts with ``exercise_name``, ``weight``,
+        ``reps``, ``set_number``, and optionally ``muscle_group``,
+        ``planned_sets_reps`` and ``performed_at`` (defaults to the
+        session's ``performed_at``, e.g. for backfilled per-row timestamps).
+        Everything is added in a single flush, i.e. one transaction.
+        """
+        workout_session = WorkoutSession(
+            user_id=user_id,
+            performed_at=performed_at,
+            day=day,
+            muscle_group=muscle_group,
+            duration_seconds=duration_seconds,
+        )
+        self.session.add(workout_session)
+        await self.session.flush()
+
+        for set_data in sets:
+            self.session.add(
+                WorkoutSet(
+                    session_id=workout_session.id,
+                    user_id=user_id,
+                    exercise_name=set_data["exercise_name"],
+                    muscle_group=set_data.get("muscle_group"),
+                    set_number=set_data["set_number"],
+                    weight=set_data["weight"],
+                    reps=set_data["reps"],
+                    planned_sets_reps=set_data.get("planned_sets_reps"),
+                    performed_at=set_data.get("performed_at", performed_at),
+                )
+            )
+
+        await self.session.flush()
+        return workout_session
+
+    async def get_sessions_by_period(
+        self,
+        user_id: uuid.UUID,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[WorkoutSession]:
+        """Get a user's sessions (with sets eagerly loaded) in a time range.
+
+        ``start``/``end`` are inclusive UTC bounds; omit either for an
+        open-ended range. Most recent first.
+        """
+        conditions = [WorkoutSession.user_id == user_id]
+        if start is not None:
+            conditions.append(WorkoutSession.performed_at >= start)
+        if end is not None:
+            conditions.append(WorkoutSession.performed_at <= end)
+
+        result = await self.session.execute(
+            select(WorkoutSession)
+            .where(and_(*conditions))
+            .options(selectinload(WorkoutSession.sets))
+            .order_by(WorkoutSession.performed_at.desc())
+        )
+        return list(result.scalars().all())
+
+
+class WorkoutSetRepository:
+    """Repository for WorkoutSet operations."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_sets_by_user_and_exercise(
+        self,
+        user_id: uuid.UUID,
+        exercise_name: str,
+        limit: int | None = None,
+    ) -> list[WorkoutSet]:
+        """Get a user's sets for one exercise, ordered by date (oldest first)."""
+        query = (
+            select(WorkoutSet)
+            .where(
+                and_(
+                    WorkoutSet.user_id == user_id,
+                    WorkoutSet.exercise_name == exercise_name,
+                )
+            )
+            .order_by(WorkoutSet.performed_at.asc())
+        )
+        if limit is not None:
+            query = query.limit(limit)
+
+        result = await self.session.execute(query)
+        return list(result.scalars().all())

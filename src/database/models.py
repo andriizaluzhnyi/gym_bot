@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator, CHAR
@@ -148,6 +148,9 @@ class User(Base):
     daily_nutrition: Mapped[list["DailyNutrition"]] = relationship(
         "DailyNutrition", back_populates="user"
     )
+    workout_sessions: Mapped[list["WorkoutSession"]] = relationship(
+        "WorkoutSession", back_populates="user"
+    )
 
     @property
     def full_name(self) -> str:
@@ -275,4 +278,90 @@ class DailyNutrition(Base):
         return (
             f"<DailyNutrition(id={self.id}, "
             f"user_id={self.user_id}, date={date_str})>"
+        )
+
+
+class WorkoutSession(Base):
+    """A single workout session (one visit to the gym).
+
+    Owns the sets performed during it. A session is the unit used for
+    history, streaks and duration; two workouts on the same day are kept as
+    separate sessions rather than merged.
+    """
+
+    __tablename__ = "workout_sessions"
+    __table_args__ = (
+        Index("ix_workout_sessions_user_id_performed_at", "user_id", "performed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id"), nullable=False, index=True
+    )
+    day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    muscle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    performed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="workout_sessions")
+    sets: Mapped[list["WorkoutSet"]] = relationship(
+        "WorkoutSet", back_populates="session", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<WorkoutSession(id={self.id}, user_id={self.user_id}, "
+            f"performed_at={self.performed_at})>"
+        )
+
+
+class WorkoutSet(Base):
+    """A single logged set within a workout session."""
+
+    __tablename__ = "workout_sets"
+    __table_args__ = (
+        Index(
+            "ix_workout_sets_user_id_exercise_name_performed_at",
+            "user_id", "exercise_name", "performed_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    session_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workout_sessions.id"), nullable=False, index=True
+    )
+    # Denormalized from the session for fast per-user/per-exercise lookups
+    # without a join.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id"), nullable=False, index=True
+    )
+    exercise_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    muscle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    set_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    weight: Mapped[float] = mapped_column(Float, nullable=False)
+    reps: Mapped[int] = mapped_column(Integer, nullable=False)
+    planned_sets_reps: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Duplicated from the session so exercise-history queries can filter by
+    # date without joining workout_sessions.
+    performed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    # Relationships
+    session: Mapped["WorkoutSession"] = relationship("WorkoutSession", back_populates="sets")
+    user: Mapped["User"] = relationship("User")
+
+    def __repr__(self) -> str:
+        return (
+            f"<WorkoutSet(id={self.id}, exercise_name={self.exercise_name}, "
+            f"weight={self.weight}, reps={self.reps})>"
         )

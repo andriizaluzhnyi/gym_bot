@@ -1,0 +1,895 @@
+# План реалізації (фаза 2): харчування v2, програми тренувань у БД, групові нагадування, меню бота
+
+> Формат: Epic → Story-таски (Jira-стиль). Кожен таск має user story, acceptance
+> criteria, технічні підзадачі (DB / Backend / Frontend / Bot) та оцінку в
+> стори-поінтах (SP, Fibonacci: 1‑2‑3‑5‑8‑13). Нумерація продовжує
+> [WEBAPP_STATISTICS_PLAN.md](WEBAPP_STATISTICS_PLAN.md) (GYM-0…GYM-20 виконано),
+> тому перший таск тут — **GYM-21**.
+
+## Контекст
+
+Після фази 1 у проєкті є Telegram Mini App (`src/webapp/templates/*.html`,
+`src/webapp/server.py`) з чотирма сторінками:
+
+- `/nutrition` — «Сьогодні» (вода, кільця БЖВ, список прийомів їжі),
+  внутрішній під-таб «Статистика» (GYM-15/16) і секція «Тренування» (список
+  днів програми, веде на `/workout`);
+- `/meal-entry` — форма додавання страви (назва + БЖВ, калорії рахуються з
+  БЖВ 4/9/4);
+- `/profile` — особисті дані, денні цілі, BMR/TDEE, toggle «Дублювати в
+  Google Sheets» (GYM-2);
+- `/workout` — лог тренування за програмою дня (чернетки в БД, GYM-2c);
+- `/statistics` — статистика тренувань (Epic 1–4 фази 1).
+
+Бот (`src/bot/`): головне меню `📊 Статистика` / `👤 Профіль` / `ℹ️ Допомога`,
+chat-menu-кнопка `🍎 БЖУ` → `/nutrition` (`src/bot/handlers/start.py:52`),
+адмінське меню `💪 Програма тренувань` / `📋 Переглянути програми`
+(`src/bot/keyboards.py`), FSM створення програми
+(`src/bot/handlers/workout_program.py`) пише **лише в Google Sheets**
+(`GoogleSheetsService.add_workout_program`, аркуш `Програми (<user>)`).
+Планувальник (`src/bot/bot.py: setup_scheduler`) знає лише про нагадування
+щодо групових занять (`NotificationService.process_reminders`).
+
+### Важливі особливості поточного коду, що впливають на план
+
+- **Прийом їжі не має власного типу запису.** Кожен прийом і кожен «+250 мл»
+  води — окремий рядок `daily_nutrition`; «це прийом їжі» визначається
+  евристикою `water_ml == 0` (`api_get_today_meals`,
+  `src/webapp/server.py:335`). `meal_name` з форми **не зберігається** —
+  ендпоінт лише повертає його назад у відповіді (`server.py:284`), тому в
+  списку «Сьогодні» страви показуються без назви. Це блокує і нормальний UI
+  списку, і вимкнення води (без явного типу запису фільтр по воді
+  ламається), і фото-прийоми (немає куди прив'язати результат розпізнавання).
+- **«Сьогодні» рахується в UTC, а не в `settings.timezone`.**
+  `get_today_total` (`src/database/repository.py:630`) і
+  `api_get_today_meals` беруть межі доби через `utcnow().replace(hour=0…)`.
+  Для Києва (UTC+2/+3) страва, залогована о 01:00, зникає з «Сьогодні» до
+  03:00 наступної доби і потрапляє в учорашній день статистики (GYM-14
+  уже групує локально — тобто «Сьогодні» і «Статистика» **не узгоджені**).
+  Правильний підхід уже є: `period_bounds_utc`/`to_local_date`
+  (`src/utils/datetime_utils.py`).
+- **Кнопка «📷 Фото» — заглушка** (`nutrition.html:1448`,
+  `tg.showAlert('…буде доступна незабаром')`). Жодних AI-залежностей у
+  `pyproject.toml` немає; ключів у `.env.example` — теж.
+- **Програми тренувань живуть лише в Sheets.** Читання `/api/workout/program`,
+  видалення `/api/workout/day`, `/api/workout/exercise`, пошук останнього дня
+  (`get_last_program_day_for_muscle_group`) — усе через live Google Sheets
+  API з username як ключем аркуша. Це успадковує обидва ризики фази 1
+  (нестабільний username, `is_admin()` заглушений —
+  `workout_program.py:58`) і не дає місця для метаданих вправи (картинка,
+  відео, опис). Колонки аркуша: `День | Група м'язів | Вправа |
+  Підходи/Повторення | Коментар | Дата` (`google_sheets.py:146`).
+- **Група м'язів зберігається разом з емодзі** (`MUSCLE_GROUPS = ["🦴 Спина",
+  …]`, `keyboards.py:68`) і саме в такому вигляді лежить у `workout_sets`,
+  Sheets і query-параметрі `?muscle=`. Не міняємо — інакше розійдеться
+  історія статистики (GYM-4/6).
+- **Бот не обробляє події груп.** Немає жодного `my_chat_member`/`ChatType`
+  хендлера; `dp.start_polling(allowed_updates=dp.resolve_used_update_types())`
+  автоматично додасть `my_chat_member`, щойно з'явиться хендлер.
+- **Chat-menu-кнопка виставляється per-chat** лише під час `/start`
+  (`set_chat_menu_button(chat_id=…)`), тому перейменування не дійде до
+  користувачів, які не натиснуть `/start` знову. Потрібен глобальний
+  default (`set_chat_menu_button()` без `chat_id` при старті бота).
+- **Тексти бота застаріли:** `/start` і `/help` описують лише запис на
+  групові заняття (`📅 Розклад`, `📝 Мої записи` — кнопок у меню немає, хоча
+  хендлери є); `set_my_commands` не викликається взагалі — список команд у
+  клієнті порожній.
+- **Мертві елементи навігації:** пункт `⚙️ Налаштування` (`href="#"`) є на
+  всіх чотирьох сторінках Mini App і нікуди не веде.
+
+### Ключові архітектурні рішення
+
+**1. Програми тренувань переїжджають у БД (Epic 3) — за зразком GYM-2.**
+`workout_program_exercises` стає основним сховищем; бот-FSM і WebApp пишуть
+туди, `Sheets` — опційне дзеркало під тим самим перемикачем
+`User.sync_workout_to_sheets` (перейменовується на «Дублювати в Google
+Sheets» без уточнення «логи»). На відміну від GYM-2b (бекфіл логів
+скасовано), **одноразовий імпорт програм із Sheets робимо** (GYM-29): даних
+мало (десятки рядків на користувача), а автентифікація й читання цих самих
+аркушів уже працюють у продакшені через `/api/workout/program` — тобто
+жодної нової інтеграції, лише скрипт поверх наявного `get_workout_programs`.
+Альтернатива «WebApp пише в Sheets тим самим `add_workout_program`»
+відхилена: вона консервує username-ключ, латентність Sheets на кожне
+відкриття `/workout` і не дає місця для каталогу вправ.
+
+**2. Каталог вправ — окрема таблиця `exercises`,** до якої рядки програми
+посилаються за `exercise_id`; назва вправи для сумісності зі статистикою
+(`workout_sets.exercise_name`) дублюється текстом. Медіа (картинка,
+відео-лінк, опис) — поля каталогу; **наповнення — поза цим планом**
+(див. «Відкриті питання»), у цьому плані лише схема, читання й показ, якщо
+контент є.
+
+**3. Фото → БЖВ через OpenAI Vision, результат — лише чернетка.** Модель
+повертає структуровану оцінку (назва, порція, БЖВ), користувач бачить її в
+`/meal-entry`, редагує і **сам** натискає «Зберегти» через уже наявний
+`POST /api/nutrition/meal`. Автозбереження AI-оцінок не робимо — точність
+розпізнавання порцій на фото недостатня. Фото на сервері **не зберігаємо**
+(приватність, обсяг), лише проксюємо в OpenAI. Фіча повністю вимкнена без
+`OPENAI_API_KEY` (кнопка прихована).
+
+**4. Групові нагадування — окрема сутність `group_chats` і окремий job
+планувальника,** не розширення `NotificationService.process_reminders`
+(той прив'язаний до `bookings`). Ідемпотентність — через `last_*_sent_on`
+(локальна дата), як `reminder_24h_sent` у бронюваннях. У групах inline
+`web_app`-кнопки Telegram не підтримує (лише приватні чати), тому кнопки
+нагадувань — deep-link `https://t.me/<bot>?start=<section>` → у приватному
+чаті `/start <section>` відкриває потрібну сторінку Mini App.
+
+## Definition of Done (для кожного таска)
+
+- Чиста логіка (визначення «чи час нагадувати», парсинг відповіді OpenAI,
+  нормалізація назв вправ) — функції без БД/мережі в `src/services/*` з
+  unit-тестами в `tests/` **у тому ж PR**; зовнішні виклики (OpenAI,
+  Telegram, Sheets) у тестах мокаються.
+- Нові `/api/*` ендпоінти — через `@webapp_auth` (`src/webapp/auth.py`).
+  Ендпоінти з `?user=<username>` (доступ тренера до клієнта) дозволяють чужого
+  `user` **лише** якщо `telegram_id` ∈ `settings.admin_user_ids`.
+- Дати зберігаються в UTC; «сьогодні»/«день» — у `settings.timezone`
+  (`src/utils/datetime_utils.py`).
+- Нові env-змінні додаються в `.env.example` і README; секрети — тільки з
+  оточення.
+- Покриття CI не падає нижче порогу (60%); `flake8`/`mypy` зелені.
+- Текст UI/повідомлень — українською, у стилі існуючих екранів; нові
+  екрани підтримують `Telegram.WebApp.themeParams`.
+
+## Огляд епіків
+
+| Epic | Назва | SP | Пріоритет |
+| ---- | ----- | -- | --------- |
+| 0 | Фундамент харчування: тип запису, назва страви, локальний день | 3 | Must (блокує Epic 1) |
+| 1 | Харчування: вкладка «Сьогодні», фото → БЖВ, вимкнення води | 16 | Must |
+| 2 | Профіль: оновлення UI | 5 | Should |
+| 3 | Тренування: програми в БД, додавання вправ з WebApp, картка вправи | 21 | Must |
+| 4 | Бот у групі: нагадування про харчування, заміри, фото | 13 | Should |
+| 5 | Бот: меню, кнопки, тексти | 4 | Must (дешево, помітно) |
+| — | Наскрізні задачі | 5 | — |
+
+Загалом: **≈ 67 SP**. MVP (див. нижче): **≈ 32 SP**.
+
+---
+
+## Epic 0 — Фундамент харчування
+
+### GYM-21: Тип запису `daily_nutrition`, назва страви, локальна доба
+
+**User story:** Як користувач, я хочу бачити в списку «Сьогодні» назви страв
+і мати змогу видалити помилковий запис, а «сьогодні» має означати мій
+календарний день, а не UTC.
+
+**Acceptance criteria:**
+
+- `DailyNutrition.entry_type` (`String(10)`, `'water' | 'meal'`, not null,
+  index) і `DailyNutrition.meal_name` (`String(255)`, nullable). Міграція з
+  бекфілом: `entry_type = 'water'` де `water_ml > 0`, інакше `'meal'`
+  (рівно та сама евристика, що зараз у `api_get_today_meals`, — тому
+  бекфіл не змінює жодного поточного результату).
+- `POST /api/nutrition/meal` зберігає `meal_name`; `POST /api/nutrition/daily`
+  (вода) пише `entry_type='water'`.
+- `GET /api/nutrition/meals` повертає `meal_name`, фільтрує по
+  `entry_type='meal'` (не по `water_ml == 0`) і бере межі дня в
+  `settings.timezone` (`period_bounds_utc`-стиль: локальна доба → UTC-межі).
+  `GET /api/nutrition/daily` (`get_today_total`) — ті самі локальні межі.
+- `DELETE /api/nutrition/meal/{id}` — видаляє запис поточного користувача
+  (`404`, якщо чужий/не існує; для `entry_type='water'` — теж дозволено,
+  UI використає для «Відмінити» замість поточного локального
+  `waterHistory`, який губиться при перезавантаженні).
+- Тести: бекфіл-міграція на SQLite; запис о 01:00 Києва потрапляє в
+  «сьогодні» (і в GYM-14 — той самий день); `DELETE` чужого запису → 404.
+
+**Технічні підзадачі:**
+
+- DB: поля в `src/database/models.py`, міграція в `alembic/versions/` з
+  data-бекфілом (`op.execute(update … where water_ml > 0)`).
+- Backend: `DailyNutritionRepository.get_meals_for_local_day(user_id, tz)`,
+  `delete_by_id_for_user(id, user_id)`; переписати `get_today_total` на
+  локальні межі (сигнатура `+ tz_name`, як у `get_totals_by_range`, GYM-14).
+- Backend: `api_add_meal` / `api_get_today_meals` / новий
+  `api_delete_meal` (через `@webapp_auth`).
+
+**SP:** 3
+
+---
+
+## Epic 1 — Харчування: «Сьогодні», фото → БЖВ, вода
+
+### GYM-22: Оновлення UI вкладки «Сьогодні»
+
+**User story:** Як користувач, я хочу, щоб вкладка «Сьогодні» показувала
+страви з назвами, дозволяла швидко додати/видалити прийом їжі і не мала
+кнопок-заглушок.
+
+**Acceptance criteria:**
+
+- Список прийомів їжі: назва страви (`meal_name`, fallback «Прийом їжі»),
+  час, ккал і БЖВ-теги; свайп або кнопка «🗑» → підтвердження
+  (`tg.showConfirm`) → `DELETE /api/nutrition/meal/{id}` → перерахунок
+  кілець без перезавантаження сторінки.
+- Дії картки «Прийоми їжі»: `➕ Додати` (→ `/meal-entry`) і `📷 Фото`
+  (GYM-24; прихована, якщо `GET /api/user/settings` каже
+  `photo_recognition_enabled: false`). Кнопка `✏️` без підпису
+  прибирається.
+- Кільця БЖВ: підпис «залишилось N ккал» під числом; при перевищенні цілі —
+  колір кільця змінюється (той самий прийом, що й «свіжий рекорд» на
+  `/statistics`), без окремих алертів.
+- Картка «Вода»: «↩️ Відмінити» видаляє останній water-запис через
+  `DELETE` (GYM-21), а не локальну історію; після перезавантаження кнопка
+  лишається активною, якщо є що відміняти.
+- Порожній стан «Немає записів за сьогодні» веде тапом на `/meal-entry`.
+- Дата в шапці — локальна (`settings.timezone` збігається з тим, що
+  повертає бекенд; клієнт не рахує «сьогодні» сам із `new Date()`
+  користувача, який може бути в іншій зоні — бере `date` з відповіді
+  `GET /api/nutrition/daily`).
+
+**Технічні підзадачі:**
+
+- Frontend: `nutrition.html` — `displayMealsList` через `createElement`
+  (як картки в `statistics.html`, без `innerHTML`-шаблонів з даними
+  користувача — `meal_name` вводить сам користувач, XSS), обробники
+  delete/undo.
+- Backend: `GET /api/nutrition/daily` додатково повертає `date`
+  (локальна ISO-дата) і `last_water_entry_id`.
+
+**SP:** 5
+
+### GYM-23: Фото → БЖВ — бекенд (OpenAI Vision)
+
+**User story:** Як користувач, я хочу сфотографувати тарілку і отримати
+оцінку БЖВ, щоб не вводити цифри вручну.
+
+**Acceptance criteria:**
+
+- `POST /api/nutrition/meal/photo` (multipart, поле `photo`, ≤ 5 МБ,
+  `image/jpeg|png|webp|heic`): повертає
+  `{meal_name, portion_grams, protein, fats, carbs, calories, confidence:
+  "low|medium|high", notes}` — **не зберігає** нічого в БД і не зберігає
+  файл.
+- `503 {"error": "photo_recognition_disabled"}`, якщо `OPENAI_API_KEY`
+  порожній; `413` при перевищенні розміру; `422`, якщо модель відповіла,
+  що на фото немає їжі (`is_food: false`).
+- Сервіс `src/services/food_recognition.py`: `recognize_food(image_bytes,
+  mime) -> FoodEstimate` (async, OpenAI SDK, `response_format` = JSON
+  schema) і чиста `parse_food_estimate(payload: dict) -> FoodEstimate`
+  (валідація діапазонів, `calories` перераховується з БЖВ за 4/9/4, якщо
+  модель дала неузгоджене число — так само, як рахує `/meal-entry`).
+- Промпт українською, просить оцінку на **всю видиму порцію** і
+  консервативну впевненість; `OPENAI_MODEL` конфігурований (за замовчуванням
+  `gpt-4o-mini` — дешево, достатньо для оцінки; можна підняти в env).
+- Таймаут 30 с, одна повторна спроба на 5xx/таймаут; будь-яка помилка
+  OpenAI → `502 {"error": "recognition_failed"}` без витоку деталей у
+  відповідь (деталі — в лог).
+- Тести: `parse_food_estimate` (валідний/неповний/поза діапазоном/
+  `is_food=false`), ендпоінт з мокнутим `recognize_food` (200/413/422/502/503).
+
+**Технічні підзадачі:**
+
+- Config: `openai_api_key: str = ""`, `openai_model: str = "gpt-4o-mini"`
+  у `src/config.py`; `.env.example`.
+- Deps: `openai>=1.50` у `pyproject.toml` (`uv lock`).
+- Backend: `api_recognize_meal_photo` (`@webapp_auth`,
+  `request.multipart()`), `GET /api/user/settings` →
+  `photo_recognition_enabled: bool` (щоб UI знав, чи показувати кнопку).
+
+**SP:** 5
+
+### GYM-24: Фото → БЖВ — UI (зйомка, прев'ю, підтвердження)
+
+**User story:** Як користувач, я хочу натиснути «📷 Фото», зняти/обрати
+фото і побачити заповнену форму страви, яку можна поправити перед
+збереженням.
+
+**Acceptance criteria:**
+
+- «📷 Фото» на «Сьогодні» відкриває `<input type="file" accept="image/*"
+  capture="environment">`; перед відправкою фото стискається на клієнті
+  (canvas, довша сторона ≤ 1024 px, JPEG q≈0.8) — менше трафіку і токенів.
+- Стан «Розпізнаю…» з блокуванням кнопки; після відповіді — перехід на
+  `/meal-entry?prefill=<base64url json>` (або `sessionStorage`), поля
+  заповнені, зверху бейдж «Оцінка з фото · впевненість: середня» і
+  підказка «Перевірте порцію». Збереження — звичайним «Зберегти» через
+  `POST /api/nutrition/meal` (GYM-21, з `meal_name`).
+- Помилки: `422` → «На фото не видно їжі», `502/503` → «Не вдалося
+  розпізнати, введіть вручну» + одразу відкрити порожній `/meal-entry`.
+- Кнопка прихована, якщо `photo_recognition_enabled=false`.
+- Перевірено на Telegram iOS/Android/Desktop, що `input[type=file]` у
+  WebView відкриває камеру/галерею (див. ризики).
+
+**Технічні підзадачі:**
+
+- Frontend: `nutrition.html` (file input, стискання, fetch multipart),
+  `meal_entry.html` (prefill з query/`sessionStorage`, бейдж).
+
+**SP:** 3
+
+### GYM-25: Вимкнення трекінгу води
+
+**User story:** Як користувач, який не рахує воду, я хочу вимкнути картку
+«Вода», щоб вона не займала екран і не псувала статистику.
+
+**Acceptance criteria:**
+
+- `Profile.water_tracking_enabled` (Boolean, default `True`) + міграція.
+- `GET/POST /api/user/settings` читає/пише `water_tracking_enabled`.
+- `/profile`: toggle «Відстежувати воду» в картці денних цілей; при
+  вимкненні поле «Вода (мл)» стає неактивним (значення зберігається — при
+  повторному увімкненні повертається).
+- `/nutrition`: картка «Вода» прихована при `false`; водяні записи не
+  створюються; у «Статистиці» (GYM-15) нічого не змінюється (вода там не
+  малюється), але `by_day[].water_ml` лишається в API для сумісності.
+- Бот: `_format_nutrition_settings` (`user_profile.py:85`) показує
+  «💧 Вода: вимкнено» замість норми; кнопка «💧 Денна норма води» в
+  `get_nutrition_settings_keyboard` при вимкненій воді пропонує спершу
+  увімкнути (окремий callback `edit:water_toggle`).
+- Групові нагадування (Epic 4) — нагадування про воду не окремий тип, тож
+  залежності немає.
+- Тести: settings round-trip; профіль без рядка `profiles` (дефолти) →
+  `True`.
+
+**Технічні підзадачі:**
+
+- DB: поле + міграція.
+- Backend: `ProfileRepository.update(... water_tracking_enabled)`,
+  `UserRepository.get_nutrition_settings` повертає поле (і дефолт `True`).
+- Frontend: `profile.html` toggle (стиль `.toggle-row` з картки
+  «Тренування»), `nutrition.html` — умовний показ картки.
+- Bot: `user_profile.py` — текст + toggle-callback.
+
+**SP:** 3
+
+---
+
+## Epic 2 — Профіль
+
+### GYM-26: Оновлення UI вкладки «Профіль»
+
+**User story:** Як користувач, я хочу, щоб профіль виглядав як єдиний екран
+налаштувань: хто я, мої цілі (з можливістю взяти розраховані), сповіщення й
+інтеграції — з нативною кнопкою збереження.
+
+**Acceptance criteria:**
+
+- Шапка: аватар/ім'я/`@username` з `tg.initDataUnsafe.user` (лише
+  відображення; `photo_url` може бути відсутній — fallback ініціали).
+- Секції-картки: «Особисті дані» (як зараз + ІМТ), «Денні цілі» (+ toggle
+  води з GYM-25, + кнопка «Взяти розраховані» — переносить TDEE у ккал і
+  розкладає БЖВ 30/25/45 % у поля; лише заповнює інпути, збереження — як
+  завжди), «Сповіщення» (toggle `User.notifications_enabled` — поле в
+  моделі є, але ніде не редагується), «Інтеграції» (toggle Sheets із GYM-2
+  з оновленим текстом «Дублювати програми та логи тренувань у Google
+  Sheets» — після Epic 3 він охоплює й програми).
+- Збереження через `tg.MainButton` («Зберегти», показується лише коли є
+  зміни — `isDataChanged` уже є), а не in-page-кнопка; після успіху —
+  `HapticFeedback.notificationOccurred('success')` і `MainButton.hide()`.
+- Валідація полів inline (діапазони з `min`/`max` уже задані) замість
+  `tg.showAlert`.
+- `GET/POST /api/user/settings` розширено `notifications_enabled`.
+
+**Технічні підзадачі:**
+
+- Backend: `UserRepository.set_notifications_enabled`, розширення
+  `api_get_user_settings`/`api_update_user_settings` (переписати обидва на
+  `@webapp_auth` за нагоди).
+- Frontend: `profile.html`.
+- Tests: settings round-trip з `notifications_enabled`.
+
+**SP:** 5
+
+---
+
+## Epic 3 — Тренування: програми в БД, додавання вправ, картка вправи
+
+### GYM-27: Моделі `Exercise` + `WorkoutProgramExercise`, міграція, репозиторії
+
+**User story:** Як розробник, я хочу зберігати програму тренувань і каталог
+вправ у БД, щоб WebApp і бот працювали з одним джерелом без Google Sheets.
+
+**Acceptance criteria:**
+
+- Таблиця `exercises`: `id`, `name` (String 255, not null),
+  `normalized_name` (lower/trim/collapse-spaces, **unique**, index),
+  `muscle_group` (String|null), `description` (Text|null), `image_url`
+  (String|null), `video_url` (String|null), `created_at`, `updated_at`.
+- Таблиця `workout_program_exercises`: `id`, `user_id` (FK → `users.id`,
+  index), `day` (int, not null), `muscle_group` (String, not null — з
+  емодзі, як у `MUSCLE_GROUPS`), `exercise_id` (FK → `exercises.id`,
+  index), `exercise_name` (String — знімок назви на момент додавання, для
+  сумісності з `workout_sets.exercise_name` і Sheets-рядком),
+  `sets_reps` (String 50), `comment` (Text|null), `position` (int — порядок
+  у дні), `created_at`. Індекс `(user_id, day, position)`.
+- `ExerciseRepository.get_or_create_by_name(name, muscle_group)` — чиста
+  нормалізація в `src/services/exercise_names.py: normalize_exercise_name`
+  (тести: регістр, пробіли, апостроф `'`/`’`).
+- `WorkoutProgramRepository`: `add_exercises(user_id, day, items)`,
+  `get_program(user_id, day=None, muscle=None)` (відповідь у тій самій
+  формі `{day, muscle_group, exercise, sets_reps, comment, created_at}`,
+  що й `get_workout_programs`, щоб `workout.html`/`nutrition.html` не
+  чіпати), `delete_day(user_id, day)`, `delete_exercise(user_id, day,
+  exercise_name)`, `get_last_day_for_muscle(user_id, muscle)`,
+  `get_days_summary(user_id)`.
+- Alembic-міграція; перевірено на SQLite і PostgreSQL.
+
+**SP:** 3
+
+### GYM-28: БД — основне сховище програм; бот і WebApp пишуть у БД, Sheets — дзеркало
+
+**User story:** Як тренер, я хочу, щоб програма, створена в боті, одразу
+з'являлась у WebApp клієнта (і навпаки), незалежно від Google Sheets.
+
+**Acceptance criteria:**
+
+- Бот: `program:finish` (`workout_program.py:454`) пише в
+  `WorkoutProgramRepository.add_exercises`; власник — `selected_user`
+  (username → `UserRepository.get_by_username`; якщо `None` — сам
+  адмін). Sheets `add_workout_program` викликається **лише** якщо у
+  власника `sync_workout_to_sheets=True`; помилка Sheets логується,
+  відповідь «✅ День N збережено!» не залежить від неї (як GYM-2).
+  `get_last_program_day_for_muscle_group` → `get_last_day_for_muscle`
+  (БД). `📋 Переглянути програми` (`_show_programs*`) читає з БД.
+- WebApp: `GET /api/workout/program`, `DELETE /api/workout/day`,
+  `DELETE /api/workout/exercise` читають/пишуть БД; при увімкненому
+  дзеркалі видалення також дублюється в Sheets (`delete_workout_day`/
+  `delete_exercise`) некритично.
+- **Авторизація `?user=`** (закриває ризик фази 1 «`is_admin()`
+  заглушений» для програм): `user` ≠ власний username дозволено лише для
+  `telegram_id` ∈ `settings.admin_user_ids`, інакше `403`. Спільний хелпер
+  `_resolve_program_owner(request)` за зразком `_resolve_statistics_owner`
+  (GYM-4); той самий хелпер застосувати до `/api/statistics/*` і
+  `/api/workout/*` (лог, чернетки) — одна зміна, всі дірки закриті.
+- `is_admin()` у `workout_program.py` перестає бути заглушкою: кнопки
+  `💪 Програма тренувань`/`📋 Переглянути програми` для не-адміна показують
+  лише **свою** програму без вибору користувача (а не список усіх
+  username).
+- Тести: бот-flow (через `tests/bot_mocks.py`) пише в БД і не викликає
+  Sheets при вимкненому дзеркалі; `403` для чужого `user` не-адміном;
+  `200` для адміна; форма відповіді `/api/workout/program` незмінна
+  (`tests/test_webapp_workout_log.py` — без правок).
+
+**Технічні підзадачі:**
+
+- Bot: `workout_program.py` — заміна Sheets-викликів на репозиторій, guard
+  `is_admin`.
+- Backend: `_resolve_program_owner`, переписати три ендпоінти, застосувати
+  хелпер до `/api/statistics/*`, `/api/workout/session/*`, `/api/workout/log`.
+- Backend: Sheets-дзеркало — `if owner.sync_workout_to_sheets:` навколо
+  наявних методів `GoogleSheetsService` (без змін у самому сервісі).
+
+**SP:** 8
+
+### GYM-29: Одноразовий імпорт програм із Google Sheets
+
+**User story:** Як тренер, я хочу, щоб існуючі програми клієнтів з'явилися в
+БД після розгортання GYM-28 без ручного перенабору.
+
+**Acceptance criteria:**
+
+- `scripts/import_workout_programs.py [--dry-run] [--user <username>]`:
+  для кожного `User` з `username` читає `get_workout_programs(limit=0,
+  user_name=username)` і пише через `add_exercises`, зберігаючи порядок
+  рядків як `position`, `created_at` — з колонки «Дата» (`%d.%m.%Y %H:%M`,
+  `settings.timezone` → UTC; якщо не парситься — `utcnow()`).
+- Ідемпотентність: повторний запуск не дублює (пропускає користувача, у
+  якого в БД уже є хоч один рядок програми, з повідомленням у лог);
+  `--force` очищає й переімпортовує.
+- Аркуші, для яких немає користувача з таким username, лише
+  перелічуються у звіті (не імпортуються).
+- Тести: парсер рядка → item (чиста функція), ідемпотентність на SQLite
+  з мокнутим `GoogleSheetsService`.
+- README: крок «після оновлення до GYM-28 запустіть імпорт один раз».
+
+**SP:** 2
+
+### GYM-30: WebApp — додавання днів і вправ у програму
+
+**User story:** Як користувач (або тренер у режимі `?user=`), я хочу додати
+вправу в день програми прямо в Mini App, щоб не ходити в бота.
+
+**Acceptance criteria:**
+
+- `POST /api/workout/program/exercise` (`{user?, day, muscle_group,
+  exercise, sets_reps, comment?}`) → `add_exercises` + Sheets-дзеркало
+  (GYM-28); валідація `sets_reps` тим самим правилом, що
+  `process_sets_text` (`N/M`, `N|M` або «N» + reps) — винести парсер у
+  `src/services/exercise_names.py`/`workout_program_parsing.py` і
+  використати **в боті теж**, щоб формат був один. `muscle_group` — лише
+  зі списку `MUSCLE_GROUPS`. Відповідь — доданий рядок у формі
+  `GET /api/workout/program`.
+- `/nutrition` → секція «Тренування»: кнопка «➕ Новий день» (день =
+  `max(day)+1`, вибір групи м'язів чипами) і на картці дня — «➕ Вправа».
+- `/workout` (list view): кнопка «➕ Додати вправу» внизу списку; bottom-sheet
+  форма: назва (з автопідказкою з `GET /api/exercises?q=` — каталог
+  GYM-27, щоб не плодити дублікати «Жим лежачи»/«жим лёжа»), швидкі чипи
+  `3/10 3/12 4/8 4/10 4/12 5/5` (той самий набір, що
+  `get_sets_reps_keyboard`), коментар. Після додавання вправа з'являється в
+  списку без перезавантаження і одразу доступна для логування сетів
+  (стан `exercises[]` у `workout.html`).
+- Активна чернетка сесії (GYM-2c) не ламається: нова вправа додається в
+  програму, а в чернетку потрапляє лише після першого залогованого сета.
+- Тести: валідація `sets_reps`, `403` для чужого `user`, порядок
+  `position`.
+
+**Технічні підзадачі:**
+
+- Backend: `api_add_program_exercise`, `GET /api/exercises`
+  (`ExerciseRepository.search(q, limit=10)`).
+- Frontend: `nutrition.html` (новий день/вправа), `workout.html`
+  (bottom-sheet, стилі за зразком `showAddSetModal`).
+- Bot: `process_sets_text`/`process_reps_text` використовують спільний
+  парсер (поведінка не змінюється).
+
+**SP:** 5
+
+### GYM-31: Картка вправи — картинка, відео, опис
+
+**User story:** Як користувач, я хочу тапнути на назву вправи й побачити, як
+її виконувати (картинка/відео/опис), якщо тренер це заповнив.
+
+**Acceptance criteria:**
+
+- `GET /api/workout/program` і `GET /api/workout/session/start` віддають
+  для кожної вправи `exercise_id` і `has_details: bool` (є хоч одне з
+  `description`/`image_url`/`video_url`), щоб UI не показував іконку «ⓘ»
+  для порожніх карток.
+- `GET /api/exercises/{id}` → `{id, name, muscle_group, description,
+  image_url, video_url}` (`@webapp_auth`, без `?user=` — каталог спільний).
+- `/workout`: іконка «ⓘ» біля назви (лише при `has_details`) → bottom-sheet:
+  картинка (`<img loading="lazy">`, `max-width:100%`), опис, кнопка
+  «▶️ Відео» через `tg.openLink(video_url)` (Instagram/YouTube/TikTok
+  відкриваються в зовнішньому браузері/застосунку — всередині WebView
+  вони часто блокують embed). `image_url` — будь-який https-URL; локальне
+  хостингування картинок у `/static` не робимо в цьому плані.
+- **Наповнення каталогу — поза скоупом** (див. «Відкриті питання»); у цьому
+  таску контент з'являється лише через прямий запис у `exercises`
+  (міграція/консоль). Тест: ендпоінт із заповненим і порожнім рядком.
+
+**Технічні підзадачі:**
+
+- Backend: `api_get_exercise`, розширення серіалізації програми.
+- Frontend: `workout.html` — bottom-sheet деталей.
+
+**SP:** 3
+
+---
+
+## Epic 4 — Бот у групі: нагадування
+
+### GYM-32: Реєстрація групи (`my_chat_member`) і модель `GroupChat`
+
+**User story:** Як тренер, я хочу додати бота в групу клієнтів, щоб він
+зареєструвався там і був готовий нагадувати.
+
+**Acceptance criteria:**
+
+- Таблиця `group_chats`: `id`, `chat_id` (BigInteger, unique, index),
+  `title`, `is_active` (бот ще в групі), `added_by_telegram_id`,
+  `remind_nutrition` (bool, default `True`), `nutrition_time` (`"HH:MM"`,
+  default `"20:00"`), `remind_measurements` (bool, default `True`),
+  `measurements_weekday` (0–6, default 0 = понеділок),
+  `measurements_time` (default `"09:00"`), `remind_photos` (bool, default
+  `False`), `photos_day_of_month` (1–28, default 1), `photos_time`
+  (default `"09:00"`), `last_nutrition_sent_on` / `last_measurements_sent_on`
+  / `last_photos_sent_on` (Date|null, локальна дата), `created_at`,
+  `updated_at`. Час — у `settings.timezone` (одна зона на застосунок, як
+  усюди).
+- Хендлер `ChatMemberUpdatedFilter(member_status_changed=JOIN_TRANSITION)`
+  на `my_chat_member` для `group`/`supergroup`: upsert `GroupChat`
+  (`is_active=True`, `title`), привітання «Я нагадуватиму про харчування
+  щодня о 20:00 і про заміри щопонеділка о 09:00. Налаштувати —
+  `/reminders`». `LEAVE_TRANSITION` → `is_active=False` (рядок і
+  налаштування лишаються — при поверненні бота відновлюються).
+- Приватні чати цей хендлер ігнорує; `dp.resolve_used_update_types()`
+  підхоплює `my_chat_member` автоматично (перевірити тестом, що тип є в
+  списку).
+- Тести: join/leave через `tests/bot_mocks.py` (додати `make_chat_member_updated`).
+
+**Технічні підзадачі:**
+
+- DB: модель + міграція; `GroupChatRepository` (`upsert_active`,
+  `deactivate`, `get_active`, `update_settings`, `mark_sent`).
+- Bot: `src/bot/handlers/group_reminders.py` (router у `setup_routers`).
+
+**SP:** 3
+
+### GYM-33: `/reminders` — налаштування нагадувань у групі
+
+**User story:** Як адмін групи, я хочу вмикати/вимикати типи нагадувань і
+міняти час просто в чаті.
+
+**Acceptance criteria:**
+
+- `/reminders` у групі (лише `group`/`supergroup`; у приваті — підказка
+  «Додайте мене в групу») показує inline-панель: три рядки-тогли
+  `🍽 Харчування · щодня 20:00 [✅]`, `📏 Заміри · пн 09:00 [✅]`,
+  `📸 Фото прогресу · 1-го числа 09:00 [❌]` і кнопки «⏰ Час…» для кожного
+  (вибір з чипів `07:00 09:00 12:00 18:00 20:00 21:00`, для замірів — ще
+  день тижня, для фото — число 1/15).
+- Змінювати може лише учасник зі статусом `creator`/`administrator`
+  (`bot.get_chat_member`), інші отримують `callback.answer("Лише адміни
+  групи", show_alert=True)`; сам перегляд — усім.
+- Callback-дані з префіксом `grem:` (щоб не перетинались з `program:`/
+  `edit:`); панель редагується in-place (`edit_message_reply_markup`).
+- Працює з увімкненим privacy mode (команди й callback-и доходять; читати
+  повідомлення групи бот не потребує).
+- Тести: не-адмін не змінює; toggle перемикає поле; час валідований.
+
+**SP:** 5
+
+### GYM-34: Планувальник і відправка нагадувань
+
+**User story:** Як учасник групи, я хочу отримувати короткі нагадування з
+кнопкою, що веде в потрібний розділ Mini App.
+
+**Acceptance criteria:**
+
+- Чиста функція `src/services/group_reminders.py: due_reminders(group,
+  now_local: datetime) -> list[ReminderKind]`: тип «належить» відправці,
+  якщо увімкнений, `now_local` ≥ налаштованого часу цього дня, день
+  відповідає (щодня / weekday / day_of_month) і `last_*_sent_on <
+  now_local.date()`. Тести: межа опівночі, вимкнений тип, уже надіслано
+  сьогодні, бот перезапущений після 20:00 (надсилає з запізненням, але
+  один раз), 29–31 число при `day_of_month=28`.
+- Job `group_reminders` у `setup_scheduler` (`interval`, 5 хв): для всіх
+  `is_active` груп → `due_reminders` → `send_message` → `mark_sent`.
+  `TelegramForbiddenError`/`ChatNotFound` (бота вигнали без події) →
+  `is_active=False`; інші помилки логуються, `last_*_sent_on` не
+  оновлюється (повтор на наступному тику).
+- Тексти (Markdown, той самий стиль, що `NotificationService`):
+  - 🍽 «Час підбити харчування за сьогодні — залогуйте прийоми їжі та воду»
+    + кнопка «🍎 Відкрити щоденник» → `https://t.me/<bot>?start=nutrition`;
+  - 📏 «Понеділок — день замірів. Оновіть вагу в профілі» + «👤 Профіль» →
+    `?start=profile`;
+  - 📸 «Час для фото прогресу 📸 Зробіть фото в тих самих умовах, що й
+    минулого разу» (без кнопки; бот фото не збирає — див. ризики).
+- `/start <section>` у приватному чаті (`CommandStart(deep_link=True)`,
+  `CommandObject.args ∈ {nutrition, profile, statistics}`) відповідає
+  inline `web_app`-кнопкою на відповідну сторінку (у групі `web_app` не
+  працює — тому дволанковий перехід). Невідомий аргумент → звичайний
+  `/start`.
+- Ім'я бота для deep-link — з `await bot.get_me()` один раз при старті
+  (кешується в `set_bot_instance`-стилі), не з env.
+
+**Технічні підзадачі:**
+
+- Services: `group_reminders.py` (чиста логіка + `GroupReminderService`
+  з відправкою).
+- Bot: `bot.py: setup_scheduler` — новий job; `start.py` — deep-link.
+- Tests: чиста логіка; сервіс з мокнутим `Bot`.
+
+**SP:** 5
+
+---
+
+## Epic 5 — Бот: меню, кнопки, тексти
+
+### GYM-35: Перейменувати chat-menu-кнопку «🍎 БЖУ» і пов'язані тексти
+
+**User story:** Як користувач, я хочу, щоб кнопка меню називалась відповідно
+до того, що відкриває (щоденник з харчуванням, тренуваннями, статистикою і
+профілем), а не «БЖУ».
+
+**Acceptance criteria:**
+
+- Chat-menu-кнопка: `📱 Щоденник` → `/nutrition` (рекомендація; фінальну
+  назву див. у «Відкритих питаннях»). Виставляється **глобально** при
+  старті бота (`bot.set_chat_menu_button(menu_button=MenuButtonWebApp(…))`
+  без `chat_id` — default для всіх приватних чатів), а per-chat виклик у
+  `/start` прибирається (він більше не потрібен і лише перезаписував би
+  default).
+- Тексти в `user_profile.py`: «⚙️ Редагувати налаштування БЖУ» →
+  «🎯 Цілі харчування», «🍎 Відкрити трекер БЖУ» → `web_app`-кнопка
+  «📱 Відкрити щоденник» (inline `web_app` у приваті працює — замість
+  alert'а «Натисніть кнопку 🍎 БЖУ в меню бота»); заголовок
+  `_format_nutrition_settings` → «🎯 Цілі харчування».
+- `/nutrition` (`handlers/nutrition.py`): текст «📊 Трекер харчування» →
+  «🍎 Харчування», опис актуалізовано (сьогодні, статистика, фото).
+- Тести: `test_bot_handlers_start.py` — `set_chat_menu_button` не
+  викликається в `/start`; startup-хук викликає з очікуваним текстом.
+
+**SP:** 1
+
+### GYM-36: Клавіатури головного/адмінського меню, `/start`, `/help`, `set_my_commands`
+
+**User story:** Як користувач, я хочу з головного меню одразу потрапляти в
+харчування, тренування, статистику і профіль, а `/help` має описувати те,
+що бот справді вміє.
+
+**Acceptance criteria:**
+
+- `get_main_menu_keyboard` (при заданому `WEBAPP_URL`; без нього — як
+  зараз, лише текстові кнопки):
+  ```
+  [🍎 Харчування (web_app /nutrition)] [🏋️ Тренування (web_app /nutrition?tab=workout)]
+  [📊 Статистика (web_app /statistics)] [👤 Профіль]
+  [📅 Розклад] [📝 Мої записи]
+  [ℹ️ Допомога]
+  ```
+  `nutrition.html` читає `?tab=workout` і одразу відкриває секцію
+  «Тренування» (`showWorkoutSection`).
+- `get_admin_menu_keyboard`: ті самі рядки + зверху
+  `[💪 Програма тренувань] [📋 Переглянути програми]` і
+  `[➕ Додати тренування] [📈 Адмін-статистика]`. Текст адмінської
+  статистики (`admin.py:280`) перейменовується з `📊 Статистика` на
+  `📈 Адмін-статистика` — інакше після появи `📊 Статистика`-web_app у
+  головному меню два різні елементи мають однаковий підпис.
+- `/start`: реєстрація як зараз; текст описує розділи щоденника
+  (харчування, фото → БЖВ, тренування, статистика, профіль) і запис на
+  заняття; підтримує deep-link (GYM-34).
+- `/help`: актуальний список команд і розділів (без «📅 Розклад» як
+  єдиного сценарію); згадка про групові нагадування і `/reminders`.
+- `set_my_commands` при старті: `start`, `help`, `nutrition`, `statistics`,
+  `schedule`, `my` для `BotCommandScopeAllPrivateChats`; `reminders` для
+  `BotCommandScopeAllGroupChats`; `admin` для `BotCommandScopeChat`
+  кожного `admin_user_ids`.
+- Тести: `test_bot_keyboards.py` — склад кнопок з/без `WEBAPP_URL`;
+  `/help` містить `/nutrition`, `/statistics`, `/reminders`.
+
+**Технічні підзадачі:**
+
+- Bot: `keyboards.py`, `start.py`, `admin.py` (текст кнопки),
+  `bot.py: run_bot` — `set_my_commands` + default menu button (GYM-35)
+  в одному startup-хелпері `configure_bot_commands(bot)`.
+- Frontend: `nutrition.html` — `?tab=workout`.
+- README «Команди бота».
+
+**SP:** 3
+
+---
+
+## Наскрізні задачі
+
+- **GYM-37 — Уніфікація нижньої навігації Mini App.** Прибрати мертвий
+  пункт `⚙️ Налаштування` (`href="#"`) з `nutrition.html`, `profile.html`,
+  `statistics.html`; на всіх сторінках однаковий набір
+  `Сьогодні · Тренування · Статистика · Профіль` (`Тренування` →
+  `/nutrition?tab=workout`, GYM-36); активний пункт визначається по
+  `location.pathname` одним спільним фрагментом JS, а не вручну на кожній
+  сторінці. **SP: 1**
+- **GYM-38 — Інтеграційні тести нових ендпоінтів.** За зразком
+  `tests/test_webapp_statistics_integration.py` (реальний `TestClient`):
+  auth на кожному новому `/api/*`, `403` за чужий `user` для не-адміна,
+  multipart на `/api/nutrition/meal/photo` (мок OpenAI), наскрізний
+  сценарій «додати вправу через `POST /api/workout/program/exercise` →
+  побачити в `GET /api/workout/program` → залогувати сет → побачити в
+  `/api/statistics/exercises`». **SP: 3**
+- **GYM-39 — Документація.** README: «Функціонал» (фото → БЖВ, програми в
+  БД, групові нагадування), «Команди бота», «База даних» (`exercises`,
+  `workout_program_exercises`, `group_chats`, нові поля `daily_nutrition`/
+  `profiles`), «Google Sheets структура» (тепер — лише опційне дзеркало;
+  крок імпорту GYM-29), розділ «OpenAI» (`OPENAI_API_KEY`, `OPENAI_MODEL`,
+  орієнтовна вартість, що фото не зберігаються); `.env.example`. **SP: 1**
+
+---
+
+## MVP (≈ 32 SP)
+
+Мінімальний набір, що дає: коректне «Сьогодні» з назвами страв і
+вимкненням води, програми в БД з додаванням вправ із WebApp, і актуальне
+меню бота:
+
+| Таск | SP |
+| ---- | -- |
+| GYM-35 chat-menu-кнопка | 1 |
+| GYM-36 клавіатури, `/start`, `/help`, команди | 3 |
+| GYM-21 тип запису / назва / локальна доба | 3 |
+| GYM-22 UI «Сьогодні» | 5 |
+| GYM-25 вимкнення води | 3 |
+| GYM-27 моделі програм і вправ | 3 |
+| GYM-28 програми в БД, Sheets — дзеркало | 8 |
+| GYM-29 імпорт із Sheets | 2 |
+| GYM-30 додавання вправ у WebApp | 5 |
+| GYM-39 документація | 1 |
+
+Фото → БЖВ (GYM-23/24), картка вправи (GYM-31), профіль (GYM-26) і групові
+нагадування (Epic 4) додаються інкрементально, кожен — самодостатній реліз.
+
+## Рекомендована послідовність (sprint order)
+
+1. **Sprint 1:** GYM-35, GYM-36, GYM-21, GYM-25 — швидкі помітні зміни в
+   боті + фундамент харчування
+2. **Sprint 2:** GYM-22, GYM-26, GYM-37 — UI «Сьогодні» і «Профіль»
+3. **Sprint 3:** GYM-27, GYM-28, GYM-29 — програми в БД (+ імпорт одразу
+   після деплою)
+4. **Sprint 4:** GYM-30, GYM-31 — додавання вправ і картка вправи
+5. **Sprint 5:** GYM-23, GYM-24 — фото → БЖВ
+6. **Sprint 6:** GYM-32, GYM-33, GYM-34 — групові нагадування
+7. **Sprint 7:** GYM-38, GYM-39 — інтеграційні тести + документація
+
+## Відкриті питання та ризики
+
+### Перенесено з фази 1 (WEBAPP_STATISTICS_PLAN.md)
+
+- **`is_admin()` заглушений** (`workout_program.py:58`) — будь-який
+  користувач може відкрити програму/лог будь-якого username. У фазі 1 це
+  успадкувала статистика (`?user=<username>` на `/statistics` покаже чужі
+  дані). **Статус у фазі 2:** закривається в GYM-28 (спільний
+  `_resolve_program_owner` з перевіркою `admin_user_ids`, застосований до
+  `/api/workout/*` і `/api/statistics/*`; `is_admin` у боті — реальна
+  перевірка). До GYM-28 дірка лишається, і GYM-30 (додавання вправ із
+  WebApp) **не можна** випускати раніше за GYM-28.
+- **Username як ключ Sheets.** Зміна Telegram-username розриває зв'язок з
+  аркушами `Логи (<old>)`/`Програми (<old>)`. **Статус:** після GYM-28
+  Sheets — лише опційне дзеркало, тому розрив зачіпає тільки його (дані в
+  БД цілі). Імпорт GYM-29 матчить аркуші за **поточним** username —
+  аркуші користувачів, які вже змінили username, лишаться неімпортованими
+  (звіт скрипта їх перелічить; ручний `--user` не допоможе, бо аркуш
+  названий старим ім'ям — потрібен окремий параметр `--sheet-name`, якщо
+  таке трапиться).
+- **Sheets як джерело істини для програм.** **Статус:** вирішується цим
+  планом (Epic 3). Після нього Sheets ніде не є джерелом істини;
+  «повний відхід від Sheets» (видалення інтеграції) — не потрібен, дзеркало
+  лишається як опція для тих, кому зручні таблиці.
+- **Одиниця серії — тиждень** (реалістично для 3–4 тренувань/тиждень).
+  Якщо потрібна денна серія — змінюється лише `calculate_streak`. Без змін.
+- **Історія до GYM-2 відсутня в статистиці** (GYM-2b скасовано). Серія/PR/
+  об'єм стартують «з нуля» з моменту розгортання GYM-2. Без змін; GYM-29
+  імпортує **програми**, а не логи, і не змінює цього рішення.
+
+### Нові в фазі 2
+
+- **Точність фото → БЖВ.** Оцінка порції з фото має похибку ±30–50 %;
+  саме тому результат — чернетка з бейджем впевненості, а не запис. Ризик:
+  користувачі довірятимуть цифрам більше, ніж варто. Мінімум — підказка
+  «Перевірте порцію» в `/meal-entry` (GYM-24). Вибір моделі
+  (`gpt-4o-mini` за замовчуванням) — компроміс ціна/якість; перевірити на
+  10–20 реальних фото перед релізом і за потреби підняти до `gpt-4o` через
+  `OPENAI_MODEL`.
+- **Вартість і ліміти OpenAI.** Орієнтовно $0.002–0.01 за фото при
+  1024 px; без per-user rate-limit один користувач може «спалити» бюджет.
+  У GYM-23 ліміту немає свідомо (MVP, малий закритий круг користувачів);
+  якщо бот піде у ширшу групу — додати `daily_photo_limit` у профіль/конфіг
+  окремим таском. Ключ — лише в env сервера, у WebApp не потрапляє.
+- **Приватність фото.** Фото їжі проксюється в OpenAI і не зберігається в
+  нас; але OpenAI може зберігати вхідні дані за своєю політикою
+  (за замовчуванням API-дані не використовуються для тренування, але
+  зберігаються до 30 днів для abuse-моніторингу). Згадати в `/help` і
+  README. Якщо це неприйнятно — фіча вимикається порожнім ключем.
+- **`input[type=file]` у Telegram WebView.** На iOS/Android Telegram
+  зазвичай відкриває системний вибір камери/галереї, але траплялися
+  регресії в окремих версіях клієнта. Перевірити в GYM-24 на трьох
+  платформах; **фолбек** — приймати фото в приватному чаті бота
+  (`F.photo`-хендлер → той самий `recognize_food` → відповідь з оцінкою і
+  inline-кнопкою «Зберегти як прийом їжі»). Фолбек не в скоупі, але це
+  ~3 SP поверх GYM-23, якщо знадобиться.
+- **Назва chat-menu-кнопки.** Рекомендовано `📱 Щоденник`; альтернативи —
+  `🍎 Харчування` (вужче за функціонал, бо там і тренування зі
+  статистикою) або `🏋️ GymBro`. Telegram обмежує довжину тексту кнопки
+  меню, коротке слово надійніше. Затвердити до GYM-35.
+- **Кнопки `📅 Розклад`/`📝 Мої записи` в головному меню (GYM-36).**
+  Хендлери й таблиці `trainings`/`bookings` живі, README їх описує, але
+  чи використовується запис на групові заняття зараз — невідомо. Якщо ні,
+  ці два рядки з клавіатури прибрати (хендлери й команди лишити), меню
+  стане коротшим. Уточнити до GYM-36.
+- **Наповнення каталогу вправ (GYM-31).** Схема є, контент — ні. Варіанти
+  для наступного плану: (а) адмінський FSM у боті «✏️ Вправа → надіслати
+  фото/лінк/опис» (фото → `file_id` Telegram + віддача через
+  `/api/exercises/{id}/image` проксі, щоб не хостити файли); (б) CSV/Sheets
+  імпорт каталогу; (в) ручне заповнення в БД. Поки що `image_url` — лише
+  зовнішній https-URL. Рішення не блокує цей план.
+- **Дублікати назв вправ.** До GYM-27 назви — вільний текст із бота і
+  Sheets, тож у `workout_sets.exercise_name` уже є варіанти написання однієї
+  вправи (статистика GYM-5a/8 їх бачить як різні). `normalize_exercise_name`
+  об'єднає **нові** записи; злиття історичних варіантів у `workout_sets` —
+  окремий таск (ручний маппінг «варіант → канон»), не робимо тут.
+- **Заміри — лише нагадування, без історії.** У БД є лише `Profile.weight`
+  (поточне значення); нагадування «оновіть вагу» перезапише його без
+  історії. Таблиця `body_measurements` (вага, талія, фото) і графік ваги в
+  статистиці — логічний наступний епік, але поза цим планом.
+- **Фото прогресу — бот їх не збирає.** Нагадування 📸 лише просить зробити
+  фото; зберігання (у групі, в приваті, в БД як `file_id`) не проєктується,
+  бо пов'язано з приватністю і з `body_measurements` вище.
+- **Групи: privacy mode і права.** `/reminders` і callback-и працюють при
+  увімкненому privacy mode; перевірка «адмін групи» — через
+  `get_chat_member` на кожен callback (один запит; кешувати не варто —
+  права міняються). Якщо бота зроблять адміном групи, нічого не зміниться.
+  У супергрупах із темами (forum) повідомлення підуть у General —
+  `message_thread_id` не підтримуємо в цьому плані.
+- **Одна таймзона на застосунок** (`settings.timezone`). Групи в іншій зоні
+  отримуватимуть нагадування «о 20:00 за Києвом». Поле `timezone` у
+  `group_chats` не додаємо, доки не з'явиться реальна потреба.
+- **Кількість міграцій.** У плані 5 міграцій (GYM-21, 25, 27, 32 + за
+  потреби). Тримаємо по одній на таск (як у фазі 1), не об'єднуємо, щоб
+  PR-и лишались незалежними; `alembic upgrade head` під час старту
+  (`bot.py:91`) застосує їх послідовно.
+- **Порядок релізу GYM-28 → GYM-29.** Між деплоєм GYM-28 і запуском імпорту
+  WebApp показуватиме порожні програми. Вікно коротке (хвилини), але
+  користувачів попередити; альтернатива — запускати імпорт автоматично при
+  старті, якщо таблиця порожня і `GOOGLE_SPREADSHEET_ID` заданий. Обрано
+  ручний запуск (прозоріше, `--dry-run` спершу).

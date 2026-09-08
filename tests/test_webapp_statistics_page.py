@@ -27,6 +27,9 @@ class TestStatisticsPage:
             assert '/api/statistics/exercises' in body
             assert '/api/statistics/exercise-progress' in body
             assert 'exerciseSelect' in body
+            # GYM-8's records tab.
+            assert 'Рекорди' in body
+            assert '/api/statistics/records' in body
 
     async def test_reads_telegram_webapp_js_like_other_pages(self):
         app = create_webapp()

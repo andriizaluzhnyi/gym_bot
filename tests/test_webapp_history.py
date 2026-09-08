@@ -11,7 +11,7 @@ from aiohttp.test_utils import make_mocked_request
 from src.database.models import Base
 from src.database.repository import UserRepository, WorkoutSessionRepository
 from src.database.session import async_session_maker, engine
-from src.webapp.server import api_get_history, api_get_history_session
+from src.webapp.server import api_get_history, api_get_history_session, settings
 from tests.test_webapp_auth import build_init_data
 
 import pytest
@@ -190,7 +190,10 @@ class TestHistoryListSummary:
 
         assert [row["date"] for row in payload] == ["2026-01-10", "2026-01-01"]
 
-    async def test_user_param_overrides_caller(self):
+    async def test_user_param_overrides_caller(self, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
         await _add_completed_session(
@@ -357,7 +360,10 @@ class TestHistorySessionDetail:
         assert flyes["exercise"] == "Розводка"
         assert flyes["sets"] == [{"set": 1, "weight": 20.0, "reps": 12}]
 
-    async def test_user_param_overrides_caller(self):
+    async def test_user_param_overrides_caller(self, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
         session_id = await _add_completed_session(

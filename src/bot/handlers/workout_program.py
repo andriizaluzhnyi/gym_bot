@@ -1,5 +1,6 @@
 """Workout program handlers for creating training programs."""
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -7,6 +8,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from urllib.parse import quote
 
@@ -14,6 +16,7 @@ from src.bot.keyboards import (
     get_add_more_exercise_keyboard,
     get_admin_menu_keyboard,
     get_day_selection_keyboard,
+    get_main_menu_keyboard,
     get_muscle_group_keyboard,
     get_reps_keyboard,
     get_sets_keyboard,
@@ -23,12 +26,14 @@ from src.bot.keyboards import (
     get_view_muscle_filter_keyboard,
 )
 from src.config import get_settings
-from src.database.repository import UserRepository
+from src.database.models import User
+from src.database.repository import UserRepository, WorkoutProgramRepository
 from src.database.session import async_session_maker
 from src.services.google_sheets import GoogleSheetsService
 
 router = Router()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 async def _get_workout_users() -> list[str]:
@@ -37,6 +42,23 @@ async def _get_workout_users() -> list[str]:
         user_repo = UserRepository(session)
         users = await user_repo.get_all_with_username()
         return [user.username for user in users if user.username]
+
+
+async def _resolve_owner(
+    session: AsyncSession, telegram_id: int, selected_user: str | None
+) -> User | None:
+    """Resolve the DB owner of the program being built/viewed in this FSM
+    session (GYM-28).
+
+    ``selected_user`` is a username chosen from the picker — reachable
+    only by an admin (see ``is_admin`` guard below); ``None`` means "the
+    caller's own account", either because they're not an admin (no picker
+    was ever shown) or because no other users existed yet to pick from.
+    """
+    user_repo = UserRepository(session)
+    if selected_user:
+        return await user_repo.get_by_username(selected_user)
+    return await user_repo.get_by_telegram_id(telegram_id)
 
 
 class WorkoutProgramStates(StatesGroup):
@@ -56,19 +78,29 @@ class WorkoutProgramStates(StatesGroup):
 
 
 def is_admin(user_id: int) -> bool:
-    """Check if user is admin."""
-    return True  # user_id in settings.admin_user_ids
+    """Check if user is admin.
+
+    GYM-28: real check (was stubbed to always return True) — a non-admin
+    now only ever builds/views their own program, never a picker of every
+    username in the DB.
+    """
+    return user_id in settings.admin_user_ids
 
 
 @router.message(F.text == "💪 Програма тренувань")
 async def start_workout_program(message: Message, state: FSMContext) -> None:
-    """Start creating a workout program."""
-    # if not is_admin(message.from_user.id):
-    #     await message.answer("❌ У вас немає прав для цієї дії")
-    #     return
+    """Start creating a workout program.
 
-    # Get users from database
-    workout_users = await _get_workout_users()
+    GYM-28: a non-admin never sees the user picker at all — they always
+    build their own program, the same branch as "no other users exist yet
+    to pick from" below.
+    """
+    if message.from_user is None:
+        return
+
+    workout_users = (
+        await _get_workout_users() if is_admin(message.from_user.id) else []
+    )
 
     if workout_users:
         # Ask to select user first
@@ -209,14 +241,14 @@ async def process_muscle_group(callback: CallbackQuery, state: FSMContext) -> No
         # First exercise, need to select day
         await state.set_state(WorkoutProgramStates.select_day)
 
-        # Get last day for this muscle group from sheets
-        try:
-            sheets_service = GoogleSheetsService()
-            last_day = await sheets_service.get_last_program_day_for_muscle_group(
-                muscle_group, user_name=selected_user
-            )
-        except Exception:
-            last_day = 0
+        # Get last day for this muscle group from the DB (GYM-28)
+        last_day = 0
+        async with async_session_maker() as session:
+            owner = await _resolve_owner(session, callback.from_user.id, selected_user)
+            if owner:
+                last_day = await WorkoutProgramRepository(
+                    session
+                ).get_last_day_for_muscle(owner.id, muscle_group)
 
         keyboard = get_day_selection_keyboard(last_day)
         user_prefix = f"👤 {selected_user} | " if selected_user else ""
@@ -465,14 +497,35 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
             await state.clear()
             return
 
-        # Save to Google Sheets
-        try:
-            sheets_service = GoogleSheetsService()
-            await sheets_service.add_workout_program(exercises, user_name=selected_user)
-            sheets_saved = True
-        except Exception as e:
-            print(f"Error saving to sheets: {e}")
-            sheets_saved = False
+        # DB is the primary store (GYM-28) — Sheets is an opt-in mirror,
+        # same convention as workout logs (GYM-2): it's written to only if
+        # the owner enabled sync_workout_to_sheets, and a Sheets failure
+        # never affects whether the program was actually saved.
+        async with async_session_maker() as session:
+            owner = await _resolve_owner(session, callback.from_user.id, selected_user)
+            if not owner:
+                await callback.message.edit_text("❌ Користувача не знайдено")
+                await state.clear()
+                return
+
+            await WorkoutProgramRepository(session).add_exercises(
+                owner.id, day_num, exercises
+            )
+            await session.commit()
+
+            sync_enabled = owner.sync_workout_to_sheets
+            owner_username = owner.username
+
+        sheets_saved = False
+        if sync_enabled and owner_username:
+            try:
+                sheets_service = GoogleSheetsService()
+                sheets_saved = await sheets_service.add_workout_program(
+                    exercises, user_name=owner_username
+                )
+            except Exception as e:
+                logger.warning(f"Failed to mirror workout program to Sheets: {e}")
+                sheets_saved = False
 
         # Show final summary
         user_header = f" для {selected_user}" if selected_user else ""
@@ -494,15 +547,20 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
                     summary += f" ({ex['comment']})"
                 summary += "\n"
 
-        if sheets_saved:
-            summary += "\n📊 Збережено в Google Sheets"
-        else:
-            summary += "\n⚠️ Не вдалося зберегти в Google Sheets"
+        if sync_enabled:
+            if sheets_saved:
+                summary += "\n📊 Продубльовано в Google Sheets"
+            else:
+                summary += "\n⚠️ Не вдалося продублювати в Google Sheets"
 
         await callback.message.edit_text(summary, parse_mode="Markdown")
         await callback.message.answer(
             "Оберіть наступну дію:",
-            reply_markup=get_admin_menu_keyboard(),
+            reply_markup=(
+                get_admin_menu_keyboard()
+                if is_admin(callback.from_user.id)
+                else get_main_menu_keyboard()
+            ),
         )
 
         await state.clear()
@@ -510,13 +568,18 @@ async def process_program_action(callback: CallbackQuery, state: FSMContext) -> 
 
 @router.message(F.text == "📋 Переглянути програми")
 async def view_programs(message: Message, state: FSMContext) -> None:
-    """View saved workout programs - select user first if users exist."""
-    # if not is_admin(message.from_user.id):
-    #     await message.answer("❌ У вас немає прав для цієї дії")
-    #     return
+    """View saved workout programs - select user first if users exist.
 
-    # Get users from database
-    workout_users = await _get_workout_users()
+    GYM-28: a non-admin never sees the user picker — they always view
+    only their own program, same branch as "no other users exist yet"
+    below.
+    """
+    if message.from_user is None:
+        return
+
+    workout_users = (
+        await _get_workout_users() if is_admin(message.from_user.id) else []
+    )
 
     if workout_users:
         # Ask to select user first
@@ -543,70 +606,6 @@ async def view_programs(message: Message, state: FSMContext) -> None:
         )
 
 
-async def _show_programs(message: Message, user_name: str | None = None) -> None:
-    """Show programs for a specific user or all programs."""
-    try:
-        sheets_service = GoogleSheetsService()
-        programs = await sheets_service.get_workout_programs(limit=100, user_name=user_name)
-
-        user_header = f" ({user_name})" if user_name else ""
-
-        if not programs:
-            await message.answer(
-                f"📋 *Програма тренувань{user_header}*\n\n"
-                "_Поки немає збережених програм_",
-                parse_mode="Markdown",
-            )
-            return
-
-        # Group by day
-        by_day: dict[Any, list[dict[str, Any]]] = {}
-        for p in programs:
-            day = p.get("day", "?")
-            if day not in by_day:
-                by_day[day] = []
-            by_day[day].append(p)
-
-        text = f"📋 *Програма тренувань{user_header}*\n"
-        text += "━" * 20 + "\n"
-
-        for day in sorted(by_day.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
-            text += f"\n📅 *День {day}*\n"
-
-            # Group by muscle in this day
-            by_muscle: dict[Any, list[dict[str, Any]]] = {}
-            for ex in by_day[day]:
-                muscle = ex.get("muscle_group", "Інше")
-                if muscle not in by_muscle:
-                    by_muscle[muscle] = []
-                by_muscle[muscle].append(ex)
-
-            for muscle, exercises in by_muscle.items():
-                text += f"\n  *{muscle}*\n"
-                for ex in exercises:
-                    line = f"    • {ex.get('exercise', '-')}"
-                    sets_reps = ex.get("sets_reps", "")
-                    if sets_reps:
-                        line += f" ({sets_reps})"
-                    comment = ex.get("comment", "")
-                    if comment:
-                        line += f" - _{comment}_"
-                    text += line + "\n"
-
-            text += "\n" + "─" * 15 + "\n"
-
-        # Split if too long
-        if len(text) > 4000:
-            text = text[:3900] + "\n\n_...і ще записи_"
-
-        await message.answer(text, parse_mode="Markdown")
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Помилка при завантаженні програм: {str(e)}",
-        )
-
-
 @router.callback_query(F.data.startswith("view_muscle:"))
 async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext) -> None:
     """Process muscle group filter selection for viewing."""
@@ -629,21 +628,22 @@ async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext)
     else:
         await state.update_data(filter_muscle_group=action)
 
-    # Get available days for this user and muscle group
+    # Get available days for this user and muscle group (GYM-28: DB)
     try:
-        sheets_service = GoogleSheetsService()
-        programs = await sheets_service.get_workout_programs(limit=100, user_name=selected_user)
+        async with async_session_maker() as session:
+            owner = await _resolve_owner(session, callback.from_user.id, selected_user)
+            if not owner:
+                await callback.message.edit_text("❌ Користувача не знайдено")
+                await callback.answer()
+                return
+
+            summary = await WorkoutProgramRepository(session).get_days_summary(owner.id)
 
         # Filter by muscle group if selected
-        if action != "all":
-            programs = [p for p in programs if p.get("muscle_group") == action]
-
-        # Get unique days
-        days = set()
-        for p in programs:
-            day = p.get("day", "")
-            if day and str(day).isdigit():
-                days.add(int(day))
+        days = {
+            row["day"] for row in summary
+            if action == "all" or action in row["muscle_groups"]
+        }
 
         if not days:
             # No days found, show programs directly
@@ -655,6 +655,7 @@ async def process_view_muscle_filter(callback: CallbackQuery, state: FSMContext)
             )
             await _show_programs_filtered(
                 callback.message,
+                callback.from_user.id,
                 user_name=selected_user,
                 muscle_group=filter_muscle,
                 day=None
@@ -718,6 +719,7 @@ async def process_view_day_filter(callback: CallbackQuery, state: FSMContext) ->
     )
     await _show_programs_filtered(
         callback.message,
+        callback.from_user.id,
         user_name=selected_user,
         muscle_group=filter_muscle,
         day=filter_day
@@ -727,30 +729,38 @@ async def process_view_day_filter(callback: CallbackQuery, state: FSMContext) ->
 
 async def _show_programs_filtered(
     message: Message,
+    caller_telegram_id: int,
     user_name: str | None = None,
     muscle_group: str | None = None,
     day: int | None = None
 ) -> None:
-    """Show programs filtered by muscle group and/or day.
+    """Show programs filtered by muscle group and/or day (GYM-28: DB).
 
     After displaying the program, shows a 'Start Workout' WebApp button
     when a specific day is selected.
 
     Args:
-        message: Message to reply to
+        message: Message to reply to. Note this is often `callback.message`
+            (the bot's own message being edited), whose `from_user` is the
+            *bot*, not the person who tapped the button — so the caller's
+            identity has to be passed in separately rather than read off
+            `message.from_user` here.
+        caller_telegram_id: telegram_id of whoever triggered this (for
+            resolving the "no specific user picked" case to their own
+            account, GYM-28).
         user_name: User name to filter by
         muscle_group: Muscle group to filter by (None for all)
         day: Day number to filter by (None for all)
     """
     try:
-        sheets_service = GoogleSheetsService()
-        programs = await sheets_service.get_workout_programs(limit=100, user_name=user_name)
-
-        # Apply filters
-        if muscle_group:
-            programs = [p for p in programs if p.get("muscle_group") == muscle_group]
-        if day is not None:
-            programs = [p for p in programs if str(p.get("day", "")) == str(day)]
+        async with async_session_maker() as session:
+            owner = await _resolve_owner(session, caller_telegram_id, user_name)
+            if not owner:
+                await message.answer("❌ Користувача не знайдено")
+                return
+            programs = await WorkoutProgramRepository(session).get_program(
+                owner.id, day=day, muscle=muscle_group
+            )
 
         # Build header
         user_header = f" ({user_name})" if user_name else ""
@@ -811,13 +821,16 @@ async def _show_programs_filtered(
 
         await message.answer(text, parse_mode="Markdown")
 
-        # Show "Start Workout" WebApp button when a specific day is selected
+        # Show "Start Workout" WebApp button when a specific day is
+        # selected. Uses owner.username (resolved above) rather than the
+        # raw user_name param, so this also works for a non-admin's own
+        # self-view (user_name is None there — GYM-28).
         webapp_url = settings.webapp_url
-        if webapp_url and user_name and day is not None:
+        if webapp_url and owner.username and day is not None:
             muscle_param = quote(muscle_group) if muscle_group else ''
             workout_url = (
                 f'{webapp_url}/workout'
-                f'?user={quote(user_name)}'
+                f'?user={quote(owner.username)}'
                 f'&day={day}'
                 f'&muscle={muscle_param}'
             )

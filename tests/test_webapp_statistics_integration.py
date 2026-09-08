@@ -21,7 +21,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from src.database.models import Base
 from src.database.repository import UserRepository, WorkoutSessionRepository
 from src.database.session import async_session_maker, engine
-from src.webapp.server import create_webapp
+from src.webapp.server import create_webapp, settings
 from tests.test_webapp_auth import build_init_data
 
 # settings.timezone defaults to Europe/Kyiv (src/config.py).
@@ -151,7 +151,10 @@ class TestUserParamWiring:
     real URL rather than constructed in-process.
     """
 
-    async def test_user_param_round_trips_over_http(self, client):
+    async def test_user_param_round_trips_over_http(self, client, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user('lifter', telegram_id=1)
         await _make_user('trainer', telegram_id=999)
         await _add_completed_session(

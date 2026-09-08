@@ -9,7 +9,7 @@ from aiohttp.test_utils import make_mocked_request
 from src.database.models import Base
 from src.database.repository import UserRepository, WorkoutSessionRepository
 from src.database.session import async_session_maker, engine
-from src.webapp.server import api_get_volume_statistics
+from src.webapp.server import api_get_volume_statistics, settings
 from tests.test_webapp_auth import build_init_data
 
 import pytest
@@ -73,7 +73,21 @@ class TestAuthAndValidation:
         response = await api_get_volume_statistics(request)
         assert response.status == 404
 
-    async def test_unknown_user_param_returns_404(self):
+    async def test_non_admin_requesting_another_user_returns_403(self):
+        """GYM-28: a non-admin passing ?user=<anyone else> is rejected
+        before the username is even looked up — same response whether
+        that user exists or not, so this doesn't leak which usernames are
+        registered.
+        """
+        await _make_user("lifter", telegram_id=1)
+        request = _mock_get_request(
+            "/api/statistics/volume?user=ghost", telegram_id=1
+        )
+        response = await api_get_volume_statistics(request)
+        assert response.status == 403
+
+    async def test_admin_requesting_unknown_user_returns_404(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_user_id", 1)
         await _make_user("lifter", telegram_id=1)
         request = _mock_get_request(
             "/api/statistics/volume?user=ghost", telegram_id=1
@@ -215,7 +229,10 @@ class TestAggregation:
 
 
 class TestTrainerViewsClient:
-    async def test_user_param_overrides_caller(self):
+    async def test_user_param_overrides_caller(self, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
         await _add_completed_session(

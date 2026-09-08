@@ -9,7 +9,7 @@ from aiohttp.test_utils import make_mocked_request
 from src.database.models import Base
 from src.database.repository import UserRepository, WorkoutSessionRepository
 from src.database.session import async_session_maker, engine
-from src.webapp.server import api_get_statistics_summary
+from src.webapp.server import api_get_statistics_summary, settings
 from tests.test_webapp_auth import build_init_data
 
 import pytest
@@ -203,7 +203,10 @@ class TestAggregation:
 
 
 class TestTrainerViewsClient:
-    async def test_user_param_overrides_caller(self):
+    async def test_user_param_overrides_caller(self, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
         await _add_completed_session(

@@ -1174,7 +1174,7 @@ Sheets-дзеркалі (GYM-2/28): `try/except` навколо лише `event.
 
 **SP:** 3
 
-### GYM-33: `/reminders` — налаштування нагадувань у групі
+### ✅ GYM-33: `/reminders` — налаштування нагадувань у групі — **виконано**
 
 **User story:** Як адмін групи, я хочу вмикати/вимикати типи нагадувань і
 міняти час просто в чаті.
@@ -1195,6 +1195,64 @@ Sheets-дзеркалі (GYM-2/28): `try/except` навколо лише `event.
 - Працює з увімкненим privacy mode (команди й callback-и доходять; читати
   повідомлення групи бот не потребує).
 - Тести: не-адмін не змінює; toggle перемикає поле; час валідований.
+
+**Примітка щодо реалізації:** знайшов і виправив реальний баг ще на
+етапі написання тестів: перше формулювання callback-даних для часу було
+`grem:settime:<type>:<HH:MM>` і парсилось як
+`callback.data.split(":")[3]` — але `"HH:MM"` сам містить `:`, тож
+`split(":")` розбиває `"20:00"` на `"20"` і `"00"` окремими елементами,
+і `parts[3]` віддавав лише `"20"`, а не `"20:00"`. Тест
+`test_valid_time_is_applied` це відразу впіймав (очікував `"07:00"`,
+отримав `"20:00"` — час взагалі не змінювався). Виправлено: `time_str =
+":".join(parts[3:])` замість `parts[3]` — той самий підхід, що вже
+використовує `google_sheets.py` для склеювання шматків, розбитих зайвим
+роздільником.
+
+Клавіатури (`get_group_reminders_panel_keyboard`,
+`get_group_reminders_time_keyboard`) додано в `src/bot/keyboards.py`
+(поруч з рештою keyboard-білдерів проєкту), а не в `group_reminders.py`
+— зберігає наявний поділ "клавіатури в keyboards.py, обробники в
+handlers/*.py". Диспетчеризація toggle/`settime` за типом нагадування
+зроблена явними `if/elif` по рядку `reminder_type`, а не через
+`getattr`/`**{field: value}` в один рядок — перша версія з динамічним
+`**kwargs`-розпакуванням не проходила mypy (`update_settings` приймає
+конкретні іменовані `bool | str | int | None`-параметри, а не
+`**kwargs`, тож mypy не міг статично звірити рядковий ключ з іменем
+параметра).
+
+`is_group_admin` — реальний виклик `bot.get_chat_member(chat_id,
+user_id)`, перевірка `status in {ADMINISTRATOR, CREATOR}`
+(`aiogram.enums.ChatMemberStatus`); мережева помилка/виняток при
+виклику — трактується як "не адмін" (`except Exception: return False`),
+щоб тимчасовий збій Telegram API не давав змогу змінювати налаштування
+без перевірки. Malformed/несподіване `callback_data` (не з наших
+кнопок) — `try/except (IndexError, KeyError, ValueError)` навколо
+всього блоку розбору дій, відповідь `callback.answer()` без падіння
+хендлера.
+
+"Працює з privacy mode" — не окремий код, а властивість архітектури:
+хендлери підписані лише на `Command("reminders")` і `callback_query`,
+жодного generic `message`-хендлера, що читав би довільний текст групи,
+тож привілей на читання повідомлень боту не потрібен за визначенням.
+
+Тестування фільтрів (`Command("reminders")`, `F.data.startswith
+("grem:")`) — той самий прийом, що в GYM-32
+(`router.message.trigger(...)`/`router.callback_query.trigger(...)`
+замість повного `Dispatcher.feed_update()`); `Command.__call__`
+додатково вимагає `bot=` в `trigger(...)` (на відміну від
+`ChatMemberUpdatedFilter`), з'ясовано методом проб через реальний
+виклик. `tests/bot_mocks.py::_make_chat_member` перейменовано в публічний
+`make_chat_member` — знадобився і для `my_chat_member` (`old_chat_member`/
+`new_chat_member`, GYM-32), і тепер для `bot.get_chat_member(...)`
+(GYM-33), тож переніс в один спільний хелпер замість дублювання;
+`make_callback` отримав новий `bot=` параметр (за замовчуванням —
+`MagicMock` з переднастроєним `get_chat_member = AsyncMock()`), той
+самий патерн, що вже мав `make_message`.
+
+Перевірено: весь набір тестів (юніт, `test_bot_handlers_reminders.py` —
+33 тести) зелений; ручна наскрізна перевірка через
+`router.message.trigger()`/`router.callback_query.trigger()` реальним
+диспетчеризаційним шляхом (без моку самого хендлера).
 
 **SP:** 5
 

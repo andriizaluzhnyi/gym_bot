@@ -581,8 +581,13 @@ Stat-картки зверху завжди показують поточний 
   що відкривають `WebAppInfo(url=f"{webapp_url}/statistics")`. **SP: 2**
 - **GYM-19** — Інтеграційні тести ендпоінтів `/api/statistics/*` через
   `aiohttp` test client (unit-тести логіки — в DoD кожного таска). **SP: 3**
-- **GYM-20** — Оновити `README.md` (розділ «Функціонал», структура проєкту,
-  таблиці БД). **SP: 1**
+- ✅ **GYM-20** — **виконано.** Оновлено `README.md`: розділ «Функціонал»
+  (Mini Apps тренувань і статистики), «Команди бота» (додано `/statistics`,
+  прибрано нереальні `/profile` та адмінські кнопки, яких вже нема в
+  `keyboards.py`), «Структура проекту» (актуальні `handlers/`, `webapp/auth.py`,
+  `src/utils/`) і «База даних» (додано `workout_sessions`/`workout_sets`,
+  виправлено застарілі/неправильні поля `profiles`, `trainings`, `bookings`,
+  `daily_nutrition`, які не відповідали `src/database/models.py`). **SP: 1**
 
 ---
 

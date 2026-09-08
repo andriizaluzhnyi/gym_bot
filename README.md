@@ -8,8 +8,13 @@ Telegram бот для управління записами на тренува
 - 📝 **Запис на тренування** — онлайн запис з перевіркою вільних місць
 - 🔔 **Нагадування** — автоматичні нагадування за 24 години та 2 години
 - 📊 **Google Calendar** — синхронізація тренувань з календарем
-- 📋 **Google Sheets** — ведення таблиці записів та відвідувань
-- 🍎 **Харчування** — трекінг калорій, білків, жирів та вуглеводів
+- 📋 **Google Sheets** — опційне дзеркало логів тренувань (БД — основне сховище)
+- 🍎 **Харчування (Mini App)** — трекінг калорій, білків, жирів, вуглеводів та води
+- 🏋️ **Тренування (Mini App)** — лог підходів (вага/повтори) за програмою дня чи
+  групи м'язів, з чернетками, що автозберігаються в БД під час тренування
+- 📈 **Статистика тренувань (Mini App)** — об'єм (тоннаж) за тиждень/місяць/увесь
+  час у розрізі груп м'язів і загальна активність (кількість тренувань,
+  середня тривалість, улюблена група)
 - 👨‍💼 **Адмін-панель** — управління тренуваннями для тренера
 - 🔐 **UUID користувачів** — унікальні ідентифікатори для масштабованості
 
@@ -335,15 +340,15 @@ web: python -m src.main
 - `/help` — Допомога
 - `/schedule` — Розклад тренувань
 - `/my` — Мої записи
-- `/profile` — Мій профіль
-- `/nutrition` — Трекінг харчування
+- `/nutrition` — Трекінг харчування (Mini App)
+- `/statistics` — Статистика тренувань (Mini App)
+- `👤 Профіль` — Профіль та налаштування БЖУ (кнопка головного меню)
 
-### Для адмінів
+### Для адмінів (тренер)
 
 - `/admin` — Адмін-панель
-- `➕ Додати тренування` — Створити нове тренування
-- `📊 Статистика` — Переглянути статистику
-- `👥 Користувачі` — Список користувачів
+- `💪 Програма тренувань` — Керування програмою тренувань клієнта
+- `📋 Переглянути програми` — Перегляд існуючих програм
 
 ## Структура проекту
 
@@ -354,35 +359,47 @@ gym_bot/
 │   ├── env.py                   # Alembic environment
 │   └── README.md
 ├── scripts/                     # Допоміжні скрипти
-│   ├── migrate.py               # Helper для міграцій
-│   └── migrate_*.py             # Застарілі ручні міграції
+│   ├── migrate.py                       # Helper для міграцій
+│   ├── check_daily_nutrition.py         # Діагностика даних харчування
+│   └── clean_daily_nutrition_data.py    # Очищення даних харчування
 ├── src/
 │   ├── bot/
 │   │   ├── handlers/
-│   │   │   ├── start.py         # /start, /help
-│   │   │   ├── schedule.py      # Розклад тренувань
-│   │   │   ├── booking.py       # Запис/скасування
-│   │   │   ├── nutrition.py     # Трекінг харчування
-│   │   │   ├── profile.py       # Профіль користувача
-│   │   │   ├── workout_program.py # Програми тренувань
-│   │   │   └── admin.py         # Адмін функції
+│   │   │   ├── start.py             # /start, /help
+│   │   │   ├── schedule.py          # Розклад тренувань
+│   │   │   ├── booking.py           # Запис/скасування
+│   │   │   ├── nutrition.py         # /nutrition — трекінг харчування
+│   │   │   ├── workout_program.py   # Програми тренувань (адмін)
+│   │   │   ├── workout_statistics.py # /statistics — статистика тренувань
+│   │   │   ├── user_profile.py      # Профіль користувача
+│   │   │   └── admin.py             # Адмін функції
 │   │   ├── keyboards.py         # Клавіатури
 │   │   ├── calendar_picker.py   # Календар для вибору дати
 │   │   └── bot.py               # Головний модуль бота
 │   ├── services/
 │   │   ├── google_calendar.py   # Інтеграція з Calendar
-│   │   ├── google_sheets.py     # Інтеграція з Sheets
+│   │   ├── google_sheets.py     # Інтеграція з Sheets (опційне дзеркало логів)
 │   │   └── notifications.py     # Нагадування
 │   ├── webapp/
-│   │   ├── server.py            # Web додаток
-│   │   └── templates/           # HTML шаблони
+│   │   ├── server.py            # aiohttp-додаток: Mini App сторінки + /api/*
+│   │   ├── auth.py              # Спільний auth-декоратор для /api/* (initData)
+│   │   └── templates/           # HTML Mini Apps (vanilla JS)
+│   │       ├── nutrition.html   # /nutrition
+│   │       ├── meal_entry.html  # /meal-entry
+│   │       ├── profile.html     # /profile
+│   │       ├── workout.html     # /workout — лог тренування
+│   │       ├── statistics.html  # /statistics — статистика тренувань
+│   │       └── chart.umd.min.js # Вендорений Chart.js (без CDN)
 │   ├── database/
 │   │   ├── models.py            # SQLAlchemy моделі (UUID)
 │   │   ├── repository.py        # Репозиторії
 │   │   └── session.py           # Сесії БД
+│   ├── utils/
+│   │   └── datetime_utils.py    # UTC/таймзона: utcnow, межі періодів/днів
 │   ├── config.py                # Конфігурація (pydantic-settings)
 │   └── main.py                  # Точка входу
 ├── tests/
+├── docs/                        # Плани реалізації фіч (напр. статистика)
 ├── .env                         # Конфігурація (не в git!)
 ├── credentials.json             # Google API ключ (не в git!)
 ├── alembic.ini                  # Alembic конфігурація
@@ -403,38 +420,57 @@ gym_bot/
 
 - **users** — основна інформація про користувачів
   - `id` (UUID, PK) — унікальний ідентифікатор
-  - `telegram_id` (Integer, unique) — Telegram ID
-  - `username` (String) — Telegram username
-  - `created_at` (DateTime) — дата реєстрації
+  - `telegram_id` (BigInteger, unique) — Telegram ID
+  - `username`, `first_name`, `last_name`, `phone` — дані профілю Telegram
+  - `is_admin`, `is_active`, `notifications_enabled` (Boolean)
+  - `sync_workout_to_sheets` (Boolean) — чи дзеркалити лог тренувань у Sheets
+    (за замовчуванням вимкнено, БД — основне сховище)
+  - `created_at`, `updated_at` (DateTime)
 
-- **profiles** — детальна інформація про користувачів (1-to-1 з users)
-  - `id` (UUID, PK)
-  - `user_id` (UUID, FK → users.id) — зв'язок з користувачем
-  - `full_name` (String) — повне ім'я
-  - `phone_number` (String) — телефон
-  - `goal_calories`, `goal_protein`, `goal_fats`, `goal_carbs` — цілі по харчуванню
+- **profiles** — тіло й цілі по БЖУ (1-to-1 з users)
+  - `id` (UUID, PK), `user_id` (UUID, FK → users.id, unique)
+  - `age` (Integer), `height`, `weight` (Float), `gender` (String)
+  - `daily_water_ml`, `daily_calories`, `daily_protein`, `daily_fats`,
+    `daily_carbs` (Integer) — денні норми
 
-- **trainings** — тренування
-  - `id` (Integer, PK)
-  - `title` (String) — назва тренування
-  - `date` (Date) — дата
-  - `time` (Time) — час
-  - `max_participants` (Integer) — ліміт місць
-  - `calendar_event_id` (String) — Google Calendar Event ID
+- **trainings** — тренування (розклад для запису)
+  - `id` (Integer, PK), `title`, `description`, `training_type` (String)
+  - `scheduled_at` (DateTime, indexed), `duration_minutes`, `max_participants`
+  - `location` (String), `is_cancelled` (Boolean)
+  - `google_calendar_event_id` (String)
+  - `created_at`, `updated_at`
 
 - **bookings** — записи на тренування
   - `id` (Integer, PK)
-  - `user_id` (UUID, FK → users.id)
-  - `training_id` (Integer, FK → trainings.id)
-  - `booking_time` (DateTime) — час запису
-  - `attended` (Boolean) — відмітка про відвідування
+  - `user_id` (UUID, FK → users.id), `training_id` (Integer, FK → trainings.id)
+  - `status` (String: confirmed/cancelled/attended/no_show)
+  - `reminder_24h_sent`, `reminder_2h_sent` (Boolean)
+  - `created_at`, `updated_at`
 
-- **daily_nutrition** — щоденний трекінг харчування
-  - `id` (Integer, PK)
-  - `user_id` (UUID, FK → users.id)
-  - `date` (Date) — дата
-  - `calories`, `protein`, `fats`, `carbs` — спожиті нутрієнти
-  - `notes` (Text) — нотатки
+- **daily_nutrition** — щоденний трекінг харчування (по записах, не одна сума на день)
+  - `id` (Integer, PK), `user_id` (UUID, FK → users.id, indexed)
+  - `date` (DateTime, indexed) — час запису
+  - `water_ml`, `calories`, `protein`, `fats`, `carbs` (Integer)
+  - `created_at`, `updated_at`
+
+- **workout_sessions** — одне тренування (одне відвідування залу)
+  - `id` (Integer, PK), `user_id` (UUID, FK → users.id, indexed)
+  - `day` (Integer), `muscle_group` (String) — день програми / група м'язів
+  - `duration_seconds` (Integer)
+  - `performed_at` (DateTime UTC, indexed) — час початку тренування
+  - `completed_at` (DateTime, nullable) — `NULL`, поки тренування в процесі
+    (чернетка, GYM-2c); статистика враховує лише сесії із заповненим полем
+  - `created_at`
+  - Індекс: `(user_id, performed_at)`
+
+- **workout_sets** — один підхід у межах сесії
+  - `id` (Integer, PK), `session_id` (Integer, FK → workout_sessions.id, indexed)
+  - `user_id` (UUID, FK → users.id, indexed) — денормалізовано для швидких вибірок
+  - `exercise_name`, `muscle_group` (String), `set_number` (Integer)
+  - `weight` (Float), `reps` (Integer), `planned_sets_reps` (String)
+  - `performed_at` (DateTime UTC, indexed) — дубль з сесії, для фільтрів без join
+  - `created_at`
+  - Індекс: `(user_id, exercise_name, performed_at)`
 
 ### Міграції
 

@@ -14,6 +14,21 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def to_local_now(tz_name: str, *, now_utc: datetime | None = None) -> datetime:
+    """The current wall-clock moment in ``tz_name``, as a naive
+    ``datetime`` (matching the rest of this module's naive-everywhere
+    convention — see :func:`utcnow`).
+
+    Used by GYM-34's ``due_reminders()`` — reminder schedules
+    (``nutrition_time``/``measurements_weekday``/``photos_day_of_month``)
+    are all defined in local wall-clock terms, not UTC. ``now_utc``
+    (naive UTC; defaults to :func:`utcnow`) lets tests pin "now" instead
+    of depending on the real clock.
+    """
+    aware_utc = (now_utc or utcnow()).replace(tzinfo=timezone.utc)
+    return aware_utc.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None)
+
+
 def to_local_date(performed_at_utc: datetime, tz_name: str) -> date:
     """Convert a naive-UTC ``datetime`` (as stored in the DB) to the
     calendar date it falls on in ``tz_name``.

@@ -1256,7 +1256,7 @@ user_id)`, перевірка `status in {ADMINISTRATOR, CREATOR}`
 
 **SP:** 5
 
-### GYM-34: Планувальник і відправка нагадувань
+### ✅ GYM-34: Планувальник і відправка нагадувань — **виконано**
 
 **User story:** Як учасник групи, я хочу отримувати короткі нагадування з
 кнопкою, що веде в потрібний розділ Mini App.
@@ -1296,6 +1296,71 @@ user_id)`, перевірка `status in {ADMINISTRATOR, CREATOR}`
   з відправкою).
 - Bot: `bot.py: setup_scheduler` — новий job; `start.py` — deep-link.
 - Tests: чиста логіка; сервіс з мокнутим `Bot`.
+
+**Примітка щодо реалізації:** `due_reminders`/`_is_due` — повністю чисті
+(жодного DB/network доступу), тестуються проти вручну сконструйованого
+(незбереженого) `GroupChat(...)` та довільного `now_local`; усі 5
+крайових випадків з AC покриті окремими тестами, включно з
+параметризованим `29/30/31 число при day_of_month=28` (виявилось, що
+обмеження `photos_day_of_month` в `1-28` в UI-чипах GYM-33 — не
+довільне: воно існує саме тому, що точне порівняння `now_local.day ==
+photos_day_of_month` інакше ніколи не спрацювало б у лютому для значень
+29-31).
+
+Кеш імені бота ("`set_bot_instance`-стиль", як прямо просить AC) додано
+як `set_bot_username`/`get_bot_username` **в тому ж модулі** — `src/webapp/server.py`, поруч із наявними `set_bot_instance`/
+`get_bot_instance` — а не в окремому файлі: AC явно просив саме цей
+стиль, і колокація з існуючим аналогом зрозуміліша, ніж новий модуль
+заради двох функцій. `run_bot()` викликає `bot.get_me()` один раз одразу
+після `set_bot_instance(bot)`, обгорнуто в `try/except` (мережевий збій
+при старті — не критичний: без кешованого імені посилання в нагадуваннях
+просто не матимуть кнопки, а не впадуть).
+
+`GroupReminderService.send_due_reminders()` імпортує `get_bot_username`
+**локально всередині методу** (`from src.webapp.server import
+get_bot_username`), не на рівні модуля — `src/services/group_reminders.py`
+імпортується з `src/bot/bot.py` вже на старті процесу (для
+`setup_scheduler`), а `src/webapp/server.py`, в свою чергу, з часом може
+розширити список власних `src.services.*`-залежностей; локальний імпорт
+— той самий обережний прийом, що вже використовує
+`ExerciseRepository.get_or_create_by_name` для уникнення циклічних
+імпортів, застосований тут профілактично.
+
+`/start <section>` реалізовано як **окремий хендлер**
+(`cmd_start_deep_link`, `CommandStart(deep_link=True)`), а не гілка
+всередині наявного `cmd_start` — існуючий `@router.message(CommandStart())`
+(без параметра `deep_link`) матчив би `/start` **з будь-якими
+аргументами теж** (сам `CommandStart` ставиться байдуже до `args`, якщо
+`deep_link` не задано), тож без змін старий хендлер перехопив би
+deep-link виклики першим. Виправлено звуженням старого хендлера до
+`CommandStart(deep_link=False)` (лише голий `/start`) — тепер обидва
+фільтри взаємовиключні, і порядок реєстрації в роутері не має значення
+(підтверджено тестом `TestStartFilterWiring` через
+`router.message.trigger(...)`, той самий прийом, що в GYM-32/33).
+Невідома секція/групповий чат/відсутній `webapp_url` — усі три
+падають назад на виклик `cmd_start(message)` напряму (не через
+роутер), тобто на ту саму гілку, що й голий `/start`.
+
+Клавіатура для deep-link-кнопки (`get_deeplink_section_keyboard`) — у
+`src/bot/keyboards.py` (той самий поділ "клавіатури окремо", що й для
+GYM-33); мапа секцій `DEEPLINK_SECTIONS` там само, публічна — щоб
+`group_reminders.py`/тести могли звірятись з тим самим списком без
+дублювання рядкових літералів `"nutrition"/"profile"/"statistics"`.
+
+Нова утиліта `to_local_now(tz_name, now_utc=None)` в
+`src/utils/datetime_utils.py` — раніше в модулі був лише
+`to_local_date` (перетворює на `date`) і `period_bounds_utc` (аware-
+проміжна арифметика всередині, наївний результат назовні); жодна наявна
+функція не повертала повний наївний локальний `datetime`, а
+`due_reminders(group, now_local: datetime)` за сигнатурою з AC саме
+цього й потребує.
+
+Перевірено: весь набір тестів (юніт — 30 тестів чистої логіки +
+сервісу в `test_group_reminders.py`, 5 нових у
+`test_bot_handlers_start.py`, 4 нових у `test_bot_startup.py`) зелений;
+ручна наскрізна перевірка (реєстрація групи → кеш імені бота →
+`GroupReminderService.send_due_reminders()` з мокнутим `Bot` →
+перевірка тексту й URL кнопки в реальному виклику `send_message`).
 
 **SP:** 5
 

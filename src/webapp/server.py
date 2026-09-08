@@ -39,6 +39,12 @@ settings = get_settings()
 # Global bot instance (will be set by run_bot)
 _bot_instance = None
 
+# GYM-34: the bot's own @username, cached once at startup via
+# `bot.get_me()` (see `set_bot_username`) rather than an env var — used
+# to build `https://t.me/<bot>?start=...` deep links in group reminder
+# messages (`src/services/group_reminders.py`).
+_bot_username: str | None = None
+
 
 def set_bot_instance(bot):
     """Set the global bot instance."""
@@ -49,6 +55,22 @@ def set_bot_instance(bot):
 def get_bot_instance():
     """Get the global bot instance."""
     return _bot_instance
+
+
+def set_bot_username(username: str | None) -> None:
+    """Cache the bot's own @username (GYM-34) — set once from
+    ``bot.get_me()`` in ``run_bot()``, alongside ``set_bot_instance``.
+    """
+    global _bot_username
+    _bot_username = username
+
+
+def get_bot_username() -> str | None:
+    """The cached bot @username (GYM-34), or ``None`` if it hasn't been
+    set yet (e.g. this code path is reached before ``run_bot()`` calls
+    ``set_bot_username``, or in a test that never called it).
+    """
+    return _bot_username
 
 
 async def nutrition_handler(request: web.Request) -> web.StreamResponse:

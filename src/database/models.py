@@ -102,6 +102,9 @@ class Profile(Base):
     gender: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     # Daily nutrition goals
+    # GYM-25: lets a user hide the water card/tracking entirely without
+    # losing their daily_water_ml goal — re-enabling restores it unchanged.
+    water_tracking_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     daily_water_ml: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=2500
     )

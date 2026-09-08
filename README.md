@@ -437,6 +437,9 @@ gym_bot/
 - **profiles** — тіло й цілі по БЖУ (1-to-1 з users)
   - `id` (UUID, PK), `user_id` (UUID, FK → users.id, unique)
   - `age` (Integer), `height`, `weight` (Float), `gender` (String)
+  - `water_tracking_enabled` (Boolean, за замовчуванням увімкнено) — чи
+    показувати картку «Вода» й дозволяти водяні записи; вимкнення не
+    стирає `daily_water_ml`
   - `daily_water_ml`, `daily_calories`, `daily_protein`, `daily_fats`,
     `daily_carbs` (Integer) — денні норми
 
@@ -457,6 +460,8 @@ gym_bot/
 - **daily_nutrition** — щоденний трекінг харчування (по записах, не одна сума на день)
   - `id` (Integer, PK), `user_id` (UUID, FK → users.id, indexed)
   - `date` (DateTime, indexed) — час запису
+  - `entry_type` (String, indexed) — `"water"` або `"meal"`
+  - `meal_name` (String, nullable) — назва страви (лише для `"meal"`)
   - `water_ml`, `calories`, `protein`, `fats`, `carbs` (Integer)
   - `created_at`, `updated_at`
 

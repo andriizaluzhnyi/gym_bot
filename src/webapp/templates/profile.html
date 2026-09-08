@@ -274,6 +274,11 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        .form-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -319,6 +324,13 @@
         <div class="card-title">Денні цілі</div>
 
         <div class="form-group">
+            <div class="toggle-row" style="margin-bottom: 12px;">
+                <span class="toggle-label">Відстежувати воду</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="waterTrackingToggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
             <label class="form-label">Вода (мл)</label>
             <input type="number" class="form-input" id="waterInput" placeholder="2500" min="500" max="10000" step="100">
         </div>
@@ -432,6 +444,27 @@
             });
         });
 
+        // Water tracking toggle (GYM-25) — disables the goal input while
+        // off, but doesn't clear its value; saved together with the rest
+        // of this card via the main "Зберегти" button below, same as
+        // every other field here (unlike the Sheets sync toggle, which
+        // saves immediately on its own).
+        const waterTrackingToggle = document.getElementById('waterTrackingToggle');
+        const waterInput = document.getElementById('waterInput');
+
+        function updateWaterInputState() {
+            waterInput.disabled = !waterTrackingToggle.checked;
+        }
+
+        waterTrackingToggle.addEventListener('change', () => {
+            isDataChanged = true;
+            updateWaterInputState();
+
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
+        });
+
         // Calculate BMI and other metrics
         function calculateMetrics() {
             const height = parseFloat(document.getElementById('heightInput').value);
@@ -502,6 +535,9 @@
                         if (data.daily_fats) document.getElementById('fatsInput').value = data.daily_fats;
                         if (data.daily_carbs) document.getElementById('carbsInput').value = data.daily_carbs;
 
+                        waterTrackingToggle.checked = data.water_tracking_enabled !== false;
+                        updateWaterInputState();
+
                         calculateMetrics();
                         isDataChanged = false;
                     }
@@ -525,6 +561,7 @@
                     height: parseFloat(document.getElementById('heightInput').value) || null,
                     weight: parseFloat(document.getElementById('weightInput').value) || null,
                     gender: currentGender,
+                    water_tracking_enabled: waterTrackingToggle.checked,
                     daily_water_ml: parseInt(document.getElementById('waterInput').value) || null,
                     daily_calories: parseInt(document.getElementById('caloriesInput').value) || null,
                     daily_protein: parseInt(document.getElementById('proteinInput').value) || null,

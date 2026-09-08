@@ -62,8 +62,22 @@ def get_profile_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_nutrition_settings_keyboard() -> InlineKeyboardMarkup:
-    """Get inline keyboard for nutrition settings."""
+def get_nutrition_settings_keyboard(
+    water_tracking_enabled: bool = True,
+) -> InlineKeyboardMarkup:
+    """Get inline keyboard for nutrition settings.
+
+    GYM-25: while water tracking is off, the water button offers to turn
+    it back on (``edit:water_toggle``) instead of jumping straight to
+    "enter a new goal" for a card the user has hidden.
+    """
+    water_button = (
+        InlineKeyboardButton(text="💧 Денна норма води", callback_data="edit:water")
+        if water_tracking_enabled
+        else InlineKeyboardButton(
+            text="💧 Увімкнути відстеження води", callback_data="edit:water_toggle"
+        )
+    )
     buttons = [
         [
             InlineKeyboardButton(text="🎂 Вік", callback_data="edit:age"),
@@ -73,7 +87,7 @@ def get_nutrition_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚖️ Вага", callback_data="edit:weight"),
             InlineKeyboardButton(text="👤 Стать", callback_data="edit:gender"),
         ],
-        [InlineKeyboardButton(text="💧 Денна норма води", callback_data="edit:water")],
+        [water_button],
         [InlineKeyboardButton(text="🔥 Денна норма калорій", callback_data="edit:calories")],
         [
             InlineKeyboardButton(text="🥩 Білки", callback_data="edit:protein"),
@@ -121,6 +135,13 @@ def _format_nutrition_settings(nutrition: dict[str, Any]) -> str:
     height = nutrition.get("height")
     weight = nutrition.get("weight")
 
+    # GYM-25: "вимкнено" instead of a goal nobody's tracking toward.
+    water_line = (
+        f"💧 Вода: {nutrition['daily_water_ml']} мл\n"
+        if nutrition.get("water_tracking_enabled", True)
+        else "💧 Вода: вимкнено\n"
+    )
+
     return (
         "🎯 *Цілі харчування*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -130,7 +151,7 @@ def _format_nutrition_settings(nutrition: dict[str, Any]) -> str:
         f"⚖️ Вага: {weight if weight else 'не вказано'} кг\n"
         f"👤 Стать: {gender_text}\n\n"
         "*Денні норми:*\n"
-        f"💧 Вода: {nutrition['daily_water_ml']} мл\n"
+        f"{water_line}"
         f"🔥 Калорії: {nutrition['daily_calories']} ккал\n"
         f"🥩 Білки: {nutrition['daily_protein']} г\n"
         f"🧈 Жири: {nutrition['daily_fats']} г\n"
@@ -184,7 +205,7 @@ async def show_nutrition_settings(callback: CallbackQuery) -> None:
             return
 
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         await callback.answer()
 
@@ -285,7 +306,7 @@ async def process_edit_age(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -332,7 +353,7 @@ async def process_edit_height(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -379,7 +400,7 @@ async def process_edit_weight(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -428,7 +449,7 @@ async def process_edit_gender(callback: CallbackQuery, state: FSMContext) -> Non
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -475,8 +496,38 @@ async def process_edit_water(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+@router.callback_query(F.data == "edit:water_toggle")
+async def enable_water_tracking(callback: CallbackQuery) -> None:
+    """Turn water tracking back on (GYM-25).
+
+    Shown instead of ``edit:water`` while tracking is off — a tap
+    re-enables it and redisplays the settings screen, where the button is
+    now the normal "💧 Денна норма води" one to actually edit the goal.
+    """
+    if not isinstance(callback.message, Message):
+        return
+
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        await user_repo.update_nutrition_settings(
+            callback.from_user.id, water_tracking_enabled=True
+        )
+        await session.commit()
+
+        nutrition = await user_repo.get_nutrition_settings(callback.from_user.id)
+        if nutrition is None:
+            await callback.message.edit_text("❌ Профіль не знайдено")
+            await callback.answer()
+            return
+
+        text = _format_nutrition_settings(nutrition)
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await callback.answer("💧 Відстеження води увімкнено")
 
 
 @router.callback_query(F.data == "edit:calories")
@@ -522,7 +573,7 @@ async def process_edit_calories(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -569,7 +620,7 @@ async def process_edit_protein(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -616,7 +667,7 @@ async def process_edit_fats(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -663,5 +714,5 @@ async def process_edit_carbs(message: Message, state: FSMContext) -> None:
         if nutrition is None:
             return
         text = _format_nutrition_settings(nutrition)
-        keyboard = get_nutrition_settings_keyboard()
+        keyboard = get_nutrition_settings_keyboard(nutrition["water_tracking_enabled"])
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")

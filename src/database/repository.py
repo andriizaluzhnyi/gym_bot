@@ -132,6 +132,7 @@ class UserRepository:
         height: float | None = None,
         weight: float | None = None,
         gender: str | None = None,
+        water_tracking_enabled: bool | None = None,
         daily_water_ml: int | None = None,
         daily_calories: int | None = None,
         daily_protein: int | None = None,
@@ -158,6 +159,7 @@ class UserRepository:
             height=height,
             weight=weight,
             gender=gender,
+            water_tracking_enabled=water_tracking_enabled,
             daily_water_ml=daily_water_ml,
             daily_calories=daily_calories,
             daily_protein=daily_protein,
@@ -188,6 +190,7 @@ class UserRepository:
                 "height": None,
                 "weight": None,
                 "gender": None,
+                "water_tracking_enabled": True,
                 "daily_water_ml": 2500,
                 "daily_calories": 2500,
                 "daily_protein": 150,
@@ -200,6 +203,7 @@ class UserRepository:
             "height": profile.height,
             "weight": profile.weight,
             "gender": profile.gender,
+            "water_tracking_enabled": profile.water_tracking_enabled,
             "daily_water_ml": profile.daily_water_ml or 2500,
             "daily_calories": profile.daily_calories or 2500,
             "daily_protein": profile.daily_protein or 150,
@@ -239,6 +243,7 @@ class ProfileRepository:
         height: float | None = None,
         weight: float | None = None,
         gender: str | None = None,
+        water_tracking_enabled: bool | None = None,
         daily_water_ml: int | None = None,
         daily_calories: int | None = None,
         daily_protein: int | None = None,
@@ -261,6 +266,8 @@ class ProfileRepository:
             profile.weight = weight
         if gender is not None:
             profile.gender = gender
+        if water_tracking_enabled is not None:
+            profile.water_tracking_enabled = water_tracking_enabled
         if daily_water_ml is not None:
             profile.daily_water_ml = daily_water_ml
         if daily_calories is not None:
@@ -286,6 +293,7 @@ class ProfileRepository:
             "height": profile.height,
             "weight": profile.weight,
             "gender": profile.gender,
+            "water_tracking_enabled": profile.water_tracking_enabled,
             "daily_water_ml": profile.daily_water_ml or 2500,
             "daily_calories": profile.daily_calories or 2500,
             "daily_protein": profile.daily_protein or 150,

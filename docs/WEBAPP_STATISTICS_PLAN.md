@@ -444,7 +444,7 @@ GYM-18). `PRRecord` тримає окремі `SetRecord`/`EstimatedOneRepMaxRec
 
 **SP:** 5
 
-### GYM-9: Сповіщення власнику про новий рекорд
+### ✅ GYM-9: Сповіщення власнику про новий рекорд — **виконано**
 
 **User story:** Як користувач, я хочу отримати повідомлення в боті одразу
 після тренування, якщо я побив особистий рекорд.
@@ -459,6 +459,15 @@ GYM-18). `PRRecord` тримає окремі `SetRecord`/`EstimatedOneRepMaxRec
   `body["user"]`), а не того, хто відкрив WebApp.
 - Non-critical: помилка не впливає на збереження (try/except, як у
   `_sync_workout_to_calendar`).
+
+**Примітка щодо реалізації:** `achieved_at` збігається із сесією, якщо він
+дорівнює `session_performed_at` (той самий `performed_at`, з яким записані
+всі сети сесії — `draft.performed_at` при реконсиляції чернетки або
+свіжий `performed_at` в one-shot-гілці GYM-2). Якщо кілька з трьох PR-типів
+(max_weight/max_reps/estimated_1rm) виграє той самий сет — це один
+`🏆`-меседж, а не три однакових. `_notify_new_prs` перевикористовує
+`get_sessions_by_period(owner_id)` без меж (як і GYM-8) + `calculate_prs`
+(GYM-7) — жодного нового SQL.
 
 **SP:** 5
 

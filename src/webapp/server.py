@@ -2,6 +2,8 @@
 
 import json
 import logging
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 from aiohttp import web
@@ -1011,8 +1013,6 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
             {'error': 'Missing required fields: user, exercises'}, status=400
         )
 
-    from datetime import datetime
-
     from src.utils.datetime_utils import utcnow
 
     # `now` drives the Sheets row / calendar event, same as before
@@ -1105,6 +1105,7 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
                     day=day_int,
                     muscle_group=muscle_norm,
                 )
+                session_performed_at = draft.performed_at
             else:
                 # No draft (older client, or /session/start was never
                 # called) — fall back to the original one-shot save.
@@ -1116,6 +1117,7 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
                     duration_seconds=duration_seconds,
                     sets=db_sets,
                 )
+                session_performed_at = performed_at
             await session.commit()
         except Exception as e:
             await session.rollback()
@@ -1124,6 +1126,8 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
                 {'error': 'Failed to save workout'}, status=500
             )
 
+        owner_id = owner.id
+        owner_telegram_id = owner.telegram_id
         sync_to_sheets = owner.sync_workout_to_sheets
 
     # Optional Sheets mirror, opt-in via settings. Never fails the request:
@@ -1151,6 +1155,15 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
         )
     except Exception as cal_err:
         logger.warning(f'Calendar sync failed (non-critical): {cal_err}')
+
+    # Notify the workout's owner of any PR this session just set (GYM-9).
+    try:
+        await _notify_new_prs(
+            owner_id, owner_telegram_id, session_performed_at,
+            set(exercise_meta.keys()),
+        )
+    except Exception as pr_err:
+        logger.warning(f'PR notification failed (non-critical): {pr_err}')
 
     return web.json_response({
         'success': True,
@@ -1425,6 +1438,61 @@ async def _sync_workout_to_calendar(
     )
 
     logger.info(f'Workout synced to calendar for {user_name}')
+
+
+async def _notify_new_prs(
+    owner_id: uuid.UUID,
+    owner_telegram_id: int,
+    session_performed_at: datetime,
+    exercise_names: set[str],
+) -> None:
+    """Message the workout's *owner* (GYM-9) for each PR their just-saved
+    session set — not whoever opened the WebApp (a trainer logging for a
+    client, same distinction as ``api_save_workout_log`` resolving
+    ``owner`` from ``body["user"]``).
+
+    Recomputes PRs over the owner's full history via GYM-7's
+    ``calculate_prs`` — one query, no "before" snapshot to diff against —
+    and treats a PR as new when its ``achieved_at`` equals this session's
+    own ``performed_at`` (every set in a session shares that timestamp,
+    see ``WorkoutSet.performed_at``). A PR type whose winning set is
+    identical to another type's (e.g. the heaviest single also being the
+    best estimated 1RM) collapses into a single message. Called from a
+    try/except in ``api_save_workout_log``, same as
+    ``_sync_workout_to_calendar`` — a failure here must not affect whether
+    the workout itself is considered saved.
+    """
+    bot = get_bot_instance()
+    if not bot:
+        return
+
+    async with async_session_maker() as session:
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner_id
+        )
+
+    all_sets = [workout_set for wsession in sessions for workout_set in wsession.sets]
+    prs = calculate_prs(all_sets)
+
+    sent: set[tuple[str, float, int]] = set()
+    for exercise_name in exercise_names:
+        pr = prs.get(exercise_name)
+        if pr is None:
+            continue
+
+        for pr_value in (pr.max_weight, pr.max_reps, pr.estimated_1rm):
+            if pr_value.achieved_at != session_performed_at:
+                continue
+            key = (exercise_name, pr_value.weight, pr_value.reps)
+            if key in sent:
+                continue
+            sent.add(key)
+
+            await bot.send_message(
+                owner_telegram_id,
+                f'🏆 Новий рекорд! {exercise_name}: '
+                f'{pr_value.weight:g} кг × {pr_value.reps}',
+            )
 
 
 def create_webapp() -> web.Application:

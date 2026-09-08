@@ -23,6 +23,10 @@ class TestStatisticsPage:
             # GYM-6's summary strip, always visible above the tabs.
             assert '/api/statistics/summary' in body
             assert 'summaryWorkouts' in body
+            # GYM-5b's exercise picker and progress charts.
+            assert '/api/statistics/exercises' in body
+            assert '/api/statistics/exercise-progress' in body
+            assert 'exerciseSelect' in body
 
     async def test_reads_telegram_webapp_js_like_other_pages(self):
         app = create_webapp()

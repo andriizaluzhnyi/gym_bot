@@ -1309,7 +1309,14 @@ class WorkoutProgramRepository:
         (required), ``sets_reps`` (required), ``comment`` (optional) — the
         same shape the bot's program-creation FSM already builds
         (``src/bot/handlers/workout_program.py``), so GYM-28 can pass it
-        through largely unchanged.
+        through largely unchanged. Note that FSM-built items already carry
+        a ``created_at`` *string* (``%d.%m.%Y %H:%M``) for the Sheets
+        mirror, which this method has always ignored — so the override
+        below deliberately uses a separate key, ``created_at_utc`` (a
+        naive-UTC ``datetime``), to avoid colliding with it. Used by
+        GYM-29's one-time Sheets import to preserve each row's original
+        "Дата" instead of stamping every imported row with the moment the
+        script ran; overrides the column's ``default=utcnow`` when given.
         """
         exercise_repo = ExerciseRepository(self.session)
         next_position = await self._next_position(user_id, day)
@@ -1329,11 +1336,30 @@ class WorkoutProgramRepository:
                 comment=item.get("comment") or None,
                 position=next_position + offset,
             )
+            if item.get("created_at_utc") is not None:
+                row.created_at = item["created_at_utc"]
             self.session.add(row)
             created.append(row)
 
         await self.session.flush()
         return created
+
+    async def delete_all_for_user(self, user_id: uuid.UUID) -> int:
+        """Delete every program row for ``user_id`` across all days —
+        used by GYM-29's import script's ``--force`` flag to clear a
+        previous (partial or stale) import before reimporting from
+        scratch. Returns the number of rows deleted.
+        """
+        result = await self.session.execute(
+            select(WorkoutProgramExercise).where(
+                WorkoutProgramExercise.user_id == user_id
+            )
+        )
+        rows = result.scalars().all()
+        for row in rows:
+            await self.session.delete(row)
+        await self.session.flush()
+        return len(rows)
 
     async def get_program(
         self, user_id: uuid.UUID, day: int | None = None, muscle: str | None = None,

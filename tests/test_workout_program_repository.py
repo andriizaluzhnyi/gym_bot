@@ -168,9 +168,28 @@ class TestGetProgram:
             assert row["exercise"] == "Жим лежачи"
             assert row["sets_reps"] == "3/10"
             assert row["comment"] == ""
+            # GYM-31: exercise_id/has_details are additive — same Sheets-
+            # compatible core keys, plus these two for the details icon.
             assert set(row.keys()) == {
-                "day", "muscle_group", "exercise", "sets_reps", "comment", "created_at",
+                "day", "muscle_group", "exercise", "sets_reps", "comment",
+                "created_at", "exercise_id", "has_details",
             }
+            assert row["has_details"] is False
+
+    async def test_has_details_true_when_catalog_entry_has_any_media_field(self):
+        async with async_session_maker() as session:
+            user = await _make_user(session)
+            rows = await WorkoutProgramRepository(session).add_exercises(
+                user.id, day=1, items=[CHEST_ITEM]
+            )
+            exercise = await ExerciseRepository(session).get_by_id(
+                rows[0].exercise_id
+            )
+            exercise.description = "Лягти на лаву, опустити штангу до грудей."
+            await session.commit()
+
+            program = await WorkoutProgramRepository(session).get_program(user.id)
+            assert program[0]["has_details"] is True
 
     async def test_created_at_is_formatted_like_a_sheets_cell(self):
         async with async_session_maker() as session:

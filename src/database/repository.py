@@ -1273,6 +1273,15 @@ class ExerciseRepository:
         await self.session.flush()
         return exercise
 
+    async def get_by_id(self, exercise_id: int) -> Exercise | None:
+        """One catalog entry by primary key (GYM-31), for
+        ``GET /api/exercises/{id}`` — the exercise-details bottom sheet.
+        """
+        result = await self.session.execute(
+            select(Exercise).where(Exercise.id == exercise_id)
+        )
+        return result.scalar_one_or_none()
+
     async def search(self, q: str, limit: int = 10) -> list[Exercise]:
         """Catalog autocomplete (GYM-30): entries whose normalized name
         contains ``q`` (also normalized), so a search is case/whitespace/
@@ -1392,7 +1401,11 @@ class WorkoutProgramRepository:
         ``created_at``) so ``workout.html``/``nutrition.html`` don't need
         to change when GYM-28 switches which one actually backs
         ``/api/workout/program``. ``day`` is returned as a string, matching
-        Sheets' cell values, for the same reason.
+        Sheets' cell values, for the same reason. Also includes
+        ``exercise_id`` and ``has_details`` (GYM-31: True if the catalog
+        entry has a ``description``/``image_url``/``video_url``) so
+        ``workout.html`` can show/hide its "ⓘ" details icon without a
+        separate request per exercise.
 
         Filtering by ``day``/``muscle`` moves into SQL here, instead of
         the Python-side filtering ``api_get_workout_program`` currently
@@ -1407,11 +1420,12 @@ class WorkoutProgramRepository:
             conditions.append(WorkoutProgramExercise.muscle_group == muscle)
 
         result = await self.session.execute(
-            select(WorkoutProgramExercise)
+            select(WorkoutProgramExercise, Exercise)
+            .join(Exercise, WorkoutProgramExercise.exercise_id == Exercise.id)
             .where(and_(*conditions))
             .order_by(WorkoutProgramExercise.day, WorkoutProgramExercise.position)
         )
-        rows = result.scalars().all()
+        rows = result.all()
 
         return [
             {
@@ -1421,8 +1435,14 @@ class WorkoutProgramRepository:
                 "sets_reps": row.sets_reps,
                 "comment": row.comment or "",
                 "created_at": row.created_at.strftime("%d.%m.%Y %H:%M"),
+                "exercise_id": row.exercise_id,
+                "has_details": bool(
+                    catalog_exercise.description
+                    or catalog_exercise.image_url
+                    or catalog_exercise.video_url
+                ),
             }
-            for row in rows
+            for row, catalog_exercise in rows
         ]
 
     async def delete_day(self, user_id: uuid.UUID, day: int) -> bool:

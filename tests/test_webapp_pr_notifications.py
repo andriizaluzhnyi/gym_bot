@@ -50,14 +50,18 @@ class TestNewPrNotifications:
         response = await _save_workout(telegram_id=1)
         assert response.status == 200
 
-        assert bot.send_message.await_count == 2
         recipients = {call.args[0] for call in bot.send_message.await_args_list}
         assert recipients == {owner.telegram_id}
 
-        texts = {call.args[1] for call in bot.send_message.await_args_list}
-        assert all(t.startswith("🏆 Новий рекорд! Жим лежачи:") for t in texts)
-        assert any("62.5 кг × 8" in t for t in texts)
-        assert any("60 кг × 10" in t for t in texts)
+        # This workout also unlocks FIRST_PR (GYM-13a: the first-ever
+        # logged set), sending its own "🏅" message — filter down to the
+        # "🏆" PR ones this test is actually about.
+        all_texts = [call.args[1] for call in bot.send_message.await_args_list]
+        pr_texts = {t for t in all_texts if t.startswith("🏆")}
+        assert len(pr_texts) == 2
+        assert all(t.startswith("🏆 Новий рекорд! Жим лежачи:") for t in pr_texts)
+        assert any("62.5 кг × 8" in t for t in pr_texts)
+        assert any("60 кг × 10" in t for t in pr_texts)
 
     async def test_no_message_when_not_beating_an_existing_record(self):
         await _make_user("lifter", telegram_id=1)

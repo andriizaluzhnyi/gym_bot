@@ -379,3 +379,41 @@ class WorkoutSet(Base):
             f"<WorkoutSet(id={self.id}, exercise_name={self.exercise_name}, "
             f"weight={self.weight}, reps={self.reps})>"
         )
+
+
+class UserAchievement(Base):
+    """One achievement badge a user has unlocked (GYM-13a).
+
+    ``achievement_code`` is one of ``AchievementsService``'s fixed catalog
+    codes (``WORKOUTS_10``, ``STREAK_4_WEEKS``, ...) — not a foreign key,
+    since the catalog lives in code (``src/services/achievements.py``),
+    not a DB table. Once unlocked, a row is never removed or re-evaluated:
+    achievements are permanent, even if e.g. a streak later breaks.
+    """
+
+    __tablename__ = "user_achievements"
+    __table_args__ = (
+        Index(
+            "ix_user_achievements_user_id_achievement_code",
+            "user_id", "achievement_code",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id"), nullable=False, index=True
+    )
+    achievement_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    unlocked_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    # Relationship
+    user: Mapped["User"] = relationship("User")
+
+    def __repr__(self) -> str:
+        return (
+            f"<UserAchievement(user_id={self.user_id}, "
+            f"code={self.achievement_code})>"
+        )

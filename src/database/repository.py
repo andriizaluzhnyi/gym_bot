@@ -14,6 +14,7 @@ from src.database.models import (
     Profile,
     Training,
     User,
+    UserAchievement,
     WorkoutSession,
     WorkoutSet,
 )
@@ -1007,3 +1008,44 @@ class WorkoutSetRepository:
             )
 
         await self.session.flush()
+
+
+class UserAchievementRepository:
+    """Repository for UserAchievement operations (GYM-13a)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_unlocked_codes(self, user_id: uuid.UUID) -> set[str]:
+        """The set of ``achievement_code`` values this user already has —
+        used by ``AchievementsService.check_and_unlock`` to skip
+        achievements already granted, so a re-check is always idempotent.
+        """
+        result = await self.session.execute(
+            select(UserAchievement.achievement_code).where(
+                UserAchievement.user_id == user_id
+            )
+        )
+        return set(result.scalars().all())
+
+    async def unlock(
+        self,
+        user_id: uuid.UUID,
+        achievement_code: str,
+        unlocked_at: datetime | None = None,
+    ) -> UserAchievement:
+        """Persist one newly-unlocked achievement.
+
+        The caller (``AchievementsService``) is responsible for checking
+        ``get_unlocked_codes`` first — this does not itself guard against
+        inserting a duplicate; the table's unique ``(user_id,
+        achievement_code)`` index is the last-resort safety net.
+        """
+        achievement = UserAchievement(
+            user_id=user_id,
+            achievement_code=achievement_code,
+            unlocked_at=unlocked_at or utcnow(),
+        )
+        self.session.add(achievement)
+        await self.session.flush()
+        return achievement

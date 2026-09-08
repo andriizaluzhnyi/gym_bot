@@ -560,7 +560,7 @@ GYM-18). `PRRecord` тримає окремі `SetRecord`/`EstimatedOneRepMaxRec
 
 **SP:** 3
 
-### GYM-13a: Досягнення — розблокування та збереження
+### ✅ GYM-13a: Досягнення — розблокування та збереження — **виконано**
 
 **User story:** Як користувач, я хочу отримувати значки за досягнення, щоб
 гейміфікувати процес.
@@ -574,6 +574,24 @@ GYM-18). `PRRecord` тримає окремі `SetRecord`/`EstimatedOneRepMaxRec
 - `AchievementsService.check_and_unlock(user_id)` після збереження сесії
   (разом із PR-перевіркою); нове досягнення → повідомлення власнику.
 - Тести на кожну умову розблокування.
+
+**Примітка щодо реалізації:** `src/services/achievements.py` — каталог
+(`ACHIEVEMENTS`, кожен елемент із `code`/`title`/`description`/
+`is_unlocked`-предикатом) + чиста `evaluate_achievements(sessions, today,
+tz_name, already_unlocked)` (без БД, той самий підхід, що й
+`calculate_prs`/`calculate_streak`), і поверх неї — `AchievementsService`
+із DB-читанням/записом (нова `UserAchievementRepository` у
+`repository.py`, за зразком інших репозиторіїв). `STREAK_4_WEEKS`/
+`STREAK_12_WEEKS` дивляться на `longest_streak` (GYM-12), а не
+`current_streak`, — значок лишається, навіть якщо стрік потім обірветься.
+`FIRST_PR` = «залоговано хоч один підхід» (перший-ліпший сет автоматично
+стає рекордом свого типу вправи, GYM-7). Хендлер `_check_and_unlock_achievements`
+викликається з `api_save_workout_log` одразу після PR-сповіщення (GYM-9,
+той самий non-critical try/except); на відміну від PR-сповіщення,
+розблокування пишеться в БД навіть якщо бот недоступний — це не лише
+нотифікація, а й перманентний запис. Повідомлення власнику —
+`🏅 Нове досягнення: <title>`. `GET /api/statistics/achievements` та
+UI — GYM-13b.
 
 **SP:** 5
 

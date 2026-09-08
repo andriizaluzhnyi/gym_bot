@@ -580,7 +580,7 @@ haptic, мережева помилка → `saveErrorBanner` замість а�
 
 ## Epic 3 — Тренування: програми в БД, додавання вправ, картка вправи
 
-### GYM-27: Моделі `Exercise` + `WorkoutProgramExercise`, міграція, репозиторії
+### ✅ GYM-27: Моделі `Exercise` + `WorkoutProgramExercise`, міграція, репозиторії — **виконано**
 
 **User story:** Як розробник, я хочу зберігати програму тренувань і каталог
 вправ у БД, щоб WebApp і бот працювали з одним джерелом без Google Sheets.
@@ -609,6 +609,40 @@ haptic, мережева помилка → `saveErrorBanner` замість а�
   exercise_name)`, `get_last_day_for_muscle(user_id, muscle)`,
   `get_days_summary(user_id)`.
 - Alembic-міграція; перевірено на SQLite і PostgreSQL.
+
+**Примітка щодо реалізації:** `ExerciseRepository.get_or_create_by_name`
+робить `from src.services.exercise_names import normalize_exercise_name`
+**всередині методу**, не на рівні файлу — `src/services/__init__.py`
+жадібно імпортує `notifications.py`, який сам імпортує з
+`src/database/repository.py`; імпорт `src.services.*` на рівні модуля в
+`repository.py` створив би циклічний імпорт (`repository.py` раніше
+взагалі не залежав від нічого під `src.services`). Той самий прийом, що
+вже використовується в цьому файлі для `sqlalchemy.func` в окремих
+методах.
+
+`get_program()` повертає `day` як **рядок** (`str(row.day)`), хоча в БД
+це `Integer` — свідомо, щоб форма відповіді залишалась ідентичною
+`GoogleSheetsService.get_workout_programs` (рядки Sheets — завжди
+рядки), і `workout.html`/`nutrition.html` не довелося чіпати, коли GYM-28
+підключить цей репозиторій до `/api/workout/program`. `created_at`
+форматується як `%d.%m.%Y %H:%M` з **наївного UTC**, без переведення в
+`settings.timezone` — сигнатура `get_program(user_id, day=None,
+muscle=None)` в AC не має параметра `tz_name`, а сам `created_at` зараз
+ніде в UI не читається (перевірено — ні `workout.html`, ні
+`nutrition.html` це поле не використовують), тож точність тут не
+критична; якщо GYM-28/30 колись покажуть цю дату користувачу — перевести
+на `to_local_date`-подібну конвертацію (той самий підхід, що й у
+`_serialize_session_summary`) окремою правкою.
+
+`get_days_summary(user_id)` — форма відповіді (`{day, muscle_groups,
+exercises_count}`) не була деталізована в AC, тому спроєктована як
+DB-нативний еквівалент групування, яке `nutrition.html`'s
+`loadWorkoutPrograms()` зараз робить на клієнті (`dayGroups`) — щоб GYM-28
+міг замінити той клієнтський код одним запитом замість фільтрації повного
+списку. `ExerciseRepository.search()` (згаданий у плані GYM-30 для
+автопідказки) **не** додано цим тікетом — GYM-27 просив лише
+`get_or_create_by_name`; GYM-30 додасть `search()` коли знадобиться
+UI-автопідказка.
 
 **SP:** 3
 

@@ -11,11 +11,13 @@ from src.database.models import (
     Booking,
     BookingStatus,
     DailyNutrition,
+    Exercise,
     NutritionEntryType,
     Profile,
     Training,
     User,
     UserAchievement,
+    WorkoutProgramExercise,
     WorkoutSession,
     WorkoutSet,
 )
@@ -1226,3 +1228,251 @@ class UserAchievementRepository:
         self.session.add(achievement)
         await self.session.flush()
         return achievement
+
+
+class ExerciseRepository:
+    """Repository for the shared ``Exercise`` catalog (GYM-27)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_or_create_by_name(
+        self, name: str, muscle_group: str | None = None
+    ) -> Exercise:
+        """Find the catalog entry matching ``name`` (via
+        ``normalize_exercise_name``) or create one.
+
+        ``muscle_group`` is only used when *creating* a new entry — an
+        existing entry's ``muscle_group`` is never overwritten here. It
+        can still "drift" over time the same way ``WorkoutSet.muscle_group``
+        already does (GYM-5a: taken from the most recent log, since a
+        program can be edited to move an exercise to a different group);
+        changing the catalog's own group is a deliberate separate edit,
+        not a side effect of adding one more program row.
+        """
+        # Local import: src.services's __init__ eagerly imports
+        # notifications.py, which imports from this module — a top-level
+        # import here would be a circular import (repository.py had never
+        # depended on anything under src.services before this method).
+        from src.services.exercise_names import normalize_exercise_name
+
+        normalized = normalize_exercise_name(name)
+        result = await self.session.execute(
+            select(Exercise).where(Exercise.normalized_name == normalized)
+        )
+        exercise = result.scalar_one_or_none()
+        if exercise:
+            return exercise
+
+        exercise = Exercise(
+            name=name.strip(),
+            normalized_name=normalized,
+            muscle_group=muscle_group,
+        )
+        self.session.add(exercise)
+        await self.session.flush()
+        return exercise
+
+
+class WorkoutProgramRepository:
+    """Repository for DB-backed workout programs (GYM-27) — the eventual
+    replacement for ``GoogleSheetsService``'s "Програми (<user>)" methods
+    (GYM-28 wires the bot/WebApp to actually call this instead).
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def _next_position(self, user_id: uuid.UUID, day: int) -> int:
+        from sqlalchemy import func
+
+        result = await self.session.execute(
+            select(func.max(WorkoutProgramExercise.position)).where(
+                and_(
+                    WorkoutProgramExercise.user_id == user_id,
+                    WorkoutProgramExercise.day == day,
+                )
+            )
+        )
+        max_position = result.scalar_one_or_none()
+        return 0 if max_position is None else max_position + 1
+
+    async def add_exercises(
+        self, user_id: uuid.UUID, day: int, items: list[dict]
+    ) -> list[WorkoutProgramExercise]:
+        """Append ``items`` to ``day``'s program — each is looked up/
+        created in the ``Exercise`` catalog by name, appended after
+        whatever's already in this day (not a replace), same "always
+        appends" semantics as ``GoogleSheetsService.add_workout_program``.
+
+        Each item: ``exercise`` (name, required), ``muscle_group``
+        (required), ``sets_reps`` (required), ``comment`` (optional) — the
+        same shape the bot's program-creation FSM already builds
+        (``src/bot/handlers/workout_program.py``), so GYM-28 can pass it
+        through largely unchanged.
+        """
+        exercise_repo = ExerciseRepository(self.session)
+        next_position = await self._next_position(user_id, day)
+
+        created = []
+        for offset, item in enumerate(items):
+            exercise = await exercise_repo.get_or_create_by_name(
+                item["exercise"], muscle_group=item.get("muscle_group")
+            )
+            row = WorkoutProgramExercise(
+                user_id=user_id,
+                day=day,
+                muscle_group=item["muscle_group"],
+                exercise_id=exercise.id,
+                exercise_name=item["exercise"].strip(),
+                sets_reps=item["sets_reps"],
+                comment=item.get("comment") or None,
+                position=next_position + offset,
+            )
+            self.session.add(row)
+            created.append(row)
+
+        await self.session.flush()
+        return created
+
+    async def get_program(
+        self, user_id: uuid.UUID, day: int | None = None, muscle: str | None = None,
+    ) -> list[dict]:
+        """Program rows for ``user_id``, in the same shape as
+        ``GoogleSheetsService.get_workout_programs`` (``day``,
+        ``muscle_group``, ``exercise``, ``sets_reps``, ``comment``,
+        ``created_at``) so ``workout.html``/``nutrition.html`` don't need
+        to change when GYM-28 switches which one actually backs
+        ``/api/workout/program``. ``day`` is returned as a string, matching
+        Sheets' cell values, for the same reason.
+
+        Filtering by ``day``/``muscle`` moves into SQL here, instead of
+        the Python-side filtering ``api_get_workout_program`` currently
+        does over the Sheets result — GYM-28's endpoint can pass the query
+        params straight through instead of filtering the response itself.
+        Ordered by ``(day, position)`` — insertion order within a day.
+        """
+        conditions = [WorkoutProgramExercise.user_id == user_id]
+        if day is not None:
+            conditions.append(WorkoutProgramExercise.day == day)
+        if muscle is not None:
+            conditions.append(WorkoutProgramExercise.muscle_group == muscle)
+
+        result = await self.session.execute(
+            select(WorkoutProgramExercise)
+            .where(and_(*conditions))
+            .order_by(WorkoutProgramExercise.day, WorkoutProgramExercise.position)
+        )
+        rows = result.scalars().all()
+
+        return [
+            {
+                "day": str(row.day),
+                "muscle_group": row.muscle_group,
+                "exercise": row.exercise_name,
+                "sets_reps": row.sets_reps,
+                "comment": row.comment or "",
+                "created_at": row.created_at.strftime("%d.%m.%Y %H:%M"),
+            }
+            for row in rows
+        ]
+
+    async def delete_day(self, user_id: uuid.UUID, day: int) -> bool:
+        """Delete every exercise in ``day``'s program.
+
+        Returns ``True`` if anything was deleted, ``False`` if the day was
+        already empty — mirrors
+        ``GoogleSheetsService.delete_workout_day``'s success/not-found
+        return, so GYM-28's endpoint doesn't need to change its response
+        shape when it switches backing store.
+        """
+        result = await self.session.execute(
+            select(WorkoutProgramExercise).where(
+                and_(
+                    WorkoutProgramExercise.user_id == user_id,
+                    WorkoutProgramExercise.day == day,
+                )
+            )
+        )
+        rows = result.scalars().all()
+        if not rows:
+            return False
+
+        for row in rows:
+            await self.session.delete(row)
+        await self.session.flush()
+        return True
+
+    async def delete_exercise(
+        self, user_id: uuid.UUID, day: int, exercise_name: str
+    ) -> bool:
+        """Delete every row in ``day`` whose ``exercise_name`` matches
+        exactly — mirrors ``GoogleSheetsService.delete_exercise``, which
+        also removes *every* matching row rather than stopping at the
+        first. Returns ``True`` if anything was deleted.
+        """
+        result = await self.session.execute(
+            select(WorkoutProgramExercise).where(
+                and_(
+                    WorkoutProgramExercise.user_id == user_id,
+                    WorkoutProgramExercise.day == day,
+                    WorkoutProgramExercise.exercise_name == exercise_name,
+                )
+            )
+        )
+        rows = result.scalars().all()
+        if not rows:
+            return False
+
+        for row in rows:
+            await self.session.delete(row)
+        await self.session.flush()
+        return True
+
+    async def get_last_day_for_muscle(self, user_id: uuid.UUID, muscle: str) -> int:
+        """Highest ``day`` number that already has an exercise for
+        ``muscle`` — mirrors
+        ``GoogleSheetsService.get_last_program_day_for_muscle_group``
+        (``0`` if none exist), used to offer "continue day N" vs. "start
+        day N+1" when adding an exercise for a muscle group already
+        in progress.
+        """
+        from sqlalchemy import func
+
+        result = await self.session.execute(
+            select(func.max(WorkoutProgramExercise.day)).where(
+                and_(
+                    WorkoutProgramExercise.user_id == user_id,
+                    WorkoutProgramExercise.muscle_group == muscle,
+                )
+            )
+        )
+        max_day = result.scalar_one_or_none()
+        return max_day or 0
+
+    async def get_days_summary(self, user_id: uuid.UUID) -> list[dict]:
+        """One entry per program day — its muscle groups and exercise
+        count — the DB-native equivalent of the day/muscle-group grouping
+        ``nutrition.html``'s ``loadWorkoutPrograms()`` currently computes
+        client-side over the full flat ``/api/workout/program`` list.
+        Ordered by day ascending; each day's ``muscle_groups`` preserves
+        first-seen (i.e. ``position``) order.
+        """
+        result = await self.session.execute(
+            select(WorkoutProgramExercise)
+            .where(WorkoutProgramExercise.user_id == user_id)
+            .order_by(WorkoutProgramExercise.day, WorkoutProgramExercise.position)
+        )
+        rows = result.scalars().all()
+
+        by_day: dict[int, dict] = {}
+        for row in rows:
+            bucket = by_day.setdefault(
+                row.day,
+                {"day": row.day, "muscle_groups": [], "exercises_count": 0},
+            )
+            if row.muscle_group not in bucket["muscle_groups"]:
+                bucket["muscle_groups"].append(row.muscle_group)
+            bucket["exercises_count"] += 1
+
+        return [by_day[day] for day in sorted(by_day)]

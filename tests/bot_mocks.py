@@ -94,23 +94,34 @@ def make_fsm_context(*, chat_id: int = 1, user_id: int = 1) -> FSMContext:
 
 
 def make_callback(
-    *, data: str | None = None, from_user=_UNSET, message=_UNSET,
+    *, data: str | None = None, from_user=_UNSET, message=_UNSET, bot=_UNSET,
 ) -> CallbackQuery:
     callback = MagicMock(spec=CallbackQuery)
     callback.data = data
     callback.from_user = make_telegram_user() if from_user is _UNSET else from_user
     callback.message = make_message() if message is _UNSET else message
+    # GYM-33: callback.bot.get_chat_member(...) is how handlers check
+    # group-admin status — preset as an AsyncMock so a test only needs to
+    # set `.return_value` (e.g. `make_chat_member(status="administrator")`).
+    callback.bot = MagicMock() if bot is _UNSET else bot
+    if callback.bot is not None:
+        callback.bot.get_chat_member = AsyncMock()
     callback.answer = AsyncMock()
     return callback
 
 
-def _make_chat_member(*, status: str):
-    """A bare stand-in for aiogram's `ChatMember*` union — GYM-32's
-    `ChatMemberUpdatedFilter` (via `JOIN_TRANSITION`/`LEAVE_TRANSITION`)
-    only ever reads `.status` off these (``getattr(member, "status",
-    None)``, see aiogram.filters.chat_member_updated), so a bare
-    ``MagicMock`` with that one attribute set is enough — no need for a
-    real ``ChatMemberMember``/``ChatMemberLeft`` instance.
+def make_chat_member(*, status: str):
+    """A bare stand-in for aiogram's `ChatMember*` union.
+
+    Used two ways: as `my_chat_member`'s `old_chat_member`/
+    `new_chat_member` (GYM-32's `ChatMemberUpdatedFilter`, via
+    `JOIN_TRANSITION`/`LEAVE_TRANSITION`, only reads `.status` off these
+    — ``getattr(member, "status", None)``, see
+    aiogram.filters.chat_member_updated) and as the return value of
+    `bot.get_chat_member(...)` (GYM-33's admin check, which also only
+    reads `.status`). A bare ``MagicMock`` with that one attribute set is
+    enough for both — no need for a real ``ChatMemberMember``/
+    ``ChatMemberAdministrator`` instance.
     """
     member = MagicMock()
     member.status = status
@@ -130,7 +141,7 @@ def make_chat_member_updated(
     event = MagicMock(spec=ChatMemberUpdated)
     event.chat = make_chat(chat_type="group") if chat is _UNSET else chat
     event.from_user = make_telegram_user() if from_user is _UNSET else from_user
-    event.old_chat_member = _make_chat_member(status=old_status)
-    event.new_chat_member = _make_chat_member(status=new_status)
+    event.old_chat_member = make_chat_member(status=old_status)
+    event.new_chat_member = make_chat_member(status=new_status)
     event.answer = AsyncMock()
     return event

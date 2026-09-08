@@ -9,7 +9,7 @@ from aiogram.types import (
 )
 
 from src.config import get_settings
-from src.database.models import Training
+from src.database.models import GroupChat, Training
 from src.services.workout_program_parsing import MUSCLE_GROUPS  # noqa: F401
 
 
@@ -449,3 +449,91 @@ def get_confirm_cancel_keyboard(training_id: int) -> InlineKeyboardMarkup:
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# --- Group reminders (`/reminders`, GYM-33) ---
+
+GROUP_REMINDER_TIME_CHOICES = ["07:00", "09:00", "12:00", "18:00", "20:00", "21:00"]
+# Index == GroupChat.measurements_weekday (0 = Monday, matches Python's
+# own date.weekday()).
+GROUP_REMINDER_WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+GROUP_REMINDER_DAY_OF_MONTH_CHOICES = [1, 15]
+
+_GROUP_REMINDER_LABELS = {
+    "nutrition": "🍽 Харчування",
+    "measurements": "📏 Заміри",
+    "photos": "📸 Фото прогресу",
+}
+
+
+def _group_reminder_schedule_text(reminder_type: str, group: GroupChat) -> str:
+    """Human-readable schedule fragment for one reminder type's toggle
+    button label, e.g. "щодня 20:00", "пн 09:00", "1-го числа 09:00".
+    """
+    if reminder_type == "nutrition":
+        return f"щодня {group.nutrition_time}"
+    if reminder_type == "measurements":
+        weekday_label = GROUP_REMINDER_WEEKDAY_LABELS[group.measurements_weekday].lower()
+        return f"{weekday_label} {group.measurements_time}"
+    if reminder_type == "photos":
+        return f"{group.photos_day_of_month}-го числа {group.photos_time}"
+    raise ValueError(f"Unknown reminder_type: {reminder_type!r}")
+
+
+def get_group_reminders_panel_keyboard(group: GroupChat) -> InlineKeyboardMarkup:
+    """Main `/reminders` panel (GYM-33): one toggle + "⏰ Час…" row pair
+    per reminder type. The toggle button's own text carries the current
+    schedule and on/off state (`grem:toggle:<type>` flips it in place);
+    "⏰ Час…" (`grem:time:<type>`) opens that type's time-choice submenu
+    (:func:`get_group_reminders_time_keyboard`).
+    """
+    enabled_by_type = {
+        "nutrition": group.remind_nutrition,
+        "measurements": group.remind_measurements,
+        "photos": group.remind_photos,
+    }
+    buttons = []
+    for reminder_type, label in _GROUP_REMINDER_LABELS.items():
+        state_icon = "✅" if enabled_by_type[reminder_type] else "❌"
+        schedule = _group_reminder_schedule_text(reminder_type, group)
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{label} · {schedule} [{state_icon}]",
+                callback_data=f"grem:toggle:{reminder_type}",
+            ),
+            InlineKeyboardButton(
+                text="⏰ Час…", callback_data=f"grem:time:{reminder_type}",
+            ),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_group_reminders_time_keyboard(reminder_type: str) -> InlineKeyboardMarkup:
+    """Time-choice submenu for one reminder type (GYM-33) — a row of time
+    chips (`grem:settime:<type>:<HH:MM>`), plus, for "measurements", a
+    weekday row (`grem:setweekday:<0-6>`) and, for "photos", a
+    day-of-month row (`grem:setday:<1|15>`); always ends with "⬅️ Назад"
+    (`grem:back`) to return to the main panel.
+    """
+    rows = []
+    time_row = [
+        InlineKeyboardButton(text=t, callback_data=f"grem:settime:{reminder_type}:{t}")
+        for t in GROUP_REMINDER_TIME_CHOICES
+    ]
+    # 3 per row keeps each button legibly wide on a phone screen.
+    for i in range(0, len(time_row), 3):
+        rows.append(time_row[i:i + 3])
+
+    if reminder_type == "measurements":
+        rows.append([
+            InlineKeyboardButton(text=label, callback_data=f"grem:setweekday:{i}")
+            for i, label in enumerate(GROUP_REMINDER_WEEKDAY_LABELS)
+        ])
+    elif reminder_type == "photos":
+        rows.append([
+            InlineKeyboardButton(text=f"{d}-го", callback_data=f"grem:setday:{d}")
+            for d in GROUP_REMINDER_DAY_OF_MONTH_CHOICES
+        ])
+
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="grem:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

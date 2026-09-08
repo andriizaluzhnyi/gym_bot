@@ -12,7 +12,7 @@ from aiohttp.test_utils import make_mocked_request
 from src.database.models import Base
 from src.database.repository import UserRepository
 from src.database.session import async_session_maker, engine
-from src.webapp.server import api_get_user_settings, api_update_user_settings
+from src.webapp.server import api_get_user_settings, api_update_user_settings, settings
 from tests.test_webapp_auth import build_init_data
 
 
@@ -93,6 +93,33 @@ class TestNotificationsEnabledDefaults:
 
         # No profile row was ever created (no POST was made) — still True.
         assert payload["data"]["notifications_enabled"] is True
+
+
+class TestPhotoRecognitionEnabled:
+    """GYM-23: a global app setting (bool(settings.openai_api_key)), not
+    per-user — included in GET /api/user/settings so the WebApp knows
+    whether to show the "📷 Фото" button at all.
+    """
+
+    async def test_true_when_openai_api_key_configured(self, monkeypatch):
+        monkeypatch.setattr(settings, "openai_api_key", "sk-test-key")
+        await _make_user(1)
+        request = _mock_request("GET", "/api/user/settings", telegram_id=1)
+
+        response = await api_get_user_settings(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["photo_recognition_enabled"] is True
+
+    async def test_false_when_openai_api_key_missing(self, monkeypatch):
+        monkeypatch.setattr(settings, "openai_api_key", "")
+        await _make_user(1)
+        request = _mock_request("GET", "/api/user/settings", telegram_id=1)
+
+        response = await api_get_user_settings(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["photo_recognition_enabled"] is False
 
 
 class TestNotificationsEnabledRoundTrip:

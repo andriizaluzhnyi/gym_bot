@@ -20,6 +20,7 @@
             --text-secondary: #888888;
             --text-muted: #666666;
             --accent-green: #4ade80;
+            --accent-red: #ef4444;
         }
 
         body {
@@ -28,14 +29,61 @@
             color: var(--tg-theme-text-color, var(--text-primary));
             min-height: 100vh;
             padding: 16px;
-            padding-bottom: 100px;
+            padding-bottom: 40px;
         }
 
-        .header {
-            font-size: 24px;
-            font-weight: 600;
+        /* Header: avatar/name/@username (GYM-26) — replaces the old plain
+           "👤 Профіль" label with who the profile actually belongs to. */
+        .profile-header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
             margin-bottom: 20px;
+        }
+
+        .avatar {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--tg-theme-button-color, var(--accent-green)) 0%, #22c55e 100%);
+        }
+
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .avatar-initials {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        .profile-name {
+            font-size: 18px;
+            font-weight: 600;
             color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .profile-username {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .save-error-banner {
+            background-color: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 14px;
+            margin-bottom: 16px;
         }
 
         .card {
@@ -81,6 +129,17 @@
 
         .form-input::placeholder {
             color: var(--text-muted);
+        }
+
+        .form-input.invalid {
+            border-color: var(--accent-red);
+        }
+
+        .field-error {
+            display: none;
+            color: var(--accent-red);
+            font-size: 12px;
+            margin-top: 6px;
         }
 
         .gender-selector {
@@ -130,27 +189,25 @@
             color: var(--tg-theme-text-color, var(--text-primary));
         }
 
-        .save-btn {
+        .calc-goals-btn {
             width: 100%;
-            padding: 16px;
-            background-color: var(--tg-theme-button-color, var(--accent-green));
+            margin-top: 16px;
+            padding: 12px;
+            background-color: var(--card-border);
             border: none;
             border-radius: 12px;
-            color: var(--tg-theme-button-text-color, #000);
-            font-size: 16px;
-            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 14px;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
             -webkit-tap-highlight-color: transparent;
         }
 
-        .save-btn:active {
+        .calc-goals-btn:active {
             transform: scale(0.98);
-        }
-
-        .save-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
         }
 
         /* Bottom Navigation */
@@ -282,7 +339,18 @@
     </style>
 </head>
 <body>
-    <div class="header">👤 Профіль</div>
+    <div class="profile-header">
+        <div class="avatar" id="avatar">
+            <img id="avatarImage" alt="" style="display: none;">
+            <span class="avatar-initials" id="avatarInitials">?</span>
+        </div>
+        <div>
+            <div class="profile-name" id="profileName">Профіль</div>
+            <div class="profile-username" id="profileUsername"></div>
+        </div>
+    </div>
+
+    <div class="save-error-banner" id="saveErrorBanner" style="display: none;"></div>
 
     <!-- Особисті дані -->
     <div class="card">
@@ -291,16 +359,19 @@
         <div class="form-group">
             <label class="form-label">Вік (років)</label>
             <input type="number" class="form-input" id="ageInput" placeholder="25" min="10" max="120">
+            <div class="field-error" id="ageInputError"></div>
         </div>
 
         <div class="form-group">
             <label class="form-label">Зріст (см)</label>
             <input type="number" class="form-input" id="heightInput" placeholder="170" min="100" max="250">
+            <div class="field-error" id="heightInputError"></div>
         </div>
 
         <div class="form-group">
             <label class="form-label">Вага (кг)</label>
             <input type="number" class="form-input" id="weightInput" placeholder="70" min="30" max="300" step="0.1">
+            <div class="field-error" id="weightInputError"></div>
         </div>
 
         <div class="form-group">
@@ -333,26 +404,31 @@
             </div>
             <label class="form-label">Вода (мл)</label>
             <input type="number" class="form-input" id="waterInput" placeholder="2500" min="500" max="10000" step="100">
+            <div class="field-error" id="waterInputError"></div>
         </div>
 
         <div class="form-group">
             <label class="form-label">Калорії (ккал)</label>
             <input type="number" class="form-input" id="caloriesInput" placeholder="2500" min="1000" max="6000" step="50">
+            <div class="field-error" id="caloriesInputError"></div>
         </div>
 
         <div class="form-group">
             <label class="form-label">Білки (г)</label>
             <input type="number" class="form-input" id="proteinInput" placeholder="150" min="20" max="500" step="5">
+            <div class="field-error" id="proteinInputError"></div>
         </div>
 
         <div class="form-group">
             <label class="form-label">Жири (г)</label>
             <input type="number" class="form-input" id="fatsInput" placeholder="80" min="20" max="300" step="5">
+            <div class="field-error" id="fatsInputError"></div>
         </div>
 
         <div class="form-group">
             <label class="form-label">Вуглеводи (г)</label>
             <input type="number" class="form-input" id="carbsInput" placeholder="250" min="20" max="800" step="5">
+            <div class="field-error" id="carbsInputError"></div>
         </div>
     </div>
 
@@ -369,11 +445,31 @@
             <span class="info-label">Рекомендована норма</span>
             <span class="info-value" id="tdeeValue">—</span>
         </div>
+
+        <button class="calc-goals-btn" id="useCalculatedBtn">📐 Взяти розраховані</button>
     </div>
 
-    <!-- Синхронізація тренувань -->
+    <!-- Сповіщення -->
     <div class="card">
-        <div class="card-title">Тренування</div>
+        <div class="card-title">Сповіщення</div>
+
+        <div class="toggle-row">
+            <div>
+                <div class="toggle-label">Нагадування про тренування</div>
+                <div class="toggle-hint">
+                    Сповіщення за 24 та 2 години до запланованого тренування.
+                </div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="notificationsToggle" checked>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Інтеграції -->
+    <div class="card">
+        <div class="card-title">Інтеграції</div>
 
         <div class="toggle-row">
             <div>
@@ -389,8 +485,6 @@
             </label>
         </div>
     </div>
-
-    <button class="save-btn" id="saveBtn">Зберегти</button>
 
     <nav class="bottom-nav">
         <a href="/nutrition" class="nav-item">
@@ -420,6 +514,117 @@
         // State
         let currentGender = null;
         let isDataChanged = false;
+        // Set by calculateMetrics() whenever a TDEE is computable — read by
+        // "📐 Взяти розраховані" (GYM-26) so it doesn't need to recompute
+        // BMR/TDEE itself from scratch.
+        let lastComputedTdee = null;
+
+        // Range-validated numeric fields (GYM-26): label used in the inline
+        // error message, min/max read straight off each <input>'s own
+        // attributes rather than duplicated here.
+        const VALIDATED_FIELD_LABELS = {
+            ageInput: 'Вік',
+            heightInput: 'Зріст',
+            weightInput: 'Вага',
+            waterInput: 'Норма води',
+            caloriesInput: 'Норма калорій',
+            proteinInput: 'Норма білків',
+            fatsInput: 'Норма жирів',
+            carbsInput: 'Норма вуглеводів',
+        };
+
+        function setFieldError(input, message) {
+            input.classList.toggle('invalid', !!message);
+            const errorEl = document.getElementById(`${input.id}Error`);
+            if (errorEl) {
+                errorEl.textContent = message || '';
+                errorEl.style.display = message ? 'block' : 'none';
+            }
+        }
+
+        // A blank field is valid (nothing entered yet, not out of range) —
+        // only checks bounds once there's a number to check.
+        function validateField(input) {
+            const raw = input.value.trim();
+            if (raw === '') {
+                setFieldError(input, null);
+                return true;
+            }
+            const value = parseFloat(raw);
+            const min = parseFloat(input.min);
+            const max = parseFloat(input.max);
+            if (Number.isNaN(value) || value < min || value > max) {
+                const label = VALIDATED_FIELD_LABELS[input.id] || 'Значення';
+                setFieldError(input, `${label}: введіть число від ${input.min} до ${input.max}`);
+                return false;
+            }
+            setFieldError(input, null);
+            return true;
+        }
+
+        function validateAllFields() {
+            let allValid = true;
+            Object.keys(VALIDATED_FIELD_LABELS).forEach((id) => {
+                if (!validateField(document.getElementById(id))) {
+                    allValid = false;
+                }
+            });
+            return allValid;
+        }
+
+        // Native MainButton drives saving (GYM-26) instead of an in-page
+        // button — shown only while there's something to save.
+        function updateMainButtonVisibility() {
+            if (isDataChanged) {
+                tg.MainButton.setText('Зберегти');
+                tg.MainButton.show();
+            } else {
+                tg.MainButton.hide();
+            }
+        }
+
+        function markChanged() {
+            isDataChanged = true;
+            updateMainButtonVisibility();
+        }
+
+        function hideSaveError() {
+            document.getElementById('saveErrorBanner').style.display = 'none';
+        }
+
+        function showSaveError(message) {
+            const banner = document.getElementById('saveErrorBanner');
+            banner.textContent = message;
+            banner.style.display = 'block';
+        }
+
+        // Header: avatar/name/@username (GYM-26), read-only from
+        // initDataUnsafe.user — falls back to initials when there's no
+        // photo_url (a fresh account, or privacy settings hiding it).
+        function renderProfileHeader() {
+            const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
+            if (!user) {
+                return;
+            }
+
+            document.getElementById('profileName').textContent =
+                user.last_name ? `${user.first_name} ${user.last_name}` : user.first_name;
+            document.getElementById('profileUsername').textContent =
+                user.username ? `@${user.username}` : '';
+
+            const image = document.getElementById('avatarImage');
+            const initials = document.getElementById('avatarInitials');
+            if (user.photo_url) {
+                image.src = user.photo_url;
+                image.style.display = 'block';
+                initials.style.display = 'none';
+            } else {
+                const letters = `${user.first_name ? user.first_name[0] : ''}${user.last_name ? user.last_name[0] : ''}`;
+                initials.textContent = letters.toUpperCase() || '?';
+                image.style.display = 'none';
+                initials.style.display = 'block';
+            }
+        }
 
         // Gender selection
         document.querySelectorAll('.gender-btn').forEach(btn => {
@@ -427,7 +632,7 @@
                 document.querySelectorAll('.gender-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentGender = btn.dataset.gender;
-                isDataChanged = true;
+                markChanged();
                 calculateMetrics();
 
                 if (tg.HapticFeedback) {
@@ -436,19 +641,21 @@
             });
         });
 
-        // Input change tracking
+        // Input change tracking + inline validation (GYM-26: replaces
+        // range checks that used to only ever fail silently at save time).
         document.querySelectorAll('.form-input').forEach(input => {
             input.addEventListener('input', () => {
-                isDataChanged = true;
+                markChanged();
+                validateField(input);
                 calculateMetrics();
             });
         });
 
         // Water tracking toggle (GYM-25) — disables the goal input while
         // off, but doesn't clear its value; saved together with the rest
-        // of this card via the main "Зберегти" button below, same as
-        // every other field here (unlike the Sheets sync toggle, which
-        // saves immediately on its own).
+        // of this card via the MainButton, same as every other field here
+        // (unlike the Sheets sync toggle, which saves immediately on its
+        // own).
         const waterTrackingToggle = document.getElementById('waterTrackingToggle');
         const waterInput = document.getElementById('waterInput');
 
@@ -457,8 +664,19 @@
         }
 
         waterTrackingToggle.addEventListener('change', () => {
-            isDataChanged = true;
+            markChanged();
             updateWaterInputState();
+
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
+        });
+
+        // Notifications toggle (GYM-26) — same batch-save convention as
+        // the water toggle above, not an auto-save like Sheets sync below.
+        const notificationsToggle = document.getElementById('notificationsToggle');
+        notificationsToggle.addEventListener('change', () => {
+            markChanged();
 
             if (tg.HapticFeedback) {
                 tg.HapticFeedback.impactOccurred('light');
@@ -490,16 +708,46 @@
 
                     // TDEE (Total Daily Energy Expenditure) - moderate activity
                     const tdee = Math.round(bmr * 1.55);
+                    lastComputedTdee = tdee;
 
                     document.getElementById('bmrValue').textContent = Math.round(bmr) + ' ккал';
                     document.getElementById('tdeeValue').textContent = tdee + ' ккал';
                     document.getElementById('calculatedCard').style.display = 'block';
+                    return;
                 }
-            } else {
-                document.getElementById('bmiContainer').style.display = 'none';
-                document.getElementById('calculatedCard').style.display = 'none';
             }
+
+            lastComputedTdee = null;
+            document.getElementById('bmiContainer').style.display =
+                height && weight ? 'block' : 'none';
+            document.getElementById('calculatedCard').style.display = 'none';
         }
+
+        // "Взяти розраховані" (GYM-26): copies the just-computed TDEE into
+        // "Калорії" and splits it into БЖВ at a fixed 30/25/45% (protein/
+        // fat/carbs) ratio, converted to grams (4/9/4 kcal per gram). Only
+        // fills the inputs — saving still goes through the normal
+        // MainButton flow, same as typing the numbers by hand.
+        document.getElementById('useCalculatedBtn').addEventListener('click', () => {
+            if (!lastComputedTdee) {
+                return;
+            }
+
+            const calories = lastComputedTdee;
+            document.getElementById('caloriesInput').value = calories;
+            document.getElementById('proteinInput').value = Math.round((calories * 0.30) / 4);
+            document.getElementById('fatsInput').value = Math.round((calories * 0.25) / 9);
+            document.getElementById('carbsInput').value = Math.round((calories * 0.45) / 4);
+
+            ['caloriesInput', 'proteinInput', 'fatsInput', 'carbsInput'].forEach(id => {
+                validateField(document.getElementById(id));
+            });
+            markChanged();
+
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.notificationOccurred('success');
+            }
+        });
 
         // Load user profile from API
         async function loadUserProfile() {
@@ -538,8 +786,11 @@
                         waterTrackingToggle.checked = data.water_tracking_enabled !== false;
                         updateWaterInputState();
 
+                        notificationsToggle.checked = data.notifications_enabled !== false;
+
                         calculateMetrics();
                         isDataChanged = false;
+                        updateMainButtonVisibility();
                     }
                 } else {
                     console.error('Failed to load user profile:', response.status);
@@ -549,11 +800,18 @@
             }
         }
 
-        // Save user profile
+        // Save user profile — triggered by tg.MainButton, not an in-page
+        // button (GYM-26).
         async function saveUserProfile() {
-            const saveBtn = document.getElementById('saveBtn');
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Збереження...';
+            if (!validateAllFields()) {
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('error');
+                }
+                return;
+            }
+
+            hideSaveError();
+            tg.MainButton.showProgress();
 
             try {
                 const data = {
@@ -567,6 +825,7 @@
                     daily_protein: parseInt(document.getElementById('proteinInput').value) || null,
                     daily_fats: parseInt(document.getElementById('fatsInput').value) || null,
                     daily_carbs: parseInt(document.getElementById('carbsInput').value) || null,
+                    notifications_enabled: notificationsToggle.checked,
                 };
 
                 const response = await fetch('/api/user/settings', {
@@ -580,23 +839,26 @@
 
                 if (response.ok) {
                     isDataChanged = false;
+                    tg.MainButton.hideProgress();
+                    tg.MainButton.hide();
 
                     if (tg.HapticFeedback) {
                         tg.HapticFeedback.notificationOccurred('success');
                     }
-
-                    tg.showAlert('✅ Профіль успішно збережено!');
                 } else {
                     throw new Error('Failed to save profile');
                 }
             } catch (error) {
                 console.error('Error saving profile:', error);
-                tg.showAlert('❌ Помилка при збереженні профілю');
-            } finally {
-                saveBtn.disabled = false;
-                saveBtn.textContent = 'Зберегти';
+                tg.MainButton.hideProgress();
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('error');
+                }
+                showSaveError('Не вдалося зберегти профіль. Спробуйте ще раз.');
             }
         }
+
+        tg.MainButton.onClick(saveUserProfile);
 
         // Load Google Sheets sync setting
         async function loadSyncSettings() {
@@ -624,7 +886,7 @@
         }
 
         // Toggle Google Sheets sync (saves immediately, independent of the
-        // nutrition profile's "Зберегти" button)
+        // rest of this page's MainButton-driven save)
         const sheetsSyncToggle = document.getElementById('sheetsSyncToggle');
         sheetsSyncToggle.addEventListener('change', async () => {
             const enabled = sheetsSyncToggle.checked;
@@ -650,18 +912,10 @@
             } catch (error) {
                 console.error('Error saving sync setting:', error);
                 sheetsSyncToggle.checked = !enabled;
-                tg.showAlert('❌ Не вдалося зберегти налаштування синхронізації');
+                showSaveError('Не вдалося зберегти налаштування синхронізації.');
             } finally {
                 sheetsSyncToggle.disabled = false;
             }
-        });
-
-        // Save button
-        document.getElementById('saveBtn').addEventListener('click', () => {
-            if (tg.HapticFeedback) {
-                tg.HapticFeedback.impactOccurred('medium');
-            }
-            saveUserProfile();
         });
 
         // Navigation
@@ -684,6 +938,8 @@
         });
 
         // Initialize
+        renderProfileHeader();
+        updateMainButtonVisibility();
         loadUserProfile();
         loadSyncSettings();
 

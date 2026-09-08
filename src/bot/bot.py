@@ -7,7 +7,13 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import MenuButtonWebApp, WebAppInfo
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    MenuButtonWebApp,
+    WebAppInfo,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
@@ -45,15 +51,55 @@ def create_bot() -> Bot:
     )
 
 
-async def configure_default_menu_button(bot: Bot) -> None:
-    """Set the global default chat-menu button for private chats (GYM-35).
+# Commands visible in every private chat (GYM-36). "/admin" is deliberately
+# not here — it's added per-admin below, since Telegram resolves command
+# scopes by taking the single most specific match rather than merging them:
+# a bare BotCommandScopeChat(chat_id=admin_id, commands=["admin"]) would
+# *replace* this list for that admin's chat, not add to it.
+_PRIVATE_COMMANDS = [
+    BotCommand(command="start", description="Почати роботу з ботом"),
+    BotCommand(command="help", description="Довідка"),
+    BotCommand(command="nutrition", description="Харчування (Mini App)"),
+    BotCommand(command="statistics", description="Статистика тренувань (Mini App)"),
+    BotCommand(command="schedule", description="Розклад тренувань"),
+    BotCommand(command="my", description="Мої записи"),
+]
+_ADMIN_COMMAND = BotCommand(command="admin", description="Адмін-панель")
 
-    Called once at startup with no ``chat_id``, so it applies to every
-    private chat that hasn't set its own menu button — unlike the old
-    per-chat call in ``/start`` (removed), which only reached users who
-    ran ``/start`` again after a rename. No-op without ``WEBAPP_URL``
-    configured, same guard as the rest of the WebApp integration.
+
+async def configure_bot_commands(bot: Bot) -> None:
+    """Register the bot's command list and default chat-menu button once
+    at startup (GYM-35/36).
+
+    Commands: the base list for every private chat, plus that same list
+    with "/admin" appended for each ``settings.admin_user_ids`` chat
+    specifically (see note on ``_PRIVATE_COMMANDS`` above on why it's
+    repeated rather than just ``[_ADMIN_COMMAND]``). Group-chat commands
+    (e.g. a future ``/reminders``) aren't registered yet — no handler
+    exists for them.
+
+    Setting an admin's per-chat commands fails if that admin has never
+    opened a chat with the bot (no ``chat_id`` for Telegram to resolve
+    yet); logged and skipped rather than aborting the rest of startup.
+
+    Chat-menu button: set globally, with no ``chat_id``, so it applies to
+    every private chat that hasn't set its own — unlike the old per-chat
+    call previously in ``/start`` (removed in GYM-35), which only reached
+    users who ran ``/start`` again after a rename. No-op without
+    ``WEBAPP_URL`` configured, same guard as the rest of the WebApp
+    integration.
     """
+    await bot.set_my_commands(_PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
+
+    for admin_id in settings.admin_user_ids:
+        try:
+            await bot.set_my_commands(
+                [*_PRIVATE_COMMANDS, _ADMIN_COMMAND],
+                scope=BotCommandScopeChat(chat_id=admin_id),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to set admin commands for {admin_id}: {e}")
+
     if not settings.webapp_url:
         return
 
@@ -129,8 +175,8 @@ async def run_bot() -> None:
     from src.webapp.server import set_bot_instance
     set_bot_instance(bot)
 
-    # Set the default chat-menu button globally (GYM-35)
-    await configure_default_menu_button(bot)
+    # Register command list and the default chat-menu button (GYM-35/36)
+    await configure_bot_commands(bot)
 
     # Setup routers
     main_router = setup_routers()

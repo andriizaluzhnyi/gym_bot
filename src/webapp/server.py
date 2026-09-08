@@ -356,6 +356,18 @@ async def workout_handler(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(html_path)
 
 
+async def statistics_handler(request: web.Request) -> web.StreamResponse:
+    """Serve the workout statistics Mini App (GYM-3).
+
+    A page shell only: tabs for volume/exercise-progress/activity, each
+    backed by its own ticket's ``/api/statistics/*`` endpoint (GYM-4, GYM-5a,
+    GYM-6). Like the other Mini App pages, auth happens client-side via
+    ``initData`` on the API calls the page makes, not here.
+    """
+    html_path = TEMPLATES_DIR / 'statistics.html'
+    return web.FileResponse(html_path)
+
+
 async def api_get_workout_program(request: web.Request) -> web.Response:
     """API endpoint to get workout program exercises for a session.
 
@@ -1111,6 +1123,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/profile', profile_handler)
     app.router.add_get('/meal-entry', meal_entry_handler)
     app.router.add_get('/workout', workout_handler)
+    app.router.add_get('/statistics', statistics_handler)
 
     # API endpoints
     app.router.add_get('/api/user/settings', api_get_user_settings)

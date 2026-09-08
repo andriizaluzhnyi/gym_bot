@@ -879,6 +879,48 @@ class WorkoutSetRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    async def get_distinct_exercises(
+        self, user_id: uuid.UUID
+    ) -> list[dict]:
+        """Unique exercises the user has logged, from *completed* sessions
+        (GYM-5a) — one ``{exercise_name, muscle_group}`` per exercise, sorted
+        by ``muscle_group`` then ``exercise_name`` (ready for a grouped
+        dropdown, GYM-5b).
+
+        ``muscle_group`` can drift for the same exercise across logs (e.g. a
+        program edit), so this uses each exercise's *most recent* value
+        rather than an arbitrary one.
+        """
+        query = (
+            select(
+                WorkoutSet.exercise_name,
+                WorkoutSet.muscle_group,
+                WorkoutSet.performed_at,
+            )
+            .join(WorkoutSession, WorkoutSet.session_id == WorkoutSession.id)
+            .where(
+                and_(
+                    WorkoutSet.user_id == user_id,
+                    WorkoutSession.completed_at.isnot(None),
+                )
+            )
+            .order_by(WorkoutSet.performed_at.asc())
+        )
+        result = await self.session.execute(query)
+
+        # Ascending order means the last write for a given exercise_name is
+        # its most recent muscle_group.
+        latest_muscle: dict[str, str | None] = {}
+        for exercise_name, muscle_group, _performed_at in result.all():
+            latest_muscle[exercise_name] = muscle_group
+
+        return [
+            {'exercise_name': name, 'muscle_group': muscle}
+            for name, muscle in sorted(
+                latest_muscle.items(), key=lambda item: (item[1] or '', item[0])
+            )
+        ]
+
     async def replace_exercise_sets(
         self,
         session_id: int,

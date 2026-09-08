@@ -536,6 +536,84 @@ async def api_get_statistics_summary(request: web.Request) -> web.Response:
     })
 
 
+@webapp_auth
+async def api_get_exercises(request: web.Request) -> web.Response:
+    """API endpoint (GYM-5a): the caller's distinct logged exercises, each
+    with its (most recent) muscle group — for an exercise picker (GYM-5b).
+
+    Query params: `user` (optional username, trainer viewing a client's
+    stats — same convention as `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        exercises = await WorkoutSetRepository(session).get_distinct_exercises(
+            owner.id
+        )
+
+    return web.json_response({'success': True, 'data': exercises})
+
+
+@webapp_auth
+async def api_get_exercise_progress(request: web.Request) -> web.Response:
+    """API endpoint (GYM-5a): how one exercise's working weight/reps
+    changed over time — one entry per *session* the exercise appears in,
+    oldest first.
+
+    Query params: `exercise` (required, exact name), `user` (optional
+    username, trainer viewing a client's stats — same convention as
+    `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    exercise_name = request.query.get('exercise') or None
+    if not exercise_name:
+        return web.json_response(
+            {'error': 'Missing required param: exercise'}, status=400
+        )
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        sets = await WorkoutSetRepository(session).get_sets_by_user_and_exercise(
+            owner.id, exercise_name
+        )
+
+    # Group the (already date-ascending) flat set list by session — a
+    # session normally logs an exercise once, but grouping (rather than
+    # assuming one row per session) is correct either way.
+    sessions_order: list[int] = []
+    by_session: dict[int, list] = {}
+    for workout_set in sets:
+        if workout_set.session_id not in by_session:
+            sessions_order.append(workout_set.session_id)
+            by_session[workout_set.session_id] = []
+        by_session[workout_set.session_id].append(workout_set)
+
+    progress = []
+    for session_id in sessions_order:
+        session_sets = by_session[session_id]
+        top_set = max(session_sets, key=lambda s: (s.weight, s.reps))
+        progress.append({
+            'date': to_local_date(
+                session_sets[0].performed_at, settings.timezone
+            ).isoformat(),
+            'max_weight': max(s.weight for s in session_sets),
+            'total_reps': sum(s.reps for s in session_sets),
+            'total_volume': sum(s.weight * s.reps for s in session_sets),
+            'top_set': {'weight': top_set.weight, 'reps': top_set.reps},
+        })
+
+    return web.json_response({'success': True, 'data': progress})
+
+
 async def api_get_workout_program(request: web.Request) -> web.Response:
     """API endpoint to get workout program exercises for a session.
 
@@ -1314,6 +1392,8 @@ def create_webapp() -> web.Application:
     app.router.add_delete('/api/workout/exercise', api_delete_exercise)
     app.router.add_get('/api/statistics/volume', api_get_volume_statistics)
     app.router.add_get('/api/statistics/summary', api_get_statistics_summary)
+    app.router.add_get('/api/statistics/exercises', api_get_exercises)
+    app.router.add_get('/api/statistics/exercise-progress', api_get_exercise_progress)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

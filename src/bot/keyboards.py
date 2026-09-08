@@ -10,6 +10,7 @@ from aiogram.types import (
 
 from src.config import get_settings
 from src.database.models import Training
+from src.services.workout_program_parsing import MUSCLE_GROUPS  # noqa: F401
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -87,10 +88,6 @@ def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
     )
     return keyboard
-
-
-# Muscle groups for workout program
-MUSCLE_GROUPS = ["🦴 Спина", "💪 Руки", "🎯 Плечі", "🏋️ Груди", "🦵 Ноги"]
 
 
 def get_user_selection_keyboard(users: list[str]) -> InlineKeyboardMarkup:

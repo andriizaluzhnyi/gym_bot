@@ -589,6 +589,116 @@
             border-color: var(--accent);
         }
 
+        /* Add Exercise (GYM-30) */
+        .add-exercise-btn {
+            display: block;
+            width: calc(100% - 32px);
+            margin: 12px auto;
+            padding: 14px;
+            border: 1px dashed var(--card-border);
+            border-radius: 12px;
+            background-color: transparent;
+            color: var(--accent);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .add-exercise-btn:active {
+            opacity: 0.7;
+        }
+
+        .add-exercise-modal .modal-content {
+            max-width: 400px;
+            text-align: left;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+
+        .add-exercise-field {
+            margin-bottom: 16px;
+            position: relative;
+        }
+
+        .add-exercise-field-label {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-bottom: 6px;
+        }
+
+        .add-exercise-text-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            background-color: var(--tg-theme-bg-color, var(--card-bg));
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 15px;
+            outline: none;
+        }
+
+        .add-exercise-text-input:focus {
+            border-color: var(--accent);
+        }
+
+        .exercise-search-results {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            background-color: var(--tg-theme-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            max-height: 180px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        .exercise-search-result-item {
+            padding: 10px 14px;
+            font-size: 14px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .exercise-search-result-item:active {
+            background-color: var(--card-border);
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-text-color, var(--text-secondary));
+            font-size: 13px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
+        }
+
+        .chip.selected {
+            background-color: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .add-exercise-error {
+            color: #f87171;
+            font-size: 13px;
+            margin-top: -8px;
+            margin-bottom: 12px;
+            display: none;
+        }
+
         /* Loading */
         .loading {
             display: flex;
@@ -1014,6 +1124,191 @@
             render();
         }
 
+        // "➕ Додати вправу" (GYM-30): quick-add chips mirror
+        // get_sets_reps_keyboard() in src/bot/keyboards.py, so the bot and
+        // webapp offer the same shortcuts.
+        const SETS_REPS_CHIPS = ['3/10', '3/12', '3/15', '4/8', '4/10', '4/12', '4/15', '5/5', '5/10'];
+
+        function showAddExerciseModal(onConfirm) {
+            const container = document.getElementById('modalContainer');
+
+            container.innerHTML = `
+                <div class="modal-overlay add-exercise-modal" id="modalOverlay">
+                    <div class="modal-content">
+                        <div class="modal-title">Додати вправу</div>
+
+                        <div class="add-exercise-field">
+                            <div class="add-exercise-field-label">Назва вправи</div>
+                            <input type="text" class="add-exercise-text-input" id="exerciseNameInput"
+                                   placeholder="Наприклад, Жим лежачи" autocomplete="off">
+                            <div class="exercise-search-results" id="exerciseSearchResults" hidden></div>
+                        </div>
+
+                        <div class="add-exercise-field">
+                            <div class="add-exercise-field-label">Підходи/Повторення</div>
+                            <div class="chip-row" id="setsRepsChips">
+                                ${SETS_REPS_CHIPS.map(c => `<button type="button" class="chip" data-value="${c}">${c}</button>`).join('')}
+                            </div>
+                            <input type="text" class="add-exercise-text-input" id="setsRepsInput"
+                                   placeholder="або введіть вручну, напр. 3/10" style="margin-top:8px;">
+                        </div>
+
+                        <div class="add-exercise-field">
+                            <div class="add-exercise-field-label">Коментар (необов'язково)</div>
+                            <input type="text" class="add-exercise-text-input" id="commentInput" placeholder="Коментар">
+                        </div>
+
+                        <div class="add-exercise-error" id="addExerciseError"></div>
+
+                        <div class="modal-buttons">
+                            <button class="modal-btn modal-btn-cancel" id="modalCancel">Скасувати</button>
+                            <button class="modal-btn modal-btn-confirm" id="modalAdd">Додати</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const nameInput = document.getElementById('exerciseNameInput');
+            const resultsBox = document.getElementById('exerciseSearchResults');
+            const setsRepsInput = document.getElementById('setsRepsInput');
+            const commentInput = document.getElementById('commentInput');
+            const errorBox = document.getElementById('addExerciseError');
+
+            let searchTimeout = null;
+            let searchAbortController = null;
+
+            async function runSearch(q) {
+                if (!q || q.trim().length === 0) {
+                    resultsBox.hidden = true;
+                    resultsBox.innerHTML = '';
+                    return;
+                }
+                try {
+                    if (searchAbortController) searchAbortController.abort();
+                    searchAbortController = new AbortController();
+                    const response = await fetch(`/api/exercises?q=${encodeURIComponent(q)}`, {
+                        headers: { 'Authorization': tg.initData },
+                        signal: searchAbortController.signal,
+                    });
+                    if (!response.ok) return;
+                    const result = await response.json();
+                    const items = (result.success && result.data) || [];
+                    if (items.length === 0) {
+                        resultsBox.hidden = true;
+                        resultsBox.innerHTML = '';
+                        return;
+                    }
+                    resultsBox.innerHTML = items.map(it => `
+                        <div class="exercise-search-result-item" data-name="${it.name.replace(/"/g, '&quot;')}">${it.name}</div>
+                    `).join('');
+                    resultsBox.hidden = false;
+                    resultsBox.querySelectorAll('.exercise-search-result-item').forEach(el => {
+                        el.addEventListener('click', () => {
+                            nameInput.value = el.dataset.name;
+                            resultsBox.hidden = true;
+                            resultsBox.innerHTML = '';
+                        });
+                    });
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error('Exercise search failed:', err);
+                    }
+                }
+            }
+
+            nameInput.addEventListener('input', (e) => {
+                if (searchTimeout) clearTimeout(searchTimeout);
+                const q = e.target.value;
+                searchTimeout = setTimeout(() => runSearch(q), 250);
+            });
+            nameInput.addEventListener('blur', () => {
+                // Delay hiding so a click on a result item registers first.
+                setTimeout(() => { resultsBox.hidden = true; }, 150);
+            });
+
+            document.getElementById('setsRepsChips').querySelectorAll('.chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    document.querySelectorAll('#setsRepsChips .chip').forEach(c => c.classList.remove('selected'));
+                    chip.classList.add('selected');
+                    setsRepsInput.value = chip.dataset.value;
+                });
+            });
+            setsRepsInput.addEventListener('input', () => {
+                document.querySelectorAll('#setsRepsChips .chip').forEach(c => {
+                    c.classList.toggle('selected', c.dataset.value === setsRepsInput.value.trim());
+                });
+            });
+
+            function close() {
+                container.innerHTML = '';
+            }
+
+            document.getElementById('modalCancel').addEventListener('click', close);
+            document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) close();
+            });
+            document.getElementById('modalAdd').addEventListener('click', () => {
+                const exerciseName = nameInput.value.trim();
+                const setsReps = setsRepsInput.value.trim();
+                const comment = commentInput.value.trim();
+
+                if (!exerciseName) {
+                    errorBox.textContent = 'Вкажіть назву вправи';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                if (!setsReps) {
+                    errorBox.textContent = 'Вкажіть підходи/повторення';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                errorBox.style.display = 'none';
+                close();
+                onConfirm({ exercise: exerciseName, sets_reps: setsReps, comment });
+            });
+        }
+
+        function onAddExercise() {
+            showAddExerciseModal(async ({ exercise, sets_reps, comment }) => {
+                try {
+                    const response = await fetch('/api/workout/program/exercise', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': tg.initData,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            user: PARAM_USER,
+                            day: parseInt(PARAM_DAY, 10),
+                            muscle_group: PARAM_MUSCLE,
+                            exercise,
+                            sets_reps,
+                            comment,
+                        }),
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        tg.showAlert(result.error || 'Не вдалося додати вправу');
+                        return;
+                    }
+
+                    // Immediately available for logging sets — same shape
+                    // loadProgram() gives freshly-loaded exercises.
+                    exercises.push({
+                        ...result.data,
+                        _sets: [],
+                        _completed: false,
+                    });
+                    saveWorkoutSession();
+                    showListView();
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                } catch (err) {
+                    console.error('Failed to add exercise:', err);
+                    tg.showAlert('Помилка мережі. Спробуйте ще раз.');
+                }
+            });
+        }
+
         function showRestTimerModal() {
             const container = document.getElementById('modalContainer');
 
@@ -1334,7 +1629,12 @@
                     <div class="empty-state">
                         <p>Немає вправ для цієї програми</p>
                     </div>
+                    <button class="add-exercise-btn" id="addExerciseBtn">➕ Додати вправу</button>
                 `;
+                const addBtnEmpty = document.getElementById('addExerciseBtn');
+                if (addBtnEmpty) {
+                    addBtnEmpty.addEventListener('click', onAddExercise);
+                }
                 return;
             }
 
@@ -1382,6 +1682,10 @@
                 `;
             });
 
+            // "➕ Додати вправу" (GYM-30) — always available at the bottom
+            // of the list, not just when it's empty.
+            html += `<button class="add-exercise-btn" id="addExerciseBtn">➕ Додати вправу</button>`;
+
             // Show finish button only if at least one exercise has data
             const hasAnyData = exercises.some(ex => getFilledSetsCount(ex) > 0);
             if (hasAnyData) {
@@ -1405,6 +1709,11 @@
                     if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
                 });
             });
+
+            const addBtn = document.getElementById('addExerciseBtn');
+            if (addBtn) {
+                addBtn.addEventListener('click', onAddExercise);
+            }
 
             const finishBtn = document.getElementById('finishWorkoutBtn');
             if (finishBtn) {

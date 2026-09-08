@@ -30,6 +30,10 @@ from src.database.models import User
 from src.database.repository import UserRepository, WorkoutProgramRepository
 from src.database.session import async_session_maker
 from src.services.google_sheets import GoogleSheetsService
+from src.services.workout_program_parsing import (
+    combine_sets_reps,
+    looks_like_combined_sets_reps,
+)
 
 router = Router()
 settings = get_settings()
@@ -328,8 +332,10 @@ async def process_sets_text(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     day_num = data.get("day_number", 1)
 
-    # Check if it's a combined format (contains / or |)
-    if "/" in sets or "|" in sets:
+    # Check if it's a combined format (contains / or |) — shared with
+    # POST /api/workout/program/exercise (GYM-30), see
+    # src/services/workout_program_parsing.py.
+    if looks_like_combined_sets_reps(sets):
         # Combined format - skip reps step
         await state.update_data(current_sets=sets, current_reps="")
         await state.set_state(WorkoutProgramStates.comment)
@@ -421,11 +427,10 @@ async def process_comment(message: Message, state: FSMContext) -> None:
     sets = data.get("current_sets", "")
     reps = data.get("current_reps", "")
 
-    # If reps is empty, sets contains combined format already
-    if reps:
-        sets_reps = f"{sets}/{reps}"
-    else:
-        sets_reps = sets
+    # If reps is empty, sets contains combined format already — shared
+    # with POST /api/workout/program/exercise (GYM-30), see
+    # src/services/workout_program_parsing.py.
+    sets_reps = combine_sets_reps(sets, reps)
 
     # Create exercise record with combined sets_reps field
     exercise = {

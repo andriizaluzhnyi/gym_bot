@@ -572,6 +572,157 @@
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
+        .workout-day-add-exercise-btn {
+            border: none;
+            background-color: transparent;
+            color: var(--tg-theme-button-color, var(--accent-green));
+            font-size: 13px;
+            font-weight: 600;
+            padding: 6px 4px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            white-space: nowrap;
+        }
+
+        /* Add day / add exercise modal (GYM-30) */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background-color: var(--tg-theme-bg-color, var(--card-bg));
+            border-radius: 16px;
+            padding: 24px;
+            width: 100%;
+            max-width: 400px;
+            max-height: 85vh;
+            overflow-y: auto;
+            text-align: left;
+        }
+
+        .modal-title {
+            font-size: 17px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            border: none;
+        }
+
+        .modal-btn-cancel {
+            background-color: var(--card-border);
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .modal-btn-confirm {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        .form-field {
+            margin-bottom: 16px;
+            position: relative;
+        }
+
+        .form-field-label {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-bottom: 6px;
+        }
+
+        .form-text-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 15px;
+            outline: none;
+        }
+
+        .form-text-input:focus {
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .exercise-search-results {
+            position: absolute;
+            left: 0; right: 0;
+            top: calc(100% + 4px);
+            background-color: var(--tg-theme-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            max-height: 180px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        .exercise-search-result-item {
+            padding: 10px 14px;
+            font-size: 14px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .exercise-search-result-item:active {
+            background-color: var(--card-border);
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-text-color, var(--text-secondary));
+            font-size: 13px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
+        }
+
+        .chip.selected {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+        }
+
+        .form-error {
+            color: #f87171;
+            font-size: 13px;
+            margin-top: -8px;
+            margin-bottom: 12px;
+            display: none;
+        }
+
         /* Haptic feedback simulation */
         @keyframes pulse {
             0% { transform: scale(1); }
@@ -705,12 +856,17 @@
     <!-- Workout Section (hidden by default) -->
     <div id="workoutSection" style="display: none;">
         <div class="card">
-            <h3 style="margin-bottom: 16px; font-size: 18px;">Оберіть день тренування</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 style="font-size: 18px;">Оберіть день тренування</h3>
+                <button class="action-btn add-btn" id="addWorkoutDayBtn">➕ Новий день</button>
+            </div>
             <div id="workoutDaysList" style="display: grid; gap: 10px;">
                 <!-- Will be populated dynamically -->
             </div>
         </div>
     </div>
+
+    <div id="modalContainer"></div>
 
     <nav class="bottom-nav">
         <a href="/nutrition" class="nav-item" data-tab="nutrition">
@@ -762,6 +918,11 @@
 
         // User settings from API
         let userSettings = null;
+
+        // Program day numbers currently shown in #workoutDaysList (GYM-30)
+        // — kept in sync by loadWorkoutPrograms() so "➕ Новий день" can
+        // compute max(day)+1 without a separate fetch.
+        let currentWorkoutDays = [];
 
         // Set current date from the device clock — only a first-paint
         // placeholder shown before loadDailyNutrition() resolves; that
@@ -1394,6 +1555,7 @@
 
                 // Get all unique days and sort them
                 const days = Object.keys(dayGroups).map(d => parseInt(d)).sort((a, b) => a - b);
+                currentWorkoutDays = days;
 
                 if (days.length === 0) {
                     console.log('No days found');
@@ -1417,6 +1579,7 @@
                             <div class="workout-day-title">День ${day}</div>
                             <div class="workout-day-subtitle">${muscleGroupsText}</div>
                         </div>
+                        <button type="button" class="workout-day-add-exercise-btn" data-day="${day}">➕ Вправа</button>
                         <div class="workout-day-arrow">→</div>
                     `;
 
@@ -1430,6 +1593,15 @@
                         window.location.href = `/workout?user=${encodeURIComponent(userName)}&day=${day}&muscle=${encodeURIComponent(muscle)}`;
                     });
 
+                    // "➕ Вправа" (GYM-30) — stop the click from bubbling up
+                    // to the card's own navigate-away handler above.
+                    const addExerciseBtn = card.querySelector('.workout-day-add-exercise-btn');
+                    addExerciseBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                        onAddExercise(day);
+                    });
+
                     workoutDaysList.appendChild(card);
                 });
 
@@ -1439,6 +1611,229 @@
                 tg.showAlert('Помилка завантаження програм тренувань');
             }
         }
+
+        // "➕ Новий день" / "➕ Вправа" (GYM-30) — add one exercise to a
+        // program day from the Mini App, mirroring the bot's
+        // program-creation FSM. MUSCLE_GROUPS/SETS_REPS_CHIPS duplicate
+        // src/bot/keyboards.py's MUSCLE_GROUPS and get_sets_reps_keyboard()
+        // so both surfaces offer the same choices.
+        const MUSCLE_GROUPS = ['🦴 Спина', '💪 Руки', '🎯 Плечі', '🏋️ Груди', '🦵 Ноги'];
+        const SETS_REPS_CHIPS = ['3/10', '3/12', '3/15', '4/8', '4/10', '4/12', '4/15', '5/5', '5/10'];
+
+        function showAddExerciseModal(day, onConfirm) {
+            const container = document.getElementById('modalContainer');
+
+            container.innerHTML = `
+                <div class="modal-overlay" id="modalOverlay">
+                    <div class="modal-content">
+                        <div class="modal-title">Додати вправу — День ${day}</div>
+
+                        <div class="form-field">
+                            <div class="form-field-label">Група м'язів</div>
+                            <div class="chip-row" id="muscleGroupChips">
+                                ${MUSCLE_GROUPS.map(g => `<button type="button" class="chip" data-value="${g}">${g}</button>`).join('')}
+                            </div>
+                        </div>
+
+                        <div class="form-field">
+                            <div class="form-field-label">Назва вправи</div>
+                            <input type="text" class="form-text-input" id="exerciseNameInput"
+                                   placeholder="Наприклад, Жим лежачи" autocomplete="off">
+                            <div class="exercise-search-results" id="exerciseSearchResults" hidden></div>
+                        </div>
+
+                        <div class="form-field">
+                            <div class="form-field-label">Підходи/Повторення</div>
+                            <div class="chip-row" id="setsRepsChips">
+                                ${SETS_REPS_CHIPS.map(c => `<button type="button" class="chip" data-value="${c}">${c}</button>`).join('')}
+                            </div>
+                            <input type="text" class="form-text-input" id="setsRepsInput"
+                                   placeholder="або введіть вручну, напр. 3/10" style="margin-top:8px;">
+                        </div>
+
+                        <div class="form-field">
+                            <div class="form-field-label">Коментар (необов'язково)</div>
+                            <input type="text" class="form-text-input" id="commentInput" placeholder="Коментар">
+                        </div>
+
+                        <div class="form-error" id="addExerciseError"></div>
+
+                        <div class="modal-buttons">
+                            <button class="modal-btn modal-btn-cancel" id="modalCancel">Скасувати</button>
+                            <button class="modal-btn modal-btn-confirm" id="modalAdd">Додати</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            let selectedMuscleGroup = null;
+
+            document.getElementById('muscleGroupChips').querySelectorAll('.chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    document.querySelectorAll('#muscleGroupChips .chip').forEach(c => c.classList.remove('selected'));
+                    chip.classList.add('selected');
+                    selectedMuscleGroup = chip.dataset.value;
+                });
+            });
+
+            const nameInput = document.getElementById('exerciseNameInput');
+            const resultsBox = document.getElementById('exerciseSearchResults');
+            const setsRepsInput = document.getElementById('setsRepsInput');
+            const commentInput = document.getElementById('commentInput');
+            const errorBox = document.getElementById('addExerciseError');
+
+            let searchTimeout = null;
+            let searchAbortController = null;
+
+            async function runSearch(q) {
+                if (!q || q.trim().length === 0) {
+                    resultsBox.hidden = true;
+                    resultsBox.innerHTML = '';
+                    return;
+                }
+                try {
+                    if (searchAbortController) searchAbortController.abort();
+                    searchAbortController = new AbortController();
+                    const response = await fetch(`/api/exercises?q=${encodeURIComponent(q)}`, {
+                        headers: { 'Authorization': tg.initData },
+                        signal: searchAbortController.signal,
+                    });
+                    if (!response.ok) return;
+                    const result = await response.json();
+                    const items = (result.success && result.data) || [];
+                    if (items.length === 0) {
+                        resultsBox.hidden = true;
+                        resultsBox.innerHTML = '';
+                        return;
+                    }
+                    resultsBox.innerHTML = items.map(it => `
+                        <div class="exercise-search-result-item" data-name="${it.name.replace(/"/g, '&quot;')}">${it.name}</div>
+                    `).join('');
+                    resultsBox.hidden = false;
+                    resultsBox.querySelectorAll('.exercise-search-result-item').forEach(el => {
+                        el.addEventListener('click', () => {
+                            nameInput.value = el.dataset.name;
+                            resultsBox.hidden = true;
+                            resultsBox.innerHTML = '';
+                        });
+                    });
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error('Exercise search failed:', err);
+                    }
+                }
+            }
+
+            nameInput.addEventListener('input', (e) => {
+                if (searchTimeout) clearTimeout(searchTimeout);
+                const q = e.target.value;
+                searchTimeout = setTimeout(() => runSearch(q), 250);
+            });
+            nameInput.addEventListener('blur', () => {
+                // Delay hiding so a click on a result item registers first.
+                setTimeout(() => { resultsBox.hidden = true; }, 150);
+            });
+
+            document.getElementById('setsRepsChips').querySelectorAll('.chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    document.querySelectorAll('#setsRepsChips .chip').forEach(c => c.classList.remove('selected'));
+                    chip.classList.add('selected');
+                    setsRepsInput.value = chip.dataset.value;
+                });
+            });
+            setsRepsInput.addEventListener('input', () => {
+                document.querySelectorAll('#setsRepsChips .chip').forEach(c => {
+                    c.classList.toggle('selected', c.dataset.value === setsRepsInput.value.trim());
+                });
+            });
+
+            function close() {
+                container.innerHTML = '';
+            }
+
+            document.getElementById('modalCancel').addEventListener('click', close);
+            document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) close();
+            });
+            document.getElementById('modalAdd').addEventListener('click', () => {
+                const exerciseName = nameInput.value.trim();
+                const setsReps = setsRepsInput.value.trim();
+                const comment = commentInput.value.trim();
+
+                if (!selectedMuscleGroup) {
+                    errorBox.textContent = "Оберіть групу м'язів";
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                if (!exerciseName) {
+                    errorBox.textContent = 'Вкажіть назву вправи';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                if (!setsReps) {
+                    errorBox.textContent = 'Вкажіть підходи/повторення';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                errorBox.style.display = 'none';
+                close();
+                onConfirm({
+                    muscle_group: selectedMuscleGroup,
+                    exercise: exerciseName,
+                    sets_reps: setsReps,
+                    comment,
+                });
+            });
+        }
+
+        function onAddExercise(day) {
+            showAddExerciseModal(day, async (data) => {
+                try {
+                    const user = tg.initDataUnsafe?.user;
+                    if (!user) {
+                        tg.showAlert('Помилка: не вдалося отримати дані користувача');
+                        return;
+                    }
+                    const userName = user.username || user.first_name;
+
+                    const response = await fetch('/api/workout/program/exercise', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': tg.initData,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            user: userName,
+                            day,
+                            muscle_group: data.muscle_group,
+                            exercise: data.exercise,
+                            sets_reps: data.sets_reps,
+                            comment: data.comment,
+                        }),
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        tg.showAlert(result.error || 'Не вдалося додати вправу');
+                        return;
+                    }
+
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                    // Refresh the days list (no full page reload) — the new
+                    // exercise, and possibly a brand-new day card, appears.
+                    loadWorkoutPrograms();
+                } catch (err) {
+                    console.error('Failed to add exercise:', err);
+                    tg.showAlert('Помилка мережі. Спробуйте ще раз.');
+                }
+            });
+        }
+
+        document.getElementById('addWorkoutDayBtn').addEventListener('click', () => {
+            const nextDay = currentWorkoutDays.length > 0
+                ? Math.max(...currentWorkoutDays) + 1
+                : 1;
+            onAddExercise(nextDay);
+        });
 
         // --- "Статистика" sub-tab (GYM-15): GET /api/nutrition/statistics ---
         // Calorie trend (bar) with a dashed goal line (caloriesGoal, from

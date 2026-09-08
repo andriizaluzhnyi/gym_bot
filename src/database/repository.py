@@ -1273,6 +1273,28 @@ class ExerciseRepository:
         await self.session.flush()
         return exercise
 
+    async def search(self, q: str, limit: int = 10) -> list[Exercise]:
+        """Catalog autocomplete (GYM-30): entries whose normalized name
+        contains ``q`` (also normalized), so a search is case/whitespace/
+        apostrophe-insensitive the same way ``get_or_create_by_name``'s
+        de-duplication is. Ordered alphabetically by ``name``. Blank/
+        whitespace-only ``q`` returns an empty list rather than the whole
+        catalog — this backs a "type to search" field, not a browse view.
+        """
+        from src.services.exercise_names import normalize_exercise_name
+
+        normalized_q = normalize_exercise_name(q)
+        if not normalized_q:
+            return []
+
+        result = await self.session.execute(
+            select(Exercise)
+            .where(Exercise.normalized_name.contains(normalized_q))
+            .order_by(Exercise.name)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
 
 class WorkoutProgramRepository:
     """Repository for DB-backed workout programs (GYM-27) — the eventual

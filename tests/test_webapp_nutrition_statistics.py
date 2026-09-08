@@ -50,10 +50,10 @@ async def _make_user(username: str, telegram_id: int):
         return user
 
 
-async def _add_record(user_id, when: datetime, **kwargs):
+async def _add_record(user_id, when: datetime, *, entry_type="meal", **kwargs):
     async with async_session_maker() as session:
         await DailyNutritionRepository(session).create(
-            user_id=user_id, date=when, **kwargs
+            user_id=user_id, date=when, entry_type=entry_type, **kwargs
         )
         await session.commit()
 

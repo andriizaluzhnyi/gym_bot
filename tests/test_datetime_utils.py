@@ -30,6 +30,17 @@ class TestPeriodBoundsUtc:
         with pytest.raises(ValueError):
             period_bounds_utc("year", KYIV)
 
+    def test_day_bounds_are_local_midnight_to_midnight(self):
+        # 2026-01-07 01:00 Kyiv (winter, UTC+2) == 2026-01-06 23:00 UTC —
+        # still "yesterday" in UTC, but today in Kyiv (GYM-21).
+        now_utc = datetime(2026, 1, 6, 23, 0)
+        start, end = period_bounds_utc("day", KYIV, now_utc=now_utc)
+
+        # 2026-01-07 00:00 Kyiv == 2026-01-06 22:00 UTC.
+        assert start == datetime(2026, 1, 6, 22, 0)
+        # 2026-01-08 00:00 Kyiv == 2026-01-07 22:00 UTC.
+        assert end == datetime(2026, 1, 7, 22, 0)
+
     def test_week_bounds_are_monday_to_monday_local(self):
         # Wednesday 2026-01-07 10:00 Kyiv time (winter, UTC+2) = 08:00 UTC.
         now_utc = datetime(2026, 1, 7, 8, 0)

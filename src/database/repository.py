@@ -11,6 +11,7 @@ from src.database.models import (
     Booking,
     BookingStatus,
     DailyNutrition,
+    NutritionEntryType,
     Profile,
     Training,
     User,
@@ -18,7 +19,7 @@ from src.database.models import (
     WorkoutSession,
     WorkoutSet,
 )
-from src.utils.datetime_utils import to_local_date, utcnow
+from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
 
 # How long a draft (in-progress) workout session stays resumable before it's
 # treated as abandoned. See WorkoutSessionRepository.get_active_draft.
@@ -546,17 +547,24 @@ class DailyNutritionRepository:
         self,
         user_id: uuid.UUID,
         date: datetime,
+        entry_type: str,
         water_ml: int | None = None,
         calories: int | None = None,
         protein: int | None = None,
         fats: int | None = None,
         carbs: int | None = None,
+        meal_name: str | None = None,
     ) -> DailyNutrition:
-        """Create new daily nutrition record."""
+        """Create a new logged entry — one water increment or one meal
+        (GYM-21: ``entry_type`` is required, no longer inferred from
+        ``water_ml == 0`` at query time; callers own the distinction).
+        """
         # Use current timestamp (not normalized to start of day)
         record = DailyNutrition(
             user_id=user_id,
             date=date,
+            entry_type=entry_type,
+            meal_name=meal_name,
             water_ml=water_ml or 0,
             calories=calories or 0,
             protein=protein or 0,
@@ -576,8 +584,16 @@ class DailyNutritionRepository:
         protein: int | None = None,
         fats: int | None = None,
         carbs: int | None = None,
+        entry_type: str = NutritionEntryType.MEAL.value,
     ) -> DailyNutrition:
-        """Create or update daily nutrition record."""
+        """Create or update daily nutrition record.
+
+        Unlike :meth:`create`, no caller currently uses this method — one
+        row per calendar day doesn't fit how the app actually logs entries
+        (many rows per day, one per water increment/meal, GYM-21); kept
+        permissive (``entry_type`` defaults to "meal") rather than deleted,
+        since nothing here asked for its removal.
+        """
         # Normalize to start of day
         date_normalized = date.replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -604,6 +620,7 @@ class DailyNutritionRepository:
             record = DailyNutrition(
                 user_id=user_id,
                 date=date_normalized,
+                entry_type=entry_type,
                 water_ml=water_ml or 0,
                 calories=calories or 0,
                 protein=protein or 0,
@@ -628,18 +645,23 @@ class DailyNutritionRepository:
         return list(result.scalars().all())
 
     async def get_today_total(
-        self, user_id: uuid.UUID, date: datetime
+        self, user_id: uuid.UUID, tz_name: str, *, now_utc: datetime | None = None
     ) -> dict:
-        """Get total nutrition for today (sum of all records)."""
+        """Total nutrition for "today" — every entry (water and meals) for
+        the current *local calendar day* (GYM-21).
+
+        Storage stays UTC; day boundaries follow ``settings.timezone`` via
+        :func:`period_bounds_utc`\\ (``"day"``, ...) — the same UTC-storage/
+        local-boundary split as :meth:`get_totals_by_range` (GYM-14).
+        Previously computed midnight-to-midnight in UTC directly off the
+        caller's ``date`` argument, which could put a record made just
+        after local midnight into "yesterday" for several hours (e.g. a
+        record at 01:00 Kyiv time stayed "yesterday" in UTC until 03:00
+        local, since Kyiv is UTC+2/+3).
+        """
         from sqlalchemy import func
 
-        # Normalize to start of day
-        start_of_day = date.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        end_of_day = date.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
+        start, end = period_bounds_utc("day", tz_name, now_utc=now_utc)
 
         result = await self.session.execute(
             select(
@@ -652,8 +674,8 @@ class DailyNutritionRepository:
             .where(
                 and_(
                     DailyNutrition.user_id == user_id,
-                    DailyNutrition.date >= start_of_day,
-                    DailyNutrition.date <= end_of_day,
+                    DailyNutrition.date >= start,
+                    DailyNutrition.date < end,
                 )
             )
         )
@@ -666,6 +688,50 @@ class DailyNutritionRepository:
             'fats': row.fats or 0,
             'carbs': row.carbs or 0,
         }
+
+    async def get_meals_for_local_day(
+        self, user_id: uuid.UUID, tz_name: str, *, now_utc: datetime | None = None
+    ) -> list[DailyNutrition]:
+        """Today's meal entries (``entry_type == "meal"``), most recent
+        first — GYM-21.
+
+        Filters by the explicit ``entry_type`` column instead of
+        ``water_ml == 0`` (the heuristic ``api_get_today_meals`` used
+        before this column existed), and by the local calendar day (same
+        boundary as :meth:`get_today_total`) instead of the UTC day.
+        """
+        start, end = period_bounds_utc("day", tz_name, now_utc=now_utc)
+
+        result = await self.session.execute(
+            select(DailyNutrition)
+            .where(
+                and_(
+                    DailyNutrition.user_id == user_id,
+                    DailyNutrition.entry_type == NutritionEntryType.MEAL.value,
+                    DailyNutrition.date >= start,
+                    DailyNutrition.date < end,
+                )
+            )
+            .order_by(DailyNutrition.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def delete_by_id_for_user(
+        self, entry_id: int, user_id: uuid.UUID
+    ) -> bool:
+        """Delete one entry (meal or water) if it belongs to ``user_id``.
+
+        Returns ``True`` if a row was deleted, ``False`` if it doesn't
+        exist or belongs to someone else — the caller (``api_delete_meal``)
+        turns that into a 404 either way, never revealing which.
+        """
+        record = await self.session.get(DailyNutrition, entry_id)
+        if record is None or record.user_id != user_id:
+            return False
+
+        await self.session.delete(record)
+        await self.session.flush()
+        return True
 
     async def get_totals_by_range(
         self, user_id: uuid.UUID, start: datetime, end: datetime, tz_name: str

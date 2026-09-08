@@ -18,6 +18,7 @@ from src.database.repository import (
     WorkoutSessionRepository,
     WorkoutSetRepository,
 )
+from src.database.models import NutritionEntryType
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
@@ -173,10 +174,12 @@ async def api_save_daily_nutrition(request: web.Request) -> web.Response:
         if not user:
             return web.json_response({'error': 'User not found'}, status=404)
 
-        # Save daily nutrition record (increment only)
+        # Save daily nutrition record (increment only) — GYM-21: explicit
+        # entry_type, this endpoint only ever logs water.
         record = await daily_nutrition_repo.create(
             user_id=user.id,
             date=utcnow(),
+            entry_type=NutritionEntryType.WATER.value,
             water_ml=body.get('water_ml'),
             calories=body.get('calories'),
             protein=body.get('protein'),
@@ -224,9 +227,10 @@ async def api_get_daily_nutrition(request: web.Request) -> web.Response:
         if not user:
             return web.json_response({'error': 'User not found'}, status=404)
 
-        # Get today's total (sum of all records)
+        # Get today's total (sum of all records) — GYM-21: "today" is the
+        # local calendar day (settings.timezone), not the UTC day.
         totals = await daily_nutrition_repo.get_today_total(
-            user.id, utcnow()
+            user.id, settings.timezone
         )
 
         return web.json_response({
@@ -264,10 +268,14 @@ async def api_add_meal(request: web.Request) -> web.Response:
         if not user:
             return web.json_response({'error': 'User not found'}, status=404)
 
-        # Create meal record
+        # Create meal record — GYM-21: entry_type is now explicit (not
+        # inferred from water_ml == 0) and meal_name is actually persisted
+        # instead of only being echoed back in the response.
         record = await daily_nutrition_repo.create(
             user_id=user.id,
             date=utcnow(),
+            entry_type=NutritionEntryType.MEAL.value,
+            meal_name=body.get('meal_name'),
             water_ml=0,
             calories=body.get('calories', 0),
             protein=body.get('protein', 0),
@@ -281,7 +289,7 @@ async def api_add_meal(request: web.Request) -> web.Response:
             'success': True,
             'data': {
                 'id': record.id,
-                'meal_name': body.get('meal_name'),
+                'meal_name': record.meal_name,
                 'calories': record.calories,
                 'protein': record.protein,
                 'fats': record.fats,
@@ -308,42 +316,25 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
 
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
+        daily_nutrition_repo = DailyNutritionRepository(session)
 
         # Get user
         user = await user_repo.get_by_telegram_id(telegram_id)
         if not user:
             return web.json_response({'error': 'User not found'}, status=404)
 
-        # Get today's meals (all records for today where water_ml is 0)
-        from sqlalchemy import and_, select
-        from src.database.models import DailyNutrition
-
-        start_of_day = utcnow().replace(
-            hour=0, minute=0, second=0, microsecond=0
+        # GYM-21: filters by the explicit entry_type column (not
+        # water_ml == 0) and by the local calendar day (not UTC).
+        meals = await daily_nutrition_repo.get_meals_for_local_day(
+            user.id, settings.timezone
         )
-        end_of_day = utcnow().replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
-
-        result = await session.execute(
-            select(DailyNutrition)
-            .where(
-                and_(
-                    DailyNutrition.user_id == user.id,
-                    DailyNutrition.date >= start_of_day,
-                    DailyNutrition.date <= end_of_day,
-                    DailyNutrition.water_ml == 0,  # Only meal records
-                )
-            )
-            .order_by(DailyNutrition.created_at.desc())
-        )
-        meals = result.scalars().all()
 
         return web.json_response({
             'success': True,
             'data': [
                 {
                     'id': meal.id,
+                    'meal_name': meal.meal_name,
                     'calories': meal.calories,
                     'protein': meal.protein,
                     'fats': meal.fats,
@@ -353,6 +344,40 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
                 for meal in meals
             ]
         })
+
+
+@webapp_auth
+async def api_delete_meal(request: web.Request) -> web.Response:
+    """API endpoint to delete one logged entry (meal or water) — GYM-21.
+
+    Path param: `id`. Deletes only if the entry belongs to the caller;
+    otherwise (missing, or someone else's entry) responds 404 without
+    distinguishing the two, same as the workout history/session endpoints.
+    Expects Authorization header with Telegram initData.
+    """
+    entry_id_raw = request.match_info.get('id', '')
+    if not entry_id_raw.isdigit():
+        return web.json_response({'error': 'Invalid id'}, status=400)
+    entry_id = int(entry_id_raw)
+
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
+    if not telegram_id:
+        return web.json_response({'error': 'Invalid user data'}, status=400)
+
+    async with async_session_maker() as session:
+        user = await UserRepository(session).get_by_telegram_id(telegram_id)
+        if not user:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        deleted = await DailyNutritionRepository(session).delete_by_id_for_user(
+            entry_id, user.id
+        )
+        if not deleted:
+            return web.json_response({'error': 'Entry not found'}, status=404)
+
+        await session.commit()
+
+        return web.json_response({'success': True})
 
 
 _VALID_NUTRITION_PERIODS = ('week', 'month')
@@ -1861,6 +1886,7 @@ def create_webapp() -> web.Application:
     app.router.add_post('/api/nutrition/daily', api_save_daily_nutrition)
     app.router.add_post('/api/nutrition/meal', api_add_meal)
     app.router.add_get('/api/nutrition/meals', api_get_today_meals)
+    app.router.add_delete('/api/nutrition/meal/{id}', api_delete_meal)
     app.router.add_get('/api/nutrition/statistics', api_get_nutrition_statistics)
     app.router.add_get('/api/workout/program', api_get_workout_program)
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)

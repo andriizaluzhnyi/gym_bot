@@ -16,7 +16,7 @@ from src.database.repository import (
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
-from src.webapp.auth import validate_telegram_webapp_data, webapp_auth
+from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
 logger = logging.getLogger(__name__)
 
@@ -459,7 +459,7 @@ async def api_get_sync_settings(request: web.Request) -> web.Response:
     this setting only controls whether logs are *also* mirrored to Sheets.
     Expects Authorization header with Telegram initData.
     """
-    telegram_id = request['telegram_user'].get('id')
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
     if not telegram_id:
         return web.json_response({'error': 'Invalid user data'}, status=400)
 
@@ -481,7 +481,7 @@ async def api_update_sync_settings(request: web.Request) -> web.Response:
     Expects Authorization header with Telegram initData.
     Body: { sync_workout_to_sheets: bool }
     """
-    telegram_id = request['telegram_user'].get('id')
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
     if not telegram_id:
         return web.json_response({'error': 'Invalid user data'}, status=400)
 

@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 Handler = Callable[[web.Request], Awaitable[web.Response]]
 
+#: Typed key for the decoded Telegram user dict stashed on the request by
+#: :func:`webapp_auth` — a plain string key triggers aiohttp's
+#: ``NotAppKeyWarning`` (see https://docs.aiohttp.org/en/stable/web_advanced.html#request-s-storage).
+TELEGRAM_USER_KEY: web.RequestKey[dict] = web.RequestKey("telegram_user")
+
 
 def validate_telegram_webapp_data(init_data: str) -> dict | None:
     """Validate Telegram WebApp initData and return the embedded user data.
@@ -82,7 +87,8 @@ def webapp_auth(handler: Handler) -> Handler:
     Validates the ``Authorization`` header via
     :func:`validate_telegram_webapp_data`. On failure, responds with ``401``
     without calling the wrapped handler. On success, stores the decoded
-    Telegram user dict on ``request['telegram_user']`` and calls the handler.
+    Telegram user dict on ``request[TELEGRAM_USER_KEY]`` and calls the
+    handler.
 
     Use this for new ``/api/*`` endpoints instead of repeating the validation
     boilerplate; existing endpoints keep working as-is.
@@ -96,7 +102,7 @@ def webapp_auth(handler: Handler) -> Handler:
         if not telegram_user:
             return web.json_response({'error': 'Unauthorized'}, status=401)
 
-        request['telegram_user'] = telegram_user
+        request[TELEGRAM_USER_KEY] = telegram_user
         return await handler(request)
 
     return wrapper

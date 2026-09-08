@@ -186,10 +186,47 @@
         .error-message.show {
             display: block;
         }
+
+        /* Photo-estimate badge (GYM-24) */
+        .photo-estimate-banner {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .photo-estimate-banner.show {
+            display: block;
+        }
+
+        .photo-estimate-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .photo-estimate-hint {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="header">Додати страву</div>
+
+    <div class="photo-estimate-banner" id="photoEstimateBanner">
+        <div class="photo-estimate-badge">
+            <span>📷 Оцінка з фото</span>
+            <span id="photoEstimateConfidence"></span>
+        </div>
+        <div class="photo-estimate-hint" id="photoEstimateHint"></div>
+    </div>
 
     <form id="mealForm">
         <div class="form-group">
@@ -298,6 +335,51 @@
         proteinInput.addEventListener('input', calculateCalories);
         fatsInput.addEventListener('input', calculateCalories);
         carbsInput.addEventListener('input', calculateCalories);
+
+        // Photo-estimate prefill (GYM-24): /nutrition's "📷 Фото" flow
+        // redirects here with ?prefill=<base64url JSON> — the same shape
+        // POST /api/nutrition/meal/photo returns (GYM-23). Decoded through
+        // TextDecoder since the encoder side is UTF-8-safe (meal_name is
+        // Ukrainian, plain atob() alone would mangle it).
+        function fromBase64Url(value) {
+            const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+                .padEnd(value.length + (4 - value.length % 4) % 4, '=');
+            const binary = atob(padded);
+            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+            return JSON.parse(new TextDecoder().decode(bytes));
+        }
+
+        const CONFIDENCE_LABELS = { low: 'низька', medium: 'середня', high: 'висока' };
+
+        function applyPhotoEstimate(estimate) {
+            mealNameInput.value = estimate.meal_name || '';
+            proteinInput.value = estimate.protein ?? '';
+            fatsInput.value = estimate.fats ?? '';
+            carbsInput.value = estimate.carbs ?? '';
+            calculateCalories();
+
+            const confidenceLabel = CONFIDENCE_LABELS[estimate.confidence] || estimate.confidence || '';
+            document.getElementById('photoEstimateConfidence').textContent =
+                confidenceLabel ? `· впевненість: ${confidenceLabel}` : '';
+
+            const portionText = estimate.portion_grams
+                ? `Оцінена порція: ~${Math.round(estimate.portion_grams)} г. `
+                : '';
+            document.getElementById('photoEstimateHint').textContent =
+                `${portionText}Перевірте порцію та БЖУ перед збереженням.`;
+
+            document.getElementById('photoEstimateBanner').classList.add('show');
+        }
+
+        (function initFromPrefill() {
+            const prefill = new URLSearchParams(window.location.search).get('prefill');
+            if (!prefill) return;
+            try {
+                applyPhotoEstimate(fromBase64Url(prefill));
+            } catch (err) {
+                console.error('Failed to parse photo estimate prefill:', err);
+            }
+        })();
 
         // Cancel button
         cancelBtn.addEventListener('click', () => {

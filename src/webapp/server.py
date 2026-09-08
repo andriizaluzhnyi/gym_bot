@@ -16,6 +16,7 @@ from src.database.repository import (
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
+from src.utils.datetime_utils import period_bounds_utc, to_local_date
 from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
 logger = logging.getLogger(__name__)
@@ -366,6 +367,96 @@ async def statistics_handler(request: web.Request) -> web.StreamResponse:
     """
     html_path = TEMPLATES_DIR / 'statistics.html'
     return web.FileResponse(html_path)
+
+
+_VALID_VOLUME_PERIODS = ('week', 'month', 'all')
+
+
+@webapp_auth
+async def api_get_volume_statistics(request: web.Request) -> web.Response:
+    """API endpoint (GYM-4): workout volume (weight × reps) over a period,
+    grouped by day and by muscle group.
+
+    Query params: `period=week|month|all` (default `week`), `muscle`
+    (optional exact muscle-group filter — when set, `by_muscle` has a
+    single element and `by_day` reflects only that group), `user` (optional
+    username, for a trainer viewing a client's stats — same convention as
+    `/workout`; defaults to the caller's own `telegram_id`).
+    Expects Authorization header with Telegram initData.
+    """
+    period = request.query.get('period', 'week')
+    if period not in _VALID_VOLUME_PERIODS:
+        return web.json_response(
+            {'error': "Invalid period: must be 'week', 'month' or 'all'"},
+            status=400,
+        )
+    muscle_filter = request.query.get('muscle') or None
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        user_repo = UserRepository(session)
+        if param_user:
+            owner = await user_repo.get_by_username(param_user)
+        else:
+            telegram_id = request[TELEGRAM_USER_KEY].get('id')
+            owner = (
+                await user_repo.get_by_telegram_id(telegram_id)
+                if telegram_id else None
+            )
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        start, end = period_bounds_utc(period, settings.timezone)
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner.id, start=start, end=end
+        )
+
+    by_day: dict[str, float] = {}
+    by_muscle: dict[str, dict] = {}
+    total_volume = 0.0
+
+    for workout_session in sessions:
+        for workout_set in workout_session.sets:
+            muscle = workout_set.muscle_group or 'Інше'
+            if muscle_filter and muscle != muscle_filter:
+                continue
+
+            volume = workout_set.weight * workout_set.reps
+            total_volume += volume
+
+            day_key = to_local_date(
+                workout_set.performed_at, settings.timezone
+            ).isoformat()
+            by_day[day_key] = by_day.get(day_key, 0.0) + volume
+
+            bucket = by_muscle.setdefault(
+                muscle, {'volume': 0.0, 'sets_count': 0}
+            )
+            bucket['volume'] += volume
+            bucket['sets_count'] += 1
+
+    return web.json_response({
+        'success': True,
+        'data': {
+            'by_day': [
+                {'date': date_str, 'volume': volume}
+                for date_str, volume in sorted(by_day.items())
+            ],
+            'by_muscle': [
+                {
+                    'muscle_group': muscle,
+                    'volume': bucket['volume'],
+                    'sets_count': bucket['sets_count'],
+                }
+                for muscle, bucket in sorted(
+                    by_muscle.items(),
+                    key=lambda item: item[1]['volume'],
+                    reverse=True,
+                )
+            ],
+            'total_volume': total_volume,
+        },
+    })
 
 
 async def api_get_workout_program(request: web.Request) -> web.Response:
@@ -1144,6 +1235,7 @@ def create_webapp() -> web.Application:
     app.router.add_post('/api/workout/rest-timer', api_start_rest_timer)
     app.router.add_delete('/api/workout/day', api_delete_workout_day)
     app.router.add_delete('/api/workout/exercise', api_delete_exercise)
+    app.router.add_get('/api/statistics/volume', api_get_volume_statistics)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

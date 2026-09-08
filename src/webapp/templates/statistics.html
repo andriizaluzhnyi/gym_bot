@@ -23,6 +23,7 @@
             --text-secondary: #888888;
             --text-muted: #666666;
             --accent: #5e9cff;
+            --accent-light: rgba(94, 156, 255, 0.1);
             --accent-green: #4ade80;
         }
 
@@ -117,6 +118,126 @@
             height: 240px;
         }
 
+        /* Period selector (week/month/all) — a smaller sibling of .tab-btn */
+        .period-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .period-btn {
+            flex: 1;
+            padding: 8px 0;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
+        }
+
+        .period-btn.active {
+            background-color: var(--tg-theme-button-color, var(--accent));
+            border-color: var(--tg-theme-button-color, var(--accent));
+            color: var(--tg-theme-button-text-color, #fff);
+        }
+
+        /* Active muscle-group filter chip */
+        .filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 16px;
+            background-color: var(--accent-light);
+            color: var(--tg-theme-link-color, var(--accent));
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+
+        .filter-chip button {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 15px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Hero stat */
+        .stat-tile {
+            text-align: center;
+            padding: 4px 0 24px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        /* Muscle-group breakdown — a labeled horizontal bar list, not a
+           canvas chart: crisp native text, no extra Chart.js plugin needed
+           for direct value labels, and each row is its own tap target. */
+        .muscle-bar-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .muscle-bar-row {
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .muscle-bar-row-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .muscle-bar-row-name {
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-weight: 500;
+        }
+
+        .muscle-bar-row-value {
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 12px;
+        }
+
+        .muscle-bar-track {
+            height: 10px;
+            border-radius: 5px;
+            background-color: var(--card-border);
+            overflow: hidden;
+        }
+
+        .muscle-bar-fill {
+            height: 100%;
+            border-radius: 5px;
+            background-color: var(--tg-theme-button-color, var(--accent));
+            transition: width 0.3s ease;
+        }
+
+        .muscle-bar-row.filtered .muscle-bar-fill {
+            background-color: var(--accent-green);
+        }
+
         /* Loading / empty state */
         .loading {
             display: flex;
@@ -191,12 +312,41 @@
 
     <div id="tabContent">
         <section class="tab-panel" id="tab-volume">
-            <div class="card">
-                <div class="card-title">Тоннаж за період</div>
-                <div class="empty-state" id="volumeEmptyState">
-                    <div class="empty-state-icon">📈</div>
-                    <p>Статистика об'єму тренувань з'явиться тут найближчим часом.</p>
+            <div class="period-selector" id="volumePeriodSelector">
+                <button class="period-btn active" data-period="week">Тиждень</button>
+                <button class="period-btn" data-period="month">Місяць</button>
+                <button class="period-btn" data-period="all">Весь час</button>
+            </div>
+
+            <div class="filter-chip" id="volumeFilterChip" style="display:none;">
+                <span id="volumeFilterLabel"></span>
+                <button id="volumeFilterClear" aria-label="Очистити фільтр">×</button>
+            </div>
+
+            <div class="loading" id="volumeLoading">Завантаження статистики...</div>
+
+            <div id="volumeContent" style="display:none;">
+                <div class="stat-tile">
+                    <div class="stat-label">Загальний тоннаж</div>
+                    <div class="stat-value" id="volumeTotal">0 кг</div>
                 </div>
+
+                <div class="card">
+                    <div class="card-title">Тоннаж по днях</div>
+                    <div class="chart-container">
+                        <canvas id="volumeByDayChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">По групах м'язів</div>
+                    <div class="muscle-bar-list" id="volumeByMuscleList"></div>
+                </div>
+            </div>
+
+            <div class="empty-state" id="volumeEmptyState" style="display:none;">
+                <div class="empty-state-icon">📈</div>
+                <p id="volumeEmptyStateText">Ще немає даних за цей період.</p>
             </div>
         </section>
 
@@ -276,10 +426,9 @@
             });
         });
 
-        // Tabs. Each panel is a scaffold for its own ticket:
-        // "volume" -> GYM-4, "progress" -> GYM-5a/GYM-5b, "activity" -> GYM-6.
-        // They currently only show an empty state; wiring real data in is
-        // out of scope for this page shell (GYM-3).
+        // Tabs. "volume" is wired to real data (GYM-4, below); "progress"
+        // (GYM-5a/GYM-5b) and "activity" (GYM-6) are still page-shell
+        // placeholders (GYM-3) — an empty state until their own tickets.
         const tabButtons = document.querySelectorAll('.tab-btn');
         const tabPanels = {
             volume: document.getElementById('tab-volume'),
@@ -304,6 +453,218 @@
                 }
             });
         });
+
+        // --- "Об'єм" tab (GYM-4): GET /api/statistics/volume ---
+
+        let currentPeriod = 'week';
+        let currentMuscleFilter = null;
+        let volumeChart = null;
+
+        function formatKg(volume) {
+            return Math.round(volume).toLocaleString('uk-UA');
+        }
+
+        function formatShortDate(isoDate) {
+            const [, month, day] = isoDate.split('-');
+            return `${day}.${month}`;
+        }
+
+        async function fetchVolumeStats(period, muscle) {
+            const params = new URLSearchParams({ period });
+            if (muscle) {
+                params.set('muscle', muscle);
+            }
+            if (PARAM_USER) {
+                params.set('user', PARAM_USER);
+            }
+
+            const response = await fetch(`/api/statistics/volume?${params}`, {
+                headers: { 'Authorization': tg.initData },
+            });
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+            const payload = await response.json();
+            return payload.data;
+        }
+
+        function renderVolumeTotal(totalVolume) {
+            document.getElementById('volumeTotal').textContent = `${formatKg(totalVolume)} кг`;
+        }
+
+        function renderVolumeByDayChart(byDay) {
+            const canvas = document.getElementById('volumeByDayChart');
+            const accent = (tg.themeParams && tg.themeParams.button_color) || '#5e9cff';
+            const hint = (tg.themeParams && tg.themeParams.hint_color) || '#888888';
+
+            if (volumeChart) {
+                volumeChart.destroy();
+            }
+
+            volumeChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: byDay.map(d => formatShortDate(d.date)),
+                    datasets: [{
+                        data: byDay.map(d => Math.round(d.volume)),
+                        backgroundColor: accent,
+                        borderRadius: 4,
+                        maxBarThickness: 24,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1a1a1a',
+                            borderColor: '#2a2a2a',
+                            borderWidth: 1,
+                            titleColor: '#ffffff',
+                            bodyColor: '#ffffff',
+                            displayColors: false,
+                            padding: 10,
+                            callbacks: {
+                                label: (item) => `${formatKg(item.parsed.y)} кг`,
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: hint, font: { size: 11 } },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            ticks: { color: hint, font: { size: 11 } },
+                        },
+                    },
+                },
+            });
+        }
+
+        function renderVolumeByMuscleList(byMuscle) {
+            const container = document.getElementById('volumeByMuscleList');
+            container.innerHTML = '';
+
+            const maxVolume = Math.max(...byMuscle.map(b => b.volume));
+
+            byMuscle.forEach(bucket => {
+                const row = document.createElement('div');
+                row.className = 'muscle-bar-row';
+                if (currentMuscleFilter === bucket.muscle_group) {
+                    row.classList.add('filtered');
+                }
+
+                const head = document.createElement('div');
+                head.className = 'muscle-bar-row-head';
+
+                const name = document.createElement('span');
+                name.className = 'muscle-bar-row-name';
+                name.textContent = bucket.muscle_group;
+
+                const value = document.createElement('span');
+                value.className = 'muscle-bar-row-value';
+                value.textContent = `${formatKg(bucket.volume)} кг · ${bucket.sets_count} підх.`;
+
+                head.appendChild(name);
+                head.appendChild(value);
+
+                const track = document.createElement('div');
+                track.className = 'muscle-bar-track';
+                const fill = document.createElement('div');
+                fill.className = 'muscle-bar-fill';
+                fill.style.width = `${(bucket.volume / maxVolume) * 100}%`;
+                track.appendChild(fill);
+
+                row.appendChild(head);
+                row.appendChild(track);
+                row.addEventListener('click', () => toggleMuscleFilter(bucket.muscle_group));
+
+                container.appendChild(row);
+            });
+        }
+
+        function updateVolumeFilterChip() {
+            const chip = document.getElementById('volumeFilterChip');
+            const label = document.getElementById('volumeFilterLabel');
+            if (currentMuscleFilter) {
+                label.textContent = currentMuscleFilter;
+                chip.style.display = '';
+            } else {
+                chip.style.display = 'none';
+            }
+        }
+
+        function toggleMuscleFilter(muscleGroup) {
+            currentMuscleFilter = currentMuscleFilter === muscleGroup ? null : muscleGroup;
+            updateVolumeFilterChip();
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.selectionChanged();
+            }
+            loadVolumeTab();
+        }
+
+        function clearVolumeFilter() {
+            currentMuscleFilter = null;
+            updateVolumeFilterChip();
+            loadVolumeTab();
+        }
+
+        async function loadVolumeTab() {
+            const loadingEl = document.getElementById('volumeLoading');
+            const contentEl = document.getElementById('volumeContent');
+            const emptyEl = document.getElementById('volumeEmptyState');
+
+            loadingEl.style.display = '';
+            contentEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+
+            try {
+                const data = await fetchVolumeStats(currentPeriod, currentMuscleFilter);
+                loadingEl.style.display = 'none';
+
+                if (data.total_volume <= 0) {
+                    document.getElementById('volumeEmptyStateText').textContent =
+                        'Ще немає даних за цей період.';
+                    emptyEl.style.display = '';
+                    return;
+                }
+
+                contentEl.style.display = '';
+                renderVolumeTotal(data.total_volume);
+                renderVolumeByDayChart(data.by_day);
+                renderVolumeByMuscleList(data.by_muscle);
+            } catch (error) {
+                console.log('Failed to load volume statistics:', error);
+                loadingEl.style.display = 'none';
+                document.getElementById('volumeEmptyStateText').textContent =
+                    'Не вдалося завантажити статистику. Спробуйте пізніше.';
+                emptyEl.style.display = '';
+            }
+        }
+
+        document.querySelectorAll('#volumePeriodSelector .period-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.period === currentPeriod) {
+                    return;
+                }
+                currentPeriod = btn.dataset.period;
+                document.querySelectorAll('#volumePeriodSelector .period-btn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+                loadVolumeTab();
+            });
+        });
+
+        document.getElementById('volumeFilterClear').addEventListener('click', clearVolumeFilter);
+
+        loadVolumeTab();
     </script>
 </body>
 </html>

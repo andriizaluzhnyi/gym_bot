@@ -288,7 +288,7 @@ Google Sheets API свідомо не хочемо (auth/квоти/крихкі
 
 **SP:** 5
 
-### GYM-4: API — об'єм тренувань за період і по м'язових групах
+### ✅ GYM-4: API — об'єм тренувань за період і по м'язових групах — **виконано**
 
 **User story:** Як користувач, я хочу бачити скільки тоннажу (вага × повтори)
 я підняв за тиждень/місяць в розрізі груп м'язів, щоб оцінити баланс
@@ -308,6 +308,17 @@ Google Sheets API свідомо не хочемо (auth/квоти/крихкі
 - Backend: `api_get_volume_statistics`, SQL-агрегація (`func.sum(weight*reps)`,
   `group_by`) через `WorkoutSetRepository`.
 - Frontend: стовпчиковий графік по днях + donut/bar по групах.
+
+**Примітка щодо реалізації:** агрегація по днях/групах зроблена в Python
+над результатом `WorkoutSessionRepository.get_sessions_by_period` (не
+SQL `GROUP BY`) — межі тижня/місяця рахуються в `settings.timezone`
+(`src/utils/datetime_utils.py: period_bounds_utc`), а групування по днях
+теж переводить `performed_at` (UTC) у локальну дату (`to_local_date`);
+робити це `date()`-функцією SQL для довільного IANA-імені таймзони
+портативно між SQLite/PostgreSQL не вийшло б. `by_muscle` на фронтенді —
+не canvas-графік, а підписаний horizontal-bar список (без donut): не
+потрібен додатковий Chart.js-плагін для підписів значень, і кожен рядок —
+свій tap-target для фільтра по групі.
 
 **SP:** 5
 

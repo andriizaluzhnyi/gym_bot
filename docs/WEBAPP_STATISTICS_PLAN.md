@@ -322,7 +322,7 @@ SQL `GROUP BY`) — межі тижня/місяця рахуються в `sett
 
 **SP:** 5
 
-### GYM-5a: API — прогрес по конкретній вправі
+### ✅ GYM-5a: API — прогрес по конкретній вправі — **виконано**
 
 **User story:** Як користувач, я хочу отримати дані зміни робочої ваги і
 повторень по вправі у часі.
@@ -334,6 +334,15 @@ SQL `GROUP BY`) — межі тижня/місяця рахуються в `sett
 - `GET /api/statistics/exercise-progress?exercise=<name>` — список
   `{date, max_weight, total_reps, total_volume, top_set: {weight, reps}}`
   по сесіях, відсортовано за датою.
+
+**Примітка щодо реалізації:** новий репозиторний метод
+`WorkoutSetRepository.get_distinct_exercises` — `muscle_group` для вправи
+береться з останнього (за `performed_at`) запису, бо група може «дрейфувати»
+між логами (редагування програми); `/exercise-progress` перевикористовує
+наявний `get_sets_by_user_and_exercise` (GYM-1) і групує плаский список
+сетів по `session_id` у Python — узгоджено з тим, як `_aggregate_volume`
+(GYM-4) групує по днях. Обидва ендпоінти підтримують `?user=` для тренера,
+як і решта `/api/statistics/*`.
 
 **SP:** 3
 

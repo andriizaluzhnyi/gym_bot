@@ -807,17 +807,17 @@
             <span class="nav-icon">📅</span>
             <span>Сьогодні</span>
         </a>
-        <a href="/statistics" class="nav-item active">
+        <a href="/nutrition?tab=workout" class="nav-item">
+            <span class="nav-icon">🏋️</span>
+            <span>Тренування</span>
+        </a>
+        <a href="/statistics" class="nav-item">
             <span class="nav-icon">📊</span>
             <span>Статистика</span>
         </a>
         <a href="/profile" class="nav-item">
             <span class="nav-icon">👤</span>
             <span>Профіль</span>
-        </a>
-        <a href="#" class="nav-item">
-            <span class="nav-icon">⚙️</span>
-            <span>Налаштування</span>
         </a>
     </nav>
 
@@ -843,14 +843,45 @@
                 : (initDataUser.first_name || '');
         }
 
-        // Bottom nav: only the "#" placeholders (not yet built) show the
-        // "coming soon" alert; real links (including this page) navigate.
+        // Bottom nav: highlight the item matching the current URL. Same
+        // function, kept identical, in nutrition.html/profile.html/
+        // statistics.html (GYM-37) — there's no shared-JS mechanism across
+        // these server-rendered templates, so "shared" means copy-pasted
+        // in sync, not literally one file.
+        function highlightActiveNavItem() {
+            const items = Array.from(document.querySelectorAll('.nav-item[href]'))
+                .filter(item => {
+                    const href = item.getAttribute('href');
+                    return href && href !== '#';
+                })
+                .map(item => ({
+                    item, url: new URL(item.getAttribute('href'), window.location.origin),
+                }));
+
+            // Only require an exact query-string match for hrefs whose
+            // pathname is shared by more than one nav item (e.g.
+            // /nutrition and /nutrition?tab=workout are two different
+            // destinations on the same page) — everything else matches on
+            // pathname alone, so a page's own unrelated query params (e.g.
+            // /statistics?tab=history from GYM-40's card) don't
+            // accidentally leave it un-highlighted.
+            const pathCounts = {};
+            items.forEach(({ url }) => {
+                pathCounts[url.pathname] = (pathCounts[url.pathname] || 0) + 1;
+            });
+
+            items.forEach(({ item, url }) => {
+                const needsExactMatch = pathCounts[url.pathname] > 1;
+                const matches = needsExactMatch
+                    ? url.pathname === window.location.pathname && url.search === window.location.search
+                    : url.pathname === window.location.pathname;
+                item.classList.toggle('active', matches);
+            });
+        }
+        highlightActiveNavItem();
+
         document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                if (item.getAttribute('href') === '#') {
-                    e.preventDefault();
-                    tg.showAlert('Розділ буде доступний незабаром!');
-                }
+            item.addEventListener('click', () => {
                 if (tg.HapticFeedback) {
                     tg.HapticFeedback.selectionChanged();
                 }

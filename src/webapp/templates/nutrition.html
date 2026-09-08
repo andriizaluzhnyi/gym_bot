@@ -713,11 +713,11 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="/nutrition" class="nav-item active" data-tab="nutrition">
+        <a href="/nutrition" class="nav-item" data-tab="nutrition">
             <span class="nav-icon">📅</span>
             <span>Сьогодні</span>
         </a>
-        <a href="#" class="nav-item" data-tab="workout">
+        <a href="/nutrition?tab=workout" class="nav-item" data-tab="workout">
             <span class="nav-icon">🏋️</span>
             <span>Тренування</span>
         </a>
@@ -728,10 +728,6 @@
         <a href="/profile" class="nav-item">
             <span class="nav-icon">👤</span>
             <span>Профіль</span>
-        </a>
-        <a href="#" class="nav-item">
-            <span class="nav-icon">⚙️</span>
-            <span>Налаштування</span>
         </a>
     </nav>
 
@@ -1265,6 +1261,44 @@
             updateMacrosDisplay();
         }
 
+        // Bottom nav: highlight the item matching the current URL. Same
+        // function, kept identical, in nutrition.html/profile.html/
+        // statistics.html (GYM-37) — there's no shared-JS mechanism across
+        // these server-rendered templates, so "shared" means copy-pasted
+        // in sync, not literally one file. Run once at load, not on every
+        // click — this page's own in-page tab switches (below) manage
+        // their own active state without a URL change.
+        function highlightActiveNavItem() {
+            const items = Array.from(document.querySelectorAll('.nav-item[href]'))
+                .filter(item => {
+                    const href = item.getAttribute('href');
+                    return href && href !== '#';
+                })
+                .map(item => ({
+                    item, url: new URL(item.getAttribute('href'), window.location.origin),
+                }));
+
+            // Only require an exact query-string match for hrefs whose
+            // pathname is shared by more than one nav item (e.g.
+            // /nutrition and /nutrition?tab=workout are two different
+            // destinations on the same page) — everything else matches on
+            // pathname alone, so a page's own unrelated query params (e.g.
+            // /statistics?tab=history from GYM-40's card) don't
+            // accidentally leave it un-highlighted.
+            const pathCounts = {};
+            items.forEach(({ url }) => {
+                pathCounts[url.pathname] = (pathCounts[url.pathname] || 0) + 1;
+            });
+
+            items.forEach(({ item, url }) => {
+                const needsExactMatch = pathCounts[url.pathname] > 1;
+                const matches = needsExactMatch
+                    ? url.pathname === window.location.pathname && url.search === window.location.search
+                    : url.pathname === window.location.pathname;
+                item.classList.toggle('active', matches);
+            });
+        }
+
         // Show/hide sections. "Сьогодні" (today's tracking cards) and
         // "Статистика" (GYM-15) are sub-tabs *within* the nutrition
         // section, switched via #nutritionPageTabs; "Тренування" is a
@@ -1653,45 +1687,27 @@
             undoWater();
         });
 
-        // Navigation
+        // Navigation. "Сьогодні"/"Тренування" (data-tab) swap sections
+        // in-place without leaving this page — real hrefs now (GYM-37),
+        // but still intercepted here since there's nothing to navigate to;
+        // /statistics and /profile are left alone to navigate normally.
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                const href = item.getAttribute('href');
                 const tab = item.getAttribute('data-tab');
 
                 if (tab === 'workout') {
                     e.preventDefault();
                     showWorkoutSection();
-
-                    // Update active state
                     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
                     item.classList.add('active');
-
-                    if (tg.HapticFeedback) {
-                        tg.HapticFeedback.selectionChanged();
-                    }
                 } else if (tab === 'nutrition') {
                     e.preventDefault();
                     showNutritionSection();
-
-                    // Update active state
                     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
                     item.classList.add('active');
-
-                    if (tg.HapticFeedback) {
-                        tg.HapticFeedback.selectionChanged();
-                    }
-                } else if (href === '#') {
-                    e.preventDefault();
-                    tg.showAlert('Розділ буде доступний незабаром!');
-                } else if (href && href !== '/nutrition') {
-                    // Allow navigation to other pages
-                    return;
-                } else {
-                    e.preventDefault();
                 }
 
-                if (tg.HapticFeedback && !tab) {
+                if (tg.HapticFeedback) {
                     tg.HapticFeedback.selectionChanged();
                 }
             });
@@ -1751,10 +1767,8 @@
         // /nutrition?tab=workout instead of the default "Сьогодні" view).
         if (new URLSearchParams(window.location.search).get('tab') === 'workout') {
             showWorkoutSection();
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.toggle('active', item.dataset.tab === 'workout');
-            });
         }
+        highlightActiveNavItem();
 
         // Back button handler
         tg.BackButton.onClick(() => {

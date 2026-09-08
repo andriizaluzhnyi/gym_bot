@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 from aiohttp import web
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
 from src.database.repository import (
@@ -360,57 +361,47 @@ async def workout_handler(request: web.Request) -> web.StreamResponse:
 async def statistics_handler(request: web.Request) -> web.StreamResponse:
     """Serve the workout statistics Mini App (GYM-3).
 
-    A page shell only: tabs for volume/exercise-progress/activity, each
-    backed by its own ticket's ``/api/statistics/*`` endpoint (GYM-4, GYM-5a,
-    GYM-6). Like the other Mini App pages, auth happens client-side via
-    ``initData`` on the API calls the page makes, not here.
+    A summary strip plus tabs for volume/exercise-progress/activity, each
+    backed by its own ticket's ``/api/statistics/*`` endpoint — volume
+    (GYM-4) and the summary strip (GYM-6) are wired up; the exercise-progress
+    and activity tabs are still placeholders pending GYM-5a/GYM-5b. Like the
+    other Mini App pages, auth happens client-side via ``initData`` on the
+    API calls the page makes, not here.
     """
     html_path = TEMPLATES_DIR / 'statistics.html'
     return web.FileResponse(html_path)
 
 
-_VALID_VOLUME_PERIODS = ('week', 'month', 'all')
+_VALID_STATISTICS_PERIODS = ('week', 'month', 'all')
 
 
-@webapp_auth
-async def api_get_volume_statistics(request: web.Request) -> web.Response:
-    """API endpoint (GYM-4): workout volume (weight × reps) over a period,
-    grouped by day and by muscle group.
+async def _resolve_statistics_owner(
+    session: AsyncSession, request: web.Request, param_user: str | None
+):
+    """Resolve whose statistics a `/api/statistics/*` request is for.
 
-    Query params: `period=week|month|all` (default `week`), `muscle`
-    (optional exact muscle-group filter — when set, `by_muscle` has a
-    single element and `by_day` reflects only that group), `user` (optional
-    username, for a trainer viewing a client's stats — same convention as
-    `/workout`; defaults to the caller's own `telegram_id`).
-    Expects Authorization header with Telegram initData.
+    Defaults to the caller's own `telegram_id` (from `initData`, via
+    `@webapp_auth`); an explicit `user` query param lets a trainer view a
+    client's stats instead — same convention as `/workout?user=<name>`.
     """
-    period = request.query.get('period', 'week')
-    if period not in _VALID_VOLUME_PERIODS:
-        return web.json_response(
-            {'error': "Invalid period: must be 'week', 'month' or 'all'"},
-            status=400,
-        )
-    muscle_filter = request.query.get('muscle') or None
-    param_user = request.query.get('user') or None
+    user_repo = UserRepository(session)
+    if param_user:
+        return await user_repo.get_by_username(param_user)
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
+    return await user_repo.get_by_telegram_id(telegram_id) if telegram_id else None
 
-    async with async_session_maker() as session:
-        user_repo = UserRepository(session)
-        if param_user:
-            owner = await user_repo.get_by_username(param_user)
-        else:
-            telegram_id = request[TELEGRAM_USER_KEY].get('id')
-            owner = (
-                await user_repo.get_by_telegram_id(telegram_id)
-                if telegram_id else None
-            )
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
 
-        start, end = period_bounds_utc(period, settings.timezone)
-        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
-            owner.id, start=start, end=end
-        )
+def _aggregate_volume(
+    sessions: list, muscle_filter: str | None = None
+) -> tuple[list[dict], list[dict], float]:
+    """Aggregate a list of completed ``WorkoutSession`` (sets eagerly
+    loaded) into ``(by_day, by_muscle, total_volume)`` — shared by GYM-4's
+    volume breakdown and GYM-6's activity summary (`most_trained_muscle`).
 
+    ``by_day`` groups volume by local calendar date (``settings.timezone``);
+    ``by_muscle`` is sorted by volume descending. When ``muscle_filter`` is
+    set, only sets in that muscle group count.
+    """
     by_day: dict[str, float] = {}
     by_muscle: dict[str, dict] = {}
     total_volume = 0.0
@@ -435,26 +426,112 @@ async def api_get_volume_statistics(request: web.Request) -> web.Response:
             bucket['volume'] += volume
             bucket['sets_count'] += 1
 
+    by_day_list = [
+        {'date': date_str, 'volume': volume}
+        for date_str, volume in sorted(by_day.items())
+    ]
+    by_muscle_list = [
+        {
+            'muscle_group': muscle,
+            'volume': bucket['volume'],
+            'sets_count': bucket['sets_count'],
+        }
+        for muscle, bucket in sorted(
+            by_muscle.items(), key=lambda item: item[1]['volume'], reverse=True
+        )
+    ]
+    return by_day_list, by_muscle_list, total_volume
+
+
+@webapp_auth
+async def api_get_volume_statistics(request: web.Request) -> web.Response:
+    """API endpoint (GYM-4): workout volume (weight × reps) over a period,
+    grouped by day and by muscle group.
+
+    Query params: `period=week|month|all` (default `week`), `muscle`
+    (optional exact muscle-group filter — when set, `by_muscle` has a
+    single element and `by_day` reflects only that group), `user` (optional
+    username, for a trainer viewing a client's stats — same convention as
+    `/workout`; defaults to the caller's own `telegram_id`).
+    Expects Authorization header with Telegram initData.
+    """
+    period = request.query.get('period', 'week')
+    if period not in _VALID_STATISTICS_PERIODS:
+        return web.json_response(
+            {'error': "Invalid period: must be 'week', 'month' or 'all'"},
+            status=400,
+        )
+    muscle_filter = request.query.get('muscle') or None
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        start, end = period_bounds_utc(period, settings.timezone)
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner.id, start=start, end=end
+        )
+
+    by_day, by_muscle, total_volume = _aggregate_volume(sessions, muscle_filter)
+
     return web.json_response({
         'success': True,
         'data': {
-            'by_day': [
-                {'date': date_str, 'volume': volume}
-                for date_str, volume in sorted(by_day.items())
-            ],
-            'by_muscle': [
-                {
-                    'muscle_group': muscle,
-                    'volume': bucket['volume'],
-                    'sets_count': bucket['sets_count'],
-                }
-                for muscle, bucket in sorted(
-                    by_muscle.items(),
-                    key=lambda item: item[1]['volume'],
-                    reverse=True,
-                )
-            ],
+            'by_day': by_day,
+            'by_muscle': by_muscle,
             'total_volume': total_volume,
+        },
+    })
+
+
+@webapp_auth
+async def api_get_statistics_summary(request: web.Request) -> web.Response:
+    """API endpoint (GYM-6): overall activity summary for a period —
+    workout count, average duration, total volume and the most-trained
+    muscle group. One completed ``WorkoutSession`` = one workout.
+
+    Query params: `period=week|month|all` (default `week`), `user`
+    (optional username, trainer viewing a client's stats — same convention
+    as `/workout` and `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    period = request.query.get('period', 'week')
+    if period not in _VALID_STATISTICS_PERIODS:
+        return web.json_response(
+            {'error': "Invalid period: must be 'week', 'month' or 'all'"},
+            status=400,
+        )
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        start, end = period_bounds_utc(period, settings.timezone)
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner.id, start=start, end=end
+        )
+
+    durations = [
+        s.duration_seconds for s in sessions if s.duration_seconds is not None
+    ]
+    avg_duration_minutes = (
+        round(sum(durations) / len(durations) / 60, 1) if durations else 0
+    )
+
+    _, by_muscle, total_volume = _aggregate_volume(sessions)
+    most_trained_muscle = by_muscle[0]['muscle_group'] if by_muscle else None
+
+    return web.json_response({
+        'success': True,
+        'data': {
+            'workouts_count': len(sessions),
+            'avg_duration_minutes': avg_duration_minutes,
+            'total_volume': total_volume,
+            'most_trained_muscle': most_trained_muscle,
         },
     })
 
@@ -1236,6 +1313,7 @@ def create_webapp() -> web.Application:
     app.router.add_delete('/api/workout/day', api_delete_workout_day)
     app.router.add_delete('/api/workout/exercise', api_delete_exercise)
     app.router.add_get('/api/statistics/volume', api_get_volume_statistics)
+    app.router.add_get('/api/statistics/summary', api_get_statistics_summary)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

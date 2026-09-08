@@ -137,6 +137,9 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # GYM-2: DB is the source of truth for workout logs; Sheets is an
+    # opt-in mirror toggled from the WebApp settings screen.
+    sync_workout_to_sheets: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utcnow, onupdate=utcnow

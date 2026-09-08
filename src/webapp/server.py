@@ -17,6 +17,7 @@ from src.database.repository import (
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
+from src.services.personal_records import calculate_prs
 from src.utils.datetime_utils import period_bounds_utc, to_local_date
 from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
@@ -612,6 +613,72 @@ async def api_get_exercise_progress(request: web.Request) -> web.Response:
         })
 
     return web.json_response({'success': True, 'data': progress})
+
+
+def _serialize_pr_value(value, tz_name: str) -> dict:
+    """A ``SetRecord``/``EstimatedOneRepMaxRecord`` (GYM-7) as JSON, with
+    ``achieved_at`` as a local calendar date (`settings.timezone`), same
+    convention as the other `/api/statistics/*` endpoints.
+    """
+    data = {
+        'weight': value.weight,
+        'reps': value.reps,
+        'achieved_at': to_local_date(value.achieved_at, tz_name).isoformat(),
+    }
+    if hasattr(value, 'estimated_1rm'):
+        data['estimated_1rm'] = round(value.estimated_1rm, 1)
+    return data
+
+
+@webapp_auth
+async def api_get_records(request: web.Request) -> web.Response:
+    """API endpoint (GYM-8): each exercise's current personal records
+    (GYM-7) — heaviest weight, most reps in a single set, and best
+    estimated 1RM, each with its own ``achieved_at``, plus a top-level
+    ``achieved_at`` (the most recent of the three) driving the "fresh PR"
+    highlight in the UI. Sorted by muscle group, then exercise name.
+
+    Query params: `user` (optional username, trainer viewing a client's
+    stats — same convention as `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner.id
+        )
+
+    all_sets = [workout_set for wsession in sessions for workout_set in wsession.sets]
+    prs = calculate_prs(all_sets)
+
+    records = []
+    for pr in prs.values():
+        max_weight = _serialize_pr_value(pr.max_weight, settings.timezone)
+        max_reps = _serialize_pr_value(pr.max_reps, settings.timezone)
+        estimated_1rm = _serialize_pr_value(pr.estimated_1rm, settings.timezone)
+
+        records.append({
+            'exercise': pr.exercise_name,
+            'muscle_group': pr.muscle_group,
+            'max_weight': max_weight,
+            'max_reps': max_reps,
+            'estimated_1rm': estimated_1rm,
+            # ISO date strings sort correctly as strings.
+            'achieved_at': max(
+                max_weight['achieved_at'],
+                max_reps['achieved_at'],
+                estimated_1rm['achieved_at'],
+            ),
+        })
+
+    records.sort(key=lambda r: (r['muscle_group'] or '', r['exercise']))
+
+    return web.json_response({'success': True, 'data': records})
 
 
 async def api_get_workout_program(request: web.Request) -> web.Response:
@@ -1394,6 +1461,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/statistics/summary', api_get_statistics_summary)
     app.router.add_get('/api/statistics/exercises', api_get_exercises)
     app.router.add_get('/api/statistics/exercise-progress', api_get_exercise_progress)
+    app.router.add_get('/api/statistics/records', api_get_records)
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

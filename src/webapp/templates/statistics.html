@@ -284,6 +284,98 @@
             background-color: var(--accent-green);
         }
 
+        /* Records (GYM-8) */
+        .record-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .record-card {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 16px 20px;
+        }
+
+        .record-card.fresh {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 0 1px var(--accent-green);
+        }
+
+        .record-card-header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .record-card-name {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .record-card-badges {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .record-card-muscle {
+            flex-shrink: 0;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background-color: var(--card-border);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .fresh-badge {
+            flex-shrink: 0;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background-color: var(--accent-green);
+            color: #0a0a0a;
+        }
+
+        .record-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .record-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+        }
+
+        .record-row-label {
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .record-row-value {
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-weight: 500;
+            text-align: right;
+        }
+
+        .record-row-date {
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            font-weight: 400;
+            font-size: 12px;
+        }
+
         /* Loading / empty state */
         .loading {
             display: flex;
@@ -369,6 +461,7 @@
         <button class="tab-btn active" data-tab="volume">Об'єм</button>
         <button class="tab-btn" data-tab="progress">Прогрес по вправі</button>
         <button class="tab-btn" data-tab="activity">Активність</button>
+        <button class="tab-btn" data-tab="records">Рекорди</button>
     </div>
 
     <div id="tabContent">
@@ -449,6 +542,22 @@
                 </div>
             </div>
         </section>
+
+        <section class="tab-panel" id="tab-records" style="display:none;">
+            <div class="period-selector" id="recordsSortSelector">
+                <button class="period-btn active" data-sort="muscle">За групою м'язів</button>
+                <button class="period-btn" data-sort="name">За алфавітом</button>
+            </div>
+
+            <div class="loading" id="recordsLoading">Завантаження рекордів...</div>
+
+            <div class="record-list" id="recordsList" style="display:none;"></div>
+
+            <div class="empty-state" id="recordsEmptyState" style="display:none;">
+                <div class="empty-state-icon">🏆</div>
+                <p id="recordsEmptyStateText">Ще немає жодного рекорду.</p>
+            </div>
+        </section>
     </div>
 
     <nav class="bottom-nav">
@@ -506,15 +615,17 @@
             });
         });
 
-        // Tabs. "volume" (GYM-4) and "progress" (GYM-5a/GYM-5b) are wired
-        // to real data, below. "activity" is still a page-shell placeholder
-        // (GYM-3) — GYM-6 covers overall activity via the summary strip
-        // above, not this tab's own body, which awaits a future ticket.
+        // Tabs. "volume" (GYM-4), "progress" (GYM-5a/GYM-5b) and "records"
+        // (GYM-7/GYM-8) are wired to real data, below. "activity" is still
+        // a page-shell placeholder (GYM-3) — GYM-6 covers overall activity
+        // via the summary strip above, not this tab's own body, which
+        // awaits a future ticket.
         const tabButtons = document.querySelectorAll('.tab-btn');
         const tabPanels = {
             volume: document.getElementById('tab-volume'),
             progress: document.getElementById('tab-progress'),
             activity: document.getElementById('tab-activity'),
+            records: document.getElementById('tab-records'),
         };
 
         function activateTab(name) {
@@ -969,6 +1080,174 @@
         });
 
         loadExerciseList();
+
+        // --- "Рекорди" tab (GYM-8): GET /api/statistics/records ---
+        // Fetched once and re-sorted client-side (no refetch) when the
+        // sort toggle changes — the list is small (one card per exercise).
+
+        let recordsData = [];
+        let currentRecordsSort = 'muscle';
+        const FRESH_RECORD_DAYS = 7;
+
+        function daysSinceLocalDate(dateStr) {
+            const then = new Date(`${dateStr}T00:00:00`);
+            const now = new Date();
+            return Math.floor((now - then) / (1000 * 60 * 60 * 24));
+        }
+
+        function isFreshRecord(record) {
+            return daysSinceLocalDate(record.achieved_at) <= FRESH_RECORD_DAYS;
+        }
+
+        function sortedRecords() {
+            const records = [...recordsData];
+            if (currentRecordsSort === 'name') {
+                records.sort((a, b) => a.exercise.localeCompare(b.exercise, 'uk'));
+            } else {
+                records.sort((a, b) => {
+                    const byMuscle = (a.muscle_group || '')
+                        .localeCompare(b.muscle_group || '', 'uk');
+                    return byMuscle !== 0
+                        ? byMuscle
+                        : a.exercise.localeCompare(b.exercise, 'uk');
+                });
+            }
+            return records;
+        }
+
+        function buildRecordRow(label, value) {
+            const row = document.createElement('div');
+            row.className = 'record-row';
+
+            const labelEl = document.createElement('span');
+            labelEl.className = 'record-row-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('span');
+            valueEl.className = 'record-row-value';
+            valueEl.textContent = value;
+
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            return row;
+        }
+
+        function renderRecords() {
+            const container = document.getElementById('recordsList');
+            container.innerHTML = '';
+
+            sortedRecords().forEach(record => {
+                const card = document.createElement('div');
+                card.className = 'record-card';
+                const fresh = isFreshRecord(record);
+                if (fresh) {
+                    card.classList.add('fresh');
+                }
+
+                const header = document.createElement('div');
+                header.className = 'record-card-header';
+
+                const name = document.createElement('span');
+                name.className = 'record-card-name';
+                name.textContent = record.exercise;
+                header.appendChild(name);
+
+                const badges = document.createElement('div');
+                badges.className = 'record-card-badges';
+                if (fresh) {
+                    const freshBadge = document.createElement('span');
+                    freshBadge.className = 'fresh-badge';
+                    freshBadge.textContent = 'Новий!';
+                    badges.appendChild(freshBadge);
+                }
+                if (record.muscle_group) {
+                    const muscleBadge = document.createElement('span');
+                    muscleBadge.className = 'record-card-muscle';
+                    muscleBadge.textContent = record.muscle_group;
+                    badges.appendChild(muscleBadge);
+                }
+                header.appendChild(badges);
+
+                const rows = document.createElement('div');
+                rows.className = 'record-rows';
+                rows.appendChild(buildRecordRow(
+                    'Макс. вага',
+                    `${formatKg(record.max_weight.weight)} кг × ${record.max_weight.reps}`
+                ));
+                rows.appendChild(buildRecordRow(
+                    'Макс. повторення',
+                    `${record.max_reps.reps} × ${formatKg(record.max_reps.weight)} кг`
+                ));
+                rows.appendChild(buildRecordRow(
+                    'Розрах. 1ПМ',
+                    `${formatKg(record.estimated_1rm.estimated_1rm)} кг`
+                ));
+
+                card.appendChild(header);
+                card.appendChild(rows);
+                container.appendChild(card);
+            });
+        }
+
+        async function loadRecords() {
+            const loadingEl = document.getElementById('recordsLoading');
+            const listEl = document.getElementById('recordsList');
+            const emptyEl = document.getElementById('recordsEmptyState');
+
+            loadingEl.style.display = '';
+            listEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+
+            try {
+                const params = new URLSearchParams();
+                if (PARAM_USER) {
+                    params.set('user', PARAM_USER);
+                }
+                const response = await fetch(`/api/statistics/records?${params}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const { data } = await response.json();
+                recordsData = data;
+                loadingEl.style.display = 'none';
+
+                if (recordsData.length === 0) {
+                    document.getElementById('recordsEmptyStateText').textContent =
+                        'Ще немає жодного рекорду.';
+                    emptyEl.style.display = '';
+                    return;
+                }
+
+                listEl.style.display = '';
+                renderRecords();
+            } catch (error) {
+                console.log('Failed to load records:', error);
+                loadingEl.style.display = 'none';
+                document.getElementById('recordsEmptyStateText').textContent =
+                    'Не вдалося завантажити рекорди. Спробуйте пізніше.';
+                emptyEl.style.display = '';
+            }
+        }
+
+        document.querySelectorAll('#recordsSortSelector .period-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.sort === currentRecordsSort) {
+                    return;
+                }
+                currentRecordsSort = btn.dataset.sort;
+                document.querySelectorAll('#recordsSortSelector .period-btn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+                renderRecords();
+            });
+        });
+
+        loadRecords();
     </script>
 </body>
 </html>

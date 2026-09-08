@@ -22,7 +22,8 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /opt/my-app
+            set -e
+            cd /home/ubuntu/project/gymbro
             git pull origin master
             docker compose up -d --build
             docker image prune -f

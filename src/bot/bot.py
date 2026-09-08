@@ -105,7 +105,7 @@ async def configure_bot_commands(bot: Bot) -> None:
 
     await bot.set_chat_menu_button(
         menu_button=MenuButtonWebApp(
-            text="📱 Щоденник",
+            text="📱",
             web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition"),
         )
     )

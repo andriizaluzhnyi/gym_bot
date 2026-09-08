@@ -1777,6 +1777,40 @@ def _serialize_session_summary(workout_session) -> dict:
 
 
 @webapp_auth
+async def api_get_today_workout(request: web.Request) -> web.Response:
+    """API endpoint (GYM-40): the caller's most recent completed workout
+    session for "today" — a short summary for the "Сьогодні" nutrition
+    page, so a workout doesn't require a trip to `/statistics` to notice.
+
+    `data` is `null` if there's no completed session today
+    (`settings.timezone`); draft sessions (`completed_at IS NULL`) don't
+    count, same as everywhere else (GYM-2c). Several sessions on the same
+    day are rare (GYM-1 keeps them as separate sessions rather than
+    merging) but possible — only the most recent is returned here, the
+    rest stay visible via `/statistics` → «Історія».
+
+    Query params: `user` (optional username, trainer viewing a client —
+    same convention as the rest of `/api/statistics/*`).
+    Expects Authorization header with Telegram initData.
+    """
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        start, end = period_bounds_utc('day', settings.timezone)
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner.id, start=start, end=end
+        )
+
+    data = _serialize_session_summary(sessions[0]) if sessions else None
+
+    return web.json_response({'success': True, 'data': data})
+
+
+@webapp_auth
 async def api_get_history(request: web.Request) -> web.Response:
     """API endpoint (GYM-10): a page of the caller's past *completed*
     workout sessions, most recent first, each with its summary — the
@@ -1917,6 +1951,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/statistics/records', api_get_records)
     app.router.add_get('/api/statistics/streak', api_get_streak)
     app.router.add_get('/api/statistics/achievements', api_get_achievements)
+    app.router.add_get('/api/statistics/today', api_get_today_workout)
     app.router.add_get('/api/statistics/history', api_get_history)
     app.router.add_get(
         '/api/statistics/history/{session_id}', api_get_history_session

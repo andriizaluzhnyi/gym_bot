@@ -36,33 +36,54 @@ def _make_training(
 
 
 class TestMainMenuKeyboards:
-    def test_main_menu_has_profile_and_help(self):
+    def test_main_menu_has_profile_help_and_booking_buttons(self):
         keyboard = keyboards.get_main_menu_keyboard()
         assert isinstance(keyboard, ReplyKeyboardMarkup)
         texts = [btn.text for row in keyboard.keyboard for btn in row]
         assert "👤 Профіль" in texts
         assert "ℹ️ Допомога" in texts
+        assert "📅 Розклад" in texts
+        assert "📝 Мої записи" in texts
 
-    def test_main_menu_omits_statistics_button_without_webapp_url(self, monkeypatch):
+    def test_main_menu_omits_webapp_buttons_without_webapp_url(self, monkeypatch):
         monkeypatch.setattr(get_settings(), "webapp_url", "")
         keyboard = keyboards.get_main_menu_keyboard()
         texts = [btn.text for row in keyboard.keyboard for btn in row]
         assert "📊 Статистика" not in texts
+        assert "🍎 Харчування" not in texts
+        assert "🏋️ Тренування" not in texts
+        # Booking buttons don't depend on WEBAPP_URL.
+        assert "📅 Розклад" in texts
 
-    def test_main_menu_adds_statistics_webapp_button(self, monkeypatch):
+    def test_main_menu_adds_webapp_buttons(self, monkeypatch):
         monkeypatch.setattr(get_settings(), "webapp_url", "https://example.com")
         keyboard = keyboards.get_main_menu_keyboard()
 
-        buttons = [btn for row in keyboard.keyboard for btn in row]
-        stats_button = next(btn for btn in buttons if btn.text == "📊 Статистика")
-        assert stats_button.web_app.url == "https://example.com/statistics"
+        buttons = {btn.text: btn for row in keyboard.keyboard for btn in row}
+        assert buttons["📊 Статистика"].web_app.url == "https://example.com/statistics"
+        assert buttons["🍎 Харчування"].web_app.url == "https://example.com/nutrition"
+        assert (
+            buttons["🏋️ Тренування"].web_app.url
+            == "https://example.com/nutrition?tab=workout"
+        )
 
-    def test_admin_menu_adds_program_buttons(self):
+    def test_admin_menu_adds_program_and_stats_buttons_on_top_of_main_menu(self, monkeypatch):
+        monkeypatch.setattr(get_settings(), "webapp_url", "")
         keyboard = keyboards.get_admin_menu_keyboard()
         texts = [btn.text for row in keyboard.keyboard for btn in row]
+
         assert "💪 Програма тренувань" in texts
         assert "📋 Переглянути програми" in texts
+        assert "➕ Додати тренування" in texts
+        assert "📈 Адмін-статистика" in texts
+        # Still has every regular-user button (booking, profile, help).
         assert "👤 Профіль" in texts
+        assert "📅 Розклад" in texts
+        assert "📝 Мої записи" in texts
+        assert "ℹ️ Допомога" in texts
+        # Old admin-stats label is gone — it now belongs to the main menu's
+        # "📊 Статистика" WebApp button instead (GYM-36).
+        assert "📊 Статистика" not in texts
 
 
 class TestUserSelectionKeyboard:

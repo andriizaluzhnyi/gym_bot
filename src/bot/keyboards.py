@@ -13,13 +13,17 @@ from src.database.models import Training
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Get main menu keyboard.
+    """Get main menu keyboard (GYM-18/36).
 
-    Includes a "📊 Статистика" WebApp button (GYM-18) opening
-    ``/statistics`` when ``WEBAPP_URL`` is configured; omitted otherwise so
-    the keyboard still builds in environments without it (tests, local dev
-    without a public URL) — same guard as the chat menu button set in
-    ``src/bot/handlers/start.py``.
+    Rows opening the WebApp ("🍎 Харчування", "🏋️ Тренування",
+    "📊 Статистика") are included only when ``WEBAPP_URL`` is configured —
+    same guard as the default chat-menu button
+    (``src/bot/bot.py: configure_bot_commands``) — so the keyboard still
+    builds in environments without it (tests, local dev without a public
+    URL); "🏋️ Тренування" opens ``/nutrition?tab=workout``, which the page
+    reads to jump straight to its workout section instead of "Сьогодні".
+    "📅 Розклад"/"📝 Мої записи" are plain reply-keyboard buttons for the
+    group-booking flow, independent of the WebApp, so they're always shown.
     """
     settings = get_settings()
     buttons = []
@@ -27,15 +31,29 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     if settings.webapp_url:
         buttons.append([
             KeyboardButton(
+                text="🍎 Харчування",
+                web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition"),
+            ),
+            KeyboardButton(
+                text="🏋️ Тренування",
+                web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition?tab=workout"),
+            ),
+        ])
+        buttons.append([
+            KeyboardButton(
                 text="📊 Статистика",
                 web_app=WebAppInfo(url=f"{settings.webapp_url}/statistics"),
             ),
+            KeyboardButton(text="👤 Профіль"),
         ])
+    else:
+        buttons.append([KeyboardButton(text="👤 Профіль")])
 
     buttons.append([
-        KeyboardButton(text="👤 Профіль"),
-        KeyboardButton(text="ℹ️ Допомога"),
+        KeyboardButton(text="📅 Розклад"),
+        KeyboardButton(text="📝 Мої записи"),
     ])
+    buttons.append([KeyboardButton(text="ℹ️ Допомога")])
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=buttons,
@@ -45,20 +63,27 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_admin_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Get admin menu keyboard."""
-    buttons = [
+    """Get admin menu keyboard (GYM-36).
+
+    Trainer-only rows (program management, adding a training, the admin
+    stats summary) on top of the regular main menu, so admins keep every
+    button a regular user has — booking, nutrition/workout/statistics
+    WebApp, profile — instead of losing them behind an admin-only keyboard.
+    """
+    admin_rows = [
         [
             KeyboardButton(text="💪 Програма тренувань"),
             KeyboardButton(text="📋 Переглянути програми"),
         ],
         [
-            KeyboardButton(text="👤 Профіль"),
-            KeyboardButton(text="ℹ️ Допомога"),
+            KeyboardButton(text="➕ Додати тренування"),
+            KeyboardButton(text="📈 Адмін-статистика"),
         ],
     ]
+    main_menu_rows = list(get_main_menu_keyboard().keyboard)
 
     keyboard = ReplyKeyboardMarkup(
-        keyboard=buttons,
+        keyboard=admin_rows + main_menu_rows,
         resize_keyboard=True,
     )
     return keyboard

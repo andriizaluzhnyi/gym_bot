@@ -1482,6 +1482,16 @@
         loadDailyNutrition();
         loadMealsList();
 
+        // Open the "Тренування" section directly when linked with
+        // ?tab=workout (GYM-36: main menu's 🏋️ Тренування button opens
+        // /nutrition?tab=workout instead of the default "Сьогодні" view).
+        if (new URLSearchParams(window.location.search).get('tab') === 'workout') {
+            showWorkoutSection();
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.tab === 'workout');
+            });
+        }
+
         // Back button handler
         tg.BackButton.onClick(() => {
             tg.close();

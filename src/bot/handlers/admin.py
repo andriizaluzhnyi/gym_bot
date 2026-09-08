@@ -277,9 +277,15 @@ async def ignore_callback(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.message(F.text == "📊 Статистика")
+@router.message(F.text == "📈 Адмін-статистика")
 async def statistics_handler(message: Message) -> None:
-    """Show statistics for admin."""
+    """Show statistics for admin.
+
+    Renamed from "📊 Статистика" (GYM-36) — the main menu now has its own
+    "📊 Статистика" WebApp button (GYM-18) opening ``/statistics``; keeping
+    the same label here would put two unrelated destinations behind one
+    caption in the admin keyboard.
+    """
     # if not is_admin(message.from_user.id):
     #     await message.answer("❌ У вас немає прав для цієї дії")
     #     return
@@ -296,7 +302,7 @@ async def statistics_handler(message: Message) -> None:
         )
 
         text = (
-            "📊 *Статистика*\n\n"
+            "📈 *Адмін-статистика*\n\n"
             f"👥 Зареєстрованих користувачів: {len(users)}\n"
             f"📅 Запланованих тренувань: {len(upcoming)}\n"
             f"📝 Активних записів: {total_bookings}\n"

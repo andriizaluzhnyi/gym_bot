@@ -1,5 +1,5 @@
 """Tests for the /nutrition Mini App page shell, including GYM-15's
-"Статистика" sub-tab.
+"Статистика" sub-tab and GYM-16's insight line.
 """
 
 from aiohttp.test_utils import TestClient, TestServer
@@ -24,6 +24,9 @@ class TestNutritionPage:
             assert 'statsPeriodSelector' in body
             assert 'caloriesTrendChart' in body
             assert 'macrosTrendChart' in body
+            # GYM-16's insight line.
+            assert 'statsInsight' in body
+            assert 'avg_vs_goal' in body
 
     async def test_reads_telegram_webapp_js_like_other_pages(self):
         app = create_webapp()

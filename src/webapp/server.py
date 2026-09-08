@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_settings
 from src.database.repository import (
     DailyNutritionRepository,
+    ProfileRepository,
     UserAchievementRepository,
     UserRepository,
     WorkoutSessionRepository,
@@ -359,12 +360,14 @@ _VALID_NUTRITION_PERIODS = ('week', 'month')
 
 @webapp_auth
 async def api_get_nutrition_statistics(request: web.Request) -> web.Response:
-    """API endpoint (GYM-14): daily calorie/macro/water totals over a
-    period, one entry per local calendar day (`settings.timezone`) — a day
-    with no logged record gets zeros rather than being omitted, so the
+    """API endpoint (GYM-14/GYM-16): daily calorie/macro/water totals over
+    a period, one entry per local calendar day (`settings.timezone`) — a
+    day with no logged record gets zeros rather than being omitted, so the
     response always covers every day of the period (7 for a week, however
     many days are in the current month) ready for a bar chart with no
-    client-side gap-filling (GYM-15).
+    client-side gap-filling (GYM-15). Also includes `avg_vs_goal`: how far
+    the period's average is from each `Profile.daily_*` goal, for the
+    "insight" line above the chart (GYM-16).
 
     Unlike the `/api/statistics/*` workout endpoints, there's no `?user=`
     trainer-viewing-a-client convention here — nutrition data is always
@@ -396,6 +399,7 @@ async def api_get_nutrition_statistics(request: web.Request) -> web.Response:
         totals_by_day = await DailyNutritionRepository(session).get_totals_by_range(
             user.id, start, end, settings.timezone
         )
+        profile = await ProfileRepository(session).get_by_user_id(user.id)
 
     by_day = []
     day = to_local_date(start, settings.timezone)
@@ -407,7 +411,50 @@ async def api_get_nutrition_statistics(request: web.Request) -> web.Response:
         by_day.append({'date': day.isoformat(), **totals})
         day += timedelta(days=1)
 
-    return web.json_response({'success': True, 'data': {'by_day': by_day}})
+    avg_vs_goal = _compute_avg_vs_goal(totals_by_day, profile)
+
+    return web.json_response({
+        'success': True,
+        'data': {'by_day': by_day, 'avg_vs_goal': avg_vs_goal},
+    })
+
+
+#: Same fallback goals as UserRepository.get_nutrition_settings (used
+#: while a user has no Profile row yet — a fresh Profile() gets these via
+#: the model's own column defaults instead, see models.py).
+_DEFAULT_NUTRITION_GOALS = {
+    'calories': 2500, 'protein': 150, 'fats': 80, 'carbs': 250,
+}
+
+
+def _compute_avg_vs_goal(
+    totals_by_day: dict, profile
+) -> dict | None:
+    """GYM-16: how far the period's average daily calories/protein/fats/
+    carbs sit from the user's `Profile.daily_*` goals, as a percentage —
+    negative under goal, positive over. Days with no logged record are
+    excluded from the average (`totals_by_day` only holds days that have
+    at least one, per `get_totals_by_range`). `None` when the period has
+    no logged days at all — nothing to compare yet.
+    """
+    days = list(totals_by_day.values())
+    if not days:
+        return None
+
+    result = {}
+    for metric in ('calories', 'protein', 'fats', 'carbs'):
+        goal = getattr(profile, f'daily_{metric}', None) if profile else None
+        if goal is None:
+            goal = _DEFAULT_NUTRITION_GOALS[metric]
+
+        avg = sum(day[metric] for day in days) / len(days)
+        # A goal of exactly 0 (a user explicitly zeroing it out) has no
+        # meaningful "% of goal" — leave that metric out rather than
+        # divide by zero.
+        result[f'{metric}_diff_pct'] = (
+            round((avg - goal) / goal * 100, 1) if goal else None
+        )
+    return result
 
 
 async def workout_handler(request: web.Request) -> web.StreamResponse:

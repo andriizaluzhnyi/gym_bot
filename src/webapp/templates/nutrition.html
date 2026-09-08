@@ -124,6 +124,20 @@
             font-size: 14px;
         }
 
+        /* Insight line above the stats charts (GYM-16) */
+        .stats-insight {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-size: 13px;
+        }
+
         /* Calories Section */
         .calories-section {
             display: flex;
@@ -619,6 +633,8 @@
         <div class="loading" id="statsLoading">Завантаження статистики...</div>
 
         <div id="statsContent" style="display: none;">
+            <div class="stats-insight" id="statsInsight" style="display: none;"></div>
+
             <div class="card">
                 <div class="card-title">Калорії</div>
                 <div class="chart-container">
@@ -1277,6 +1293,54 @@
             });
         }
 
+        // GYM-16: a single insight line above the charts, picking
+        // whichever of calories/protein/fats/carbs deviates most (in
+        // absolute %) from its goal — server computes the four
+        // *_diff_pct values (avg over logged days only, GYM-16), this
+        // just picks and phrases one.
+        const INSIGHT_METRIC_LABELS = {
+            calories_diff_pct: 'калоріях',
+            protein_diff_pct: 'білку',
+            fats_diff_pct: 'жирах',
+            carbs_diff_pct: 'вуглеводах',
+        };
+
+        function renderInsight(avgVsGoal, period) {
+            const insightEl = document.getElementById('statsInsight');
+
+            if (!avgVsGoal) {
+                insightEl.style.display = 'none';
+                return;
+            }
+
+            let bestKey = null;
+            let bestAbs = -1;
+            for (const key of Object.keys(INSIGHT_METRIC_LABELS)) {
+                const value = avgVsGoal[key];
+                if (value === null || value === undefined) {
+                    continue;
+                }
+                const abs = Math.abs(value);
+                if (abs > bestAbs) {
+                    bestAbs = abs;
+                    bestKey = key;
+                }
+            }
+
+            if (bestKey === null) {
+                insightEl.style.display = 'none';
+                return;
+            }
+
+            const value = avgVsGoal[bestKey];
+            const sign = value > 0 ? '+' : '';
+            const periodLabel = period === 'week' ? 'цього тижня' : 'цього місяця';
+            insightEl.textContent =
+                `💡 В середньому ${sign}${value}% від цілі по ` +
+                `${INSIGHT_METRIC_LABELS[bestKey]} ${periodLabel}`;
+            insightEl.style.display = '';
+        }
+
         async function loadNutritionStats() {
             const loadingEl = document.getElementById('statsLoading');
             const contentEl = document.getElementById('statsContent');
@@ -1296,6 +1360,7 @@
                 loadingEl.style.display = 'none';
                 contentEl.style.display = '';
 
+                renderInsight(data.avg_vs_goal, statsPeriod);
                 renderCaloriesTrendChart(data.by_day);
                 renderMacrosTrendChart(data.by_day);
             } catch (error) {

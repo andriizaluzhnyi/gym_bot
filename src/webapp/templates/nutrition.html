@@ -207,7 +207,13 @@
 
         .calories-label {
             font-size: 10px;
+            line-height: 1.3;
+            max-width: 66px;
             color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        .calories-label.over-goal {
+            color: #ef4444;
         }
 
         .macros {
@@ -375,9 +381,15 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        .edit-btn {
+        .add-btn {
             background-color: var(--card-border);
-            color: var(--tg-theme-hint-color, var(--text-secondary));
+            color: var(--tg-theme-text-color, var(--text-primary));
+            padding: 10px 16px;
+            border-radius: 20px;
+            width: auto;
+            font-size: 14px;
+            font-weight: 500;
+            gap: 6px;
         }
 
         .photo-btn {
@@ -396,6 +408,8 @@
         }
 
         .empty-state {
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
             text-align: center;
             padding: 30px 0;
         }
@@ -425,6 +439,30 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 8px;
+        }
+
+        .meal-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .meal-delete-btn {
+            background: none;
+            border: none;
+            font-size: 16px;
+            line-height: 1;
+            padding: 4px;
+            margin: -4px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: all 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .meal-delete-btn:active {
+            opacity: 1;
+            transform: scale(0.9);
         }
 
         .meal-time {
@@ -585,7 +623,7 @@
                     </svg>
                     <div class="calories-text">
                         <div class="calories-value" id="caloriesValue">0</div>
-                        <div class="calories-label">ккал</div>
+                        <div class="calories-label" id="caloriesLabel">ккал</div>
                     </div>
                 </div>
                 <div class="macros">
@@ -609,8 +647,8 @@
             <div class="meals-header">
                 <span class="meals-title">Прийоми їжі</span>
                 <div class="meals-actions">
-                    <button class="action-btn edit-btn">✏️</button>
-                    <button class="action-btn photo-btn">📷 Фото</button>
+                    <button class="action-btn add-btn" id="addMealBtn">➕ Додати</button>
+                    <button class="action-btn photo-btn" id="photoBtn" style="display: none;">📷 Фото</button>
                 </div>
             </div>
             <div class="empty-state" id="mealsEmpty">
@@ -690,9 +728,19 @@
         tg.ready();
         tg.expand();
 
+        const MONTHS_UK = [
+            'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
+            'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'
+        ];
+
         // State
         let waterAmount = 0;
-        let waterHistory = []; // History of water changes
+        // Id of the most recent water entry today, from the server — not a
+        // client-side history of amounts (GYM-22). "↩️ Відмінити" deletes
+        // this exact row (DELETE /api/nutrition/meal/{id}, GYM-21); there's
+        // nothing to undo past it without reloading, since nothing here
+        // remembers earlier entries.
+        let lastWaterEntryId = null;
         let waterGoal = 2500;
         let caloriesGoal = 2500;
         let proteinGoal = 150;
@@ -706,15 +754,23 @@
         // User settings from API
         let userSettings = null;
 
-        // Set current date
+        // Set current date from the device clock — only a first-paint
+        // placeholder shown before loadDailyNutrition() resolves; that
+        // response's `date` (GYM-22, settings.timezone) is what actually
+        // renders, since the device's own clock/timezone may not agree
+        // with the server on what day "today" is.
         function setCurrentDate() {
             const now = new Date();
-            const months = [
-                'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
-                'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'
-            ];
             document.getElementById('currentDate').textContent =
-                `${now.getDate()} ${months[now.getMonth()]}`;
+                `${now.getDate()} ${MONTHS_UK[now.getMonth()]}`;
+        }
+
+        // Render the header date from the server's local ISO date
+        // ("YYYY-MM-DD", settings.timezone) — GYM-22.
+        function renderDateFromIso(isoDate) {
+            const [, month, day] = isoDate.split('-');
+            document.getElementById('currentDate').textContent =
+                `${Number(day)} ${MONTHS_UK[Number(month) - 1]}`;
         }
 
         // Update macros rings
@@ -763,6 +819,19 @@
 
             // Update calories value
             document.getElementById('caloriesValue').textContent = currentCalories;
+
+            // "залишилось N ккал" under the number (GYM-22); the ring
+            // color for over-goal macros already changes above — this
+            // just relabels the caption, no separate alert.
+            const caloriesLabel = document.getElementById('caloriesLabel');
+            const remaining = caloriesGoal - currentCalories;
+            if (remaining >= 0) {
+                caloriesLabel.textContent = `залишилось ${remaining} ккал`;
+                caloriesLabel.classList.remove('over-goal');
+            } else {
+                caloriesLabel.textContent = `+${Math.abs(remaining)} ккал понад ціль`;
+                caloriesLabel.classList.add('over-goal');
+            }
         }
 
         // Update macros display
@@ -774,18 +843,10 @@
 
         // Update water display
         async function updateWater(amount) {
-            const previousAmount = waterAmount;
             waterAmount = Math.max(0, waterAmount + amount);
-
-            // Save to history
-            waterHistory.push(previousAmount);
-            if (waterHistory.length > 50) {
-                waterHistory.shift(); // Keep max 50 items
-            }
 
             // Update UI
             document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
-            document.getElementById('undoWaterBtn').disabled = false;
             updateWaterProgressBar();
 
             // Haptic feedback
@@ -816,27 +877,44 @@
             }
         }
 
-        // Undo last water change
+        // Undo the last water entry (GYM-22): deletes the actual DB row
+        // (DELETE /api/nutrition/meal/{id}, GYM-21) instead of the old
+        // approach of posting an offsetting negative increment — that left
+        // both rows in the DB (so a deleted "mistake" still showed up
+        // anywhere raw entries are listed) and relied on an in-memory
+        // history lost on every reload.
         async function undoWater() {
-            if (waterHistory.length > 0) {
-                const previousAmount = waterHistory.pop();
-                const difference = waterAmount - previousAmount;
-                waterAmount = previousAmount;
+            if (!lastWaterEntryId) {
+                return;
+            }
 
-                document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
-                updateWaterProgressBar();
+            const undoBtn = document.getElementById('undoWaterBtn');
+            undoBtn.disabled = true;
 
-                if (waterHistory.length === 0) {
-                    document.getElementById('undoWaterBtn').disabled = true;
+            try {
+                const response = await fetch(`/api/nutrition/meal/${lastWaterEntryId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': tg.initData }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to undo water entry: ${response.status}`);
                 }
 
-                // Haptic feedback
+                lastWaterEntryId = null;
+
                 if (tg.HapticFeedback) {
                     tg.HapticFeedback.impactOccurred('light');
                 }
 
-                // Save negative increment to server
-                await saveWaterIncrement(-difference);
+                // Re-sync from the server rather than guessing the amount
+                // client-side — also refreshes last_water_entry_id, so
+                // undo keeps working if there's an earlier entry left.
+                await loadDailyNutrition();
+            } catch (error) {
+                console.error('Error undoing water entry:', error);
+                undoBtn.disabled = false;
+                tg.showAlert('Не вдалося відмінити. Спробуйте ще раз.');
             }
         }
 
@@ -858,7 +936,13 @@
                     })
                 });
 
-                if (!response.ok) {
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success && result.data) {
+                        lastWaterEntryId = result.data.id;
+                        document.getElementById('undoWaterBtn').disabled = false;
+                    }
+                } else {
                     console.error('Failed to save water increment:', response.status);
                 }
             } catch (error) {
@@ -911,9 +995,18 @@
                         currentFats = result.data.fats || 0;
                         currentCarbs = result.data.carbs || 0;
 
-                        // Clear history when loading initial data
-                        waterHistory = [];
-                        document.getElementById('undoWaterBtn').disabled = true;
+                        // GYM-22: last_water_entry_id (not a client-side
+                        // history) drives "↩️ Відмінити" — stays enabled
+                        // across a reload whenever there's still something
+                        // to undo.
+                        lastWaterEntryId = result.data.last_water_entry_id || null;
+                        document.getElementById('undoWaterBtn').disabled = !lastWaterEntryId;
+
+                        // "Today" per the server (settings.timezone), not
+                        // the device's own clock/timezone.
+                        if (result.data.date) {
+                            renderDateFromIso(result.data.date);
+                        }
 
                         // Update displays
                         document.getElementById('waterCurrent').textContent = `${waterAmount} мл`;
@@ -953,37 +1046,122 @@
             }
         }
 
-        // Display meals list
+        // Display meals list — built with createElement/textContent
+        // throughout (GYM-22), not innerHTML templates: meal_name is
+        // free text the user typed (GYM-21), so it must never be
+        // interpolated into HTML.
         function displayMealsList(meals) {
             const mealsEmpty = document.getElementById('mealsEmpty');
             const mealsList = document.getElementById('mealsList');
 
+            mealsList.textContent = '';
+
             if (meals.length === 0) {
                 mealsEmpty.style.display = 'block';
-                mealsList.innerHTML = '';
-            } else {
-                mealsEmpty.style.display = 'none';
-                mealsList.innerHTML = meals.map(meal => {
-                    const date = new Date(meal.created_at);
-                    const time = date.toLocaleTimeString('uk-UA', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
+                return;
+            }
+            mealsEmpty.style.display = 'none';
 
-                    return `
-                        <div class="meal-item">
-                            <div class="meal-header">
-                                <span class="meal-time">${time}</span>
-                                <span class="meal-calories">${meal.calories} ккал</span>
-                            </div>
-                            <div class="meal-macros">
-                                <span class="meal-macro protein">🔵 ${meal.protein}г</span>
-                                <span class="meal-macro fat">🟠 ${meal.fats}г</span>
-                                <span class="meal-macro carbs">🟢 ${meal.carbs}г</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+            meals.forEach(meal => {
+                mealsList.appendChild(buildMealItem(meal));
+            });
+        }
+
+        function buildMealItem(meal) {
+            const time = new Date(meal.created_at).toLocaleTimeString('uk-UA', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const item = document.createElement('div');
+            item.className = 'meal-item';
+
+            const titleRow = document.createElement('div');
+            titleRow.className = 'meal-header';
+
+            const nameEl = document.createElement('span');
+            nameEl.className = 'meal-name';
+            nameEl.textContent = meal.meal_name || 'Прийом їжі';
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'meal-delete-btn';
+            deleteBtn.setAttribute('aria-label', 'Видалити запис');
+            deleteBtn.textContent = '🗑';
+            deleteBtn.addEventListener('click', () => confirmDeleteMeal(meal));
+
+            titleRow.appendChild(nameEl);
+            titleRow.appendChild(deleteBtn);
+
+            const infoRow = document.createElement('div');
+            infoRow.className = 'meal-header';
+
+            const timeEl = document.createElement('span');
+            timeEl.className = 'meal-time';
+            timeEl.textContent = time;
+
+            const caloriesEl = document.createElement('span');
+            caloriesEl.className = 'meal-calories';
+            caloriesEl.textContent = `${meal.calories} ккал`;
+
+            infoRow.appendChild(timeEl);
+            infoRow.appendChild(caloriesEl);
+
+            const macrosRow = document.createElement('div');
+            macrosRow.className = 'meal-macros';
+            macrosRow.appendChild(buildMealMacroTag('protein', '🔵', meal.protein));
+            macrosRow.appendChild(buildMealMacroTag('fat', '🟠', meal.fats));
+            macrosRow.appendChild(buildMealMacroTag('carbs', '🟢', meal.carbs));
+
+            item.appendChild(titleRow);
+            item.appendChild(infoRow);
+            item.appendChild(macrosRow);
+            return item;
+        }
+
+        function buildMealMacroTag(modifierClass, emoji, grams) {
+            const tag = document.createElement('span');
+            tag.className = `meal-macro ${modifierClass}`;
+            tag.textContent = `${emoji} ${grams}г`;
+            return tag;
+        }
+
+        // Confirm + delete one meal or water entry (GYM-21/22): confirms
+        // via Telegram's native dialog rather than a swipe gesture — both
+        // are allowed by the spec, this is the lower-risk one to build.
+        function confirmDeleteMeal(meal) {
+            const label = meal.meal_name || 'Прийом їжі';
+            tg.showConfirm(`Видалити «${label}»?`, async (confirmed) => {
+                if (!confirmed) {
+                    return;
+                }
+                await deleteMeal(meal.id);
+            });
+        }
+
+        async function deleteMeal(mealId) {
+            try {
+                const response = await fetch(`/api/nutrition/meal/${mealId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': tg.initData }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to delete meal: ${response.status}`);
+                }
+
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('success');
+                }
+
+                // Re-sync both the list and the calorie/macro rings from
+                // the server, without a full page reload (GYM-22).
+                await Promise.all([loadDailyNutrition(), loadMealsList()]);
+            } catch (error) {
+                console.error('Error deleting meal:', error);
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('error');
+                }
+                tg.showAlert('Не вдалося видалити запис. Спробуйте ще раз.');
             }
         }
 
@@ -993,6 +1171,13 @@
             // with no buttons to tap, no water entries get created either.
             document.getElementById('waterCard').style.display =
                 settings.water_tracking_enabled === false ? 'none' : '';
+
+            // GYM-22/24: the photo button stays hidden until GYM-23/24
+            // ships and /api/user/settings starts returning
+            // photo_recognition_enabled: true (it doesn't exist yet, so
+            // this is always false today).
+            document.getElementById('photoBtn').style.display =
+                settings.photo_recognition_enabled ? '' : 'none';
 
             if (settings.daily_water_ml) {
                 waterGoal = settings.daily_water_ml;
@@ -1449,22 +1634,31 @@
             });
         });
 
-        // Photo button
-        document.querySelector('.photo-btn').addEventListener('click', () => {
+        // Photo button — hidden by default (see applyUserSettings) until
+        // GYM-23/24 ships photo recognition and starts returning
+        // photo_recognition_enabled: true from /api/user/settings; the
+        // click handler is a placeholder GYM-24 will replace.
+        document.getElementById('photoBtn').addEventListener('click', () => {
             if (tg.HapticFeedback) {
                 tg.HapticFeedback.impactOccurred('medium');
             }
-            // TODO: Open camera or file picker
             tg.showAlert('Функція додавання фото буде доступна незабаром!');
         });
 
-        // Edit button - open meal entry page
-        document.querySelector('.edit-btn').addEventListener('click', () => {
+        // "Додати" button — open meal entry page
+        document.getElementById('addMealBtn').addEventListener('click', () => {
             if (tg.HapticFeedback) {
                 tg.HapticFeedback.impactOccurred('light');
             }
+            window.location.href = '/meal-entry';
+        });
 
-            // Navigate to meal entry page within webapp
+        // Empty state ("Немає записів за сьогодні") also opens meal entry
+        // (GYM-22) — same destination as "➕ Додати", just a bigger target.
+        document.getElementById('mealsEmpty').addEventListener('click', () => {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
             window.location.href = '/meal-entry';
         });
 

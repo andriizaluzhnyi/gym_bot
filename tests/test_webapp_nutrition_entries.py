@@ -14,6 +14,7 @@ from aiohttp.test_utils import make_mocked_request
 from src.database.models import Base, DailyNutrition, NutritionEntryType
 from src.database.repository import DailyNutritionRepository, UserRepository
 from src.database.session import async_session_maker, engine
+from src.utils.datetime_utils import to_local_date, utcnow
 from src.webapp.server import (
     api_add_meal,
     api_delete_meal,
@@ -60,6 +61,10 @@ def _utc_for_local(local_date, hour=12) -> datetime:
         tzinfo=ZoneInfo(settings.timezone),
     )
     return local_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _today_local() -> date:
+    return to_local_date(utcnow(), settings.timezone)
 
 
 def _mock_request(
@@ -314,3 +319,84 @@ class TestApiGetDailyNutritionUsesLocalDay:
 
         assert response.status == 200
         assert payload["data"]["water_ml"] == 400
+
+
+class TestApiGetDailyNutritionDateAndLastWaterEntryId:
+    """GYM-22: the two fields the WebApp needs to stop guessing "today"
+    from the device clock and stop tracking undo history client-side.
+    """
+
+    async def test_date_is_todays_local_date(self):
+        user = await _make_user(1)
+        await _add_entry(
+            user.id, _utc_for_local(date(2026, 1, 7)),
+            NutritionEntryType.WATER.value, water_ml=100,
+        )
+
+        request = _mock_request("GET", "/api/nutrition/daily", telegram_id=1)
+        response = await api_get_daily_nutrition(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["date"] == to_local_date(utcnow(), settings.timezone).isoformat()
+
+    async def test_last_water_entry_id_is_null_without_any_water_today(self):
+        await _make_user(1)
+        request = _mock_request("GET", "/api/nutrition/daily", telegram_id=1)
+        response = await api_get_daily_nutrition(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["last_water_entry_id"] is None
+
+    async def test_last_water_entry_id_points_at_the_most_recent_water_row(self):
+        user = await _make_user(1)
+        today = _today_local()
+        earlier_today = _utc_for_local(today, hour=6)
+        later_today = _utc_for_local(today, hour=10)
+        await _add_entry(user.id, earlier_today, NutritionEntryType.WATER.value, water_ml=200)
+        newest_id = await _add_entry(
+            user.id, later_today, NutritionEntryType.WATER.value, water_ml=250
+        )
+
+        request = _mock_request(
+            "GET", "/api/nutrition/daily", telegram_id=1,
+        )
+        response = await api_get_daily_nutrition(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["last_water_entry_id"] == newest_id
+
+    async def test_last_water_entry_id_ignores_meal_entries(self):
+        user = await _make_user(1)
+        await _add_entry(
+            user.id, _utc_for_local(_today_local()),
+            NutritionEntryType.MEAL.value, meal_name="Обід", calories=400,
+        )
+
+        request = _mock_request("GET", "/api/nutrition/daily", telegram_id=1)
+        response = await api_get_daily_nutrition(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["last_water_entry_id"] is None
+
+
+class TestGetLastEntryIdForLocalDay:
+    """DailyNutritionRepository.get_last_entry_id_for_local_day (GYM-22),
+    exercised directly (the API tests above already cover it end to end
+    for the water case)."""
+
+    async def test_ignores_entries_from_a_different_local_day(self):
+        user = await _make_user(1)
+        await _add_entry(
+            user.id, _utc_for_local(date(2026, 1, 6)),
+            NutritionEntryType.WATER.value, water_ml=300,
+        )
+
+        async with async_session_maker() as session:
+            entry_id = await DailyNutritionRepository(
+                session
+            ).get_last_entry_id_for_local_day(
+                user.id, settings.timezone, NutritionEntryType.WATER.value,
+                now_utc=_utc_for_local(date(2026, 1, 7)),
+            )
+
+        assert entry_id is None

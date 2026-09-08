@@ -575,7 +575,9 @@ Stat-картки зверху завжди показують поточний 
 - ✅ **GYM-18** — **виконано.** Навігація: кнопка `📊 Статистика` у
   `get_main_menu_keyboard` (`src/bot/keyboards.py`, показується лише коли
   `WEBAPP_URL` задано — так само, як chat-menu-кнопка у `start.py`) і команда
-  `/statistics` (`src/bot/handlers/statistics.py`, за зразком `/nutrition`),
+  `/statistics` (`src/bot/handlers/workout_statistics.py` — не `statistics.py`,
+  щоб не затіняти однойменний модуль стандартної бібліотеки, як і
+  `user_profile.py` уникає `profile.py`; за зразком `/nutrition`),
   що відкривають `WebAppInfo(url=f"{webapp_url}/statistics")`. **SP: 2**
 - **GYM-19** — Інтеграційні тести ендпоінтів `/api/statistics/*` через
   `aiohttp` test client (unit-тести логіки — в DoD кожного таска). **SP: 3**

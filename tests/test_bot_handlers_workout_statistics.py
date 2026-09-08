@@ -1,8 +1,8 @@
-"""Tests for the /statistics command handler (src/bot/handlers/statistics.py,
-GYM-18).
+"""Tests for the /statistics command handler
+(src/bot/handlers/workout_statistics.py, GYM-18).
 """
 
-from src.bot.handlers import statistics
+from src.bot.handlers import workout_statistics as statistics
 from tests.bot_mocks import make_message
 
 

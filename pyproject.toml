@@ -50,6 +50,7 @@ lint = [
 typing = [
     "types-cachetools==7.0.0.20260713",
     "mypy",
+    "pytest==9.1.1",
     "types-requests",
 ]
 

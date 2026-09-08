@@ -9,7 +9,7 @@ from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
 from src.config import get_settings
-from src.webapp.auth import validate_telegram_webapp_data, webapp_auth
+from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
 BOT_TOKEN = get_settings().telegram_bot_token
 
@@ -71,7 +71,7 @@ class TestWebappAuthDecorator:
 
         @webapp_auth
         async def handler(request: web.Request) -> web.Response:
-            called_with["telegram_user"] = request["telegram_user"]
+            called_with["telegram_user"] = request[TELEGRAM_USER_KEY]
             return web.json_response({"success": True})
 
         request = make_mocked_request(

@@ -535,9 +535,16 @@ Google Sheets API свідомо не хочемо (auth/квоти/крихкі
 
 ## Наскрізні задачі
 
-- **GYM-17** — Підключити Chart.js один раз: перевірити, чи `Caddyfile`/CSP
-  не блокують CDN; якщо є сумніви — вендорити `chart.umd.min.js` у
-  `src/webapp/templates/` (уже роздається як `/static`). **SP: 2**
+- ✅ **GYM-17** — **виконано.** `Caddyfile` не задає жодних CSP-заголовків, але
+  оскільки Mini App рендериться у WebView Telegram-клієнта (полiтики різних
+  платформ — desktop/mobile/web — не під нашим контролем і не перевірити
+  наперед), вирішили не покладатись на CDN: провендорили
+  `Chart.js v4.4.7` (UMD, мінімізований, MIT-ліцензія, sha256
+  `206b6e8bb00fc7bba2c7ee80ca41db3e9e05ba7be0aa35abeba9cfd5357f5d0e`) у
+  `src/webapp/templates/chart.umd.min.js`, роздається наявним `/static`
+  (`GET /static/chart.umd.min.js`, підтверджено тестом
+  `tests/test_webapp_static_assets.py`). GYM-3 підключає його тегом
+  `<script src="/static/chart.umd.min.js">`. **SP: 2**
 - **GYM-18** — Навігація: кнопка `📊 Статистика` у `get_main_menu_keyboard`
   (`src/bot/keyboards.py`) і команда `/statistics`, що відкривають
   `WebAppInfo(url=f"{webapp_url}/statistics")`. **SP: 2**

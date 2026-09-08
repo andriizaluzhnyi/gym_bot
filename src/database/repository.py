@@ -724,6 +724,38 @@ class DailyNutritionRepository:
         )
         return list(result.scalars().all())
 
+    async def get_last_entry_id_for_local_day(
+        self, user_id: uuid.UUID, tz_name: str, entry_type: str,
+        *, now_utc: datetime | None = None,
+    ) -> int | None:
+        """The id of the most recently created entry of ``entry_type`` for
+        "today" (local calendar day), or ``None`` if there isn't one —
+        GYM-22.
+
+        Lets the WebApp's "↩️ Відмінити" button know which row
+        ``DELETE /api/nutrition/meal/{id}`` (GYM-21) should remove, without
+        keeping any client-side history of amounts — the DB row is the
+        only source of truth, unlike the old client-side ``waterHistory``
+        stack it replaces (lost on reload, and never matched what was
+        actually saved if a request failed).
+        """
+        start, end = period_bounds_utc("day", tz_name, now_utc=now_utc)
+
+        result = await self.session.execute(
+            select(DailyNutrition.id)
+            .where(
+                and_(
+                    DailyNutrition.user_id == user_id,
+                    DailyNutrition.entry_type == entry_type,
+                    DailyNutrition.date >= start,
+                    DailyNutrition.date < end,
+                )
+            )
+            .order_by(DailyNutrition.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def delete_by_id_for_user(
         self, entry_id: int, user_id: uuid.UUID
     ) -> bool:

@@ -234,6 +234,17 @@ async def api_get_daily_nutrition(request: web.Request) -> web.Response:
             user.id, settings.timezone
         )
 
+        # GYM-22: `date` lets the client render "today" without computing
+        # it from the device's own clock/timezone (which may not match
+        # settings.timezone); `last_water_entry_id` lets "↩️ Відмінити"
+        # delete the right row (GYM-21) even right after a page reload,
+        # with no client-side history to reconstruct it from.
+        last_water_entry_id = await daily_nutrition_repo.get_last_entry_id_for_local_day(
+            user.id, settings.timezone, NutritionEntryType.WATER.value
+        )
+        totals['date'] = to_local_date(utcnow(), settings.timezone).isoformat()
+        totals['last_water_entry_id'] = last_water_entry_id
+
         return web.json_response({
             'success': True,
             'data': totals

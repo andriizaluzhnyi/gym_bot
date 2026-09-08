@@ -20,8 +20,19 @@ from src.services.exercise_names import normalize_exercise_name
 
 @pytest.fixture(autouse=True)
 async def _create_tables():
-    """Ensure all tables (including the new ones) exist before each test."""
+    """Reset all tables before each test.
+
+    GYM-41: this used to be ``create_all`` only (no ``drop_all``), unlike
+    every other test file's fixture — harmless on a fresh DB, but the
+    shared SQLite file at ``tests/conftest.py``'s path persists across
+    separate ``pytest`` invocations, so a leftover ``exercises`` row from
+    an earlier run (unique on ``normalized_name``) could make
+    ``get_or_create_by_name`` return that stale row here instead of
+    creating a fresh one — exactly what broke
+    ``TestExerciseRepositoryGetOrCreateByName`` intermittently.
+    """
     async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
 
@@ -104,6 +115,62 @@ class TestExerciseRepositoryGetOrCreateByName:
 
             assert again.id == first.id
             assert again.muscle_group == "🏋️ Груди"
+
+
+class TestExerciseRepositorySearch:
+    async def test_matches_contains_normalized(self):
+        async with async_session_maker() as session:
+            repo = ExerciseRepository(session)
+            await repo.get_or_create_by_name("Жим лежачи")
+            await session.commit()
+
+            results = await repo.search("жим")
+            assert [e.name for e in results] == ["Жим лежачи"]
+
+    async def test_no_match_returns_empty_list(self):
+        async with async_session_maker() as session:
+            repo = ExerciseRepository(session)
+            await repo.get_or_create_by_name("Жим лежачи")
+            await session.commit()
+
+            assert await repo.search("присідання") == []
+
+    async def test_blank_query_returns_recent_entries_instead_of_empty(self):
+        """GYM-41: an empty q backs the "pick from what's already there"
+        list shown on focus, not a "type to search" empty state.
+        """
+        async with async_session_maker() as session:
+            repo = ExerciseRepository(session)
+            await repo.get_or_create_by_name("Жим лежачи")
+            await repo.get_or_create_by_name("Присідання")
+            await session.commit()
+
+            results = await repo.search("")
+            assert {e.name for e in results} == {"Жим лежачи", "Присідання"}
+
+    async def test_blank_query_orders_most_recently_added_first(self):
+        async with async_session_maker() as session:
+            repo = ExerciseRepository(session)
+            await repo.get_or_create_by_name("Жим лежачи")
+            await repo.get_or_create_by_name("Присідання")
+            await session.commit()
+
+            results = await repo.search("")
+            assert [e.name for e in results] == ["Присідання", "Жим лежачи"]
+
+    async def test_blank_query_respects_limit(self):
+        async with async_session_maker() as session:
+            repo = ExerciseRepository(session)
+            for name in ["A", "B", "C"]:
+                await repo.get_or_create_by_name(name)
+            await session.commit()
+
+            results = await repo.search("", limit=2)
+            assert len(results) == 2
+
+    async def test_blank_query_with_empty_catalog_returns_empty_list(self):
+        async with async_session_maker() as session:
+            assert await ExerciseRepository(session).search("") == []
 
 
 class TestAddExercises:
@@ -283,6 +350,49 @@ class TestDeleteDay:
             remaining = await repo.get_program(user.id)
             assert len(remaining) == 1
             assert remaining[0]["day"] == "2"
+
+    async def test_muscle_scoped_delete_leaves_other_groups_in_the_same_day(self):
+        """GYM-41: a day can span several muscle groups (GYM-30) — a
+        muscle-scoped delete must only remove that group's rows.
+        """
+        async with async_session_maker() as session:
+            user = await _make_user(session)
+            repo = WorkoutProgramRepository(session)
+            await repo.add_exercises(user.id, day=1, items=[CHEST_ITEM, LEGS_ITEM])
+            await session.commit()
+
+            deleted = await repo.delete_day(user.id, 1, muscle=CHEST_ITEM["muscle_group"])
+            await session.commit()
+
+            assert deleted is True
+            remaining = await repo.get_program(user.id, day=1)
+            assert [r["exercise"] for r in remaining] == [LEGS_ITEM["exercise"]]
+
+    async def test_muscle_scoped_delete_returns_false_when_that_group_is_empty(self):
+        async with async_session_maker() as session:
+            user = await _make_user(session)
+            repo = WorkoutProgramRepository(session)
+            await repo.add_exercises(user.id, day=1, items=[CHEST_ITEM])
+            await session.commit()
+
+            deleted = await repo.delete_day(user.id, 1, muscle=LEGS_ITEM["muscle_group"])
+
+            assert deleted is False
+            remaining = await repo.get_program(user.id, day=1)
+            assert len(remaining) == 1  # the chest exercise is untouched
+
+    async def test_no_muscle_param_still_deletes_the_whole_day(self):
+        async with async_session_maker() as session:
+            user = await _make_user(session)
+            repo = WorkoutProgramRepository(session)
+            await repo.add_exercises(user.id, day=1, items=[CHEST_ITEM, LEGS_ITEM])
+            await session.commit()
+
+            deleted = await repo.delete_day(user.id, 1)
+            await session.commit()
+
+            assert deleted is True
+            assert await repo.get_program(user.id, day=1) == []
 
 
 class TestDeleteExercise:

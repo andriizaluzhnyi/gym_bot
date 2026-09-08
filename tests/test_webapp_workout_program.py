@@ -8,6 +8,7 @@ per endpoint to prove the wiring).
 
 import json
 from unittest.mock import AsyncMock, patch
+from urllib.parse import quote
 
 import pytest
 from aiohttp import web
@@ -212,6 +213,74 @@ class TestApiDeleteWorkoutDay:
         )
         response = await api_delete_workout_day(request)
         assert response.status == 403
+
+    async def test_muscle_param_only_deletes_that_group(self):
+        """GYM-41: a day spanning several muscle groups — deleting one
+        via ?muscle= must leave the others in place.
+        """
+        user = await _make_user("lifter", telegram_id=1, sync_enabled=False)
+        await _add_exercises(user.id, 1, [CHEST_ITEM, LEGS_ITEM])
+
+        muscle_qs = quote(CHEST_ITEM["muscle_group"])
+        request = _mock_request(
+            "DELETE", f"/api/workout/day?day=1&muscle={muscle_qs}", telegram_id=1
+        )
+        response = await api_delete_workout_day(request)
+
+        assert response.status == 200
+        async with async_session_maker() as session:
+            remaining = await WorkoutProgramRepository(session).get_program(user.id, day=1)
+        assert [r["exercise"] for r in remaining] == [LEGS_ITEM["exercise"]]
+
+    async def test_muscle_param_with_no_matching_rows_returns_404(self):
+        user = await _make_user("lifter", telegram_id=1)
+        await _add_exercises(user.id, 1, [CHEST_ITEM])
+
+        muscle_qs = quote(LEGS_ITEM["muscle_group"])
+        request = _mock_request(
+            "DELETE", f"/api/workout/day?day=1&muscle={muscle_qs}", telegram_id=1
+        )
+        response = await api_delete_workout_day(request)
+
+        assert response.status == 404
+        async with async_session_maker() as session:
+            remaining = await WorkoutProgramRepository(session).get_program(user.id, day=1)
+        assert len(remaining) == 1  # the chest exercise survives
+
+    async def test_muscle_param_mirrors_only_that_groups_exercises_to_sheets(self):
+        user = await _make_user("lifter", telegram_id=1, sync_enabled=True)
+        await _add_exercises(user.id, 1, [CHEST_ITEM, LEGS_ITEM])
+
+        muscle_qs = quote(CHEST_ITEM["muscle_group"])
+        request = _mock_request(
+            "DELETE", f"/api/workout/day?day=1&muscle={muscle_qs}", telegram_id=1
+        )
+        with patch("src.webapp.server.GoogleSheetsService") as mock_sheets_cls:
+            instance = mock_sheets_cls.return_value
+            instance.delete_exercise = AsyncMock(return_value=True)
+            instance.delete_workout_day = AsyncMock(return_value=True)
+            response = await api_delete_workout_day(request)
+
+            instance.delete_exercise.assert_awaited_once_with(
+                "lifter", "1", CHEST_ITEM["exercise"]
+            )
+            instance.delete_workout_day.assert_not_awaited()
+
+        assert response.status == 200
+
+    async def test_without_muscle_param_still_mirrors_the_whole_day(self):
+        user = await _make_user("lifter", telegram_id=1, sync_enabled=True)
+        await _add_exercises(user.id, 1, [CHEST_ITEM, LEGS_ITEM])
+
+        request = _mock_request("DELETE", "/api/workout/day?day=1", telegram_id=1)
+        with patch("src.webapp.server.GoogleSheetsService") as mock_sheets_cls:
+            instance = mock_sheets_cls.return_value
+            instance.delete_workout_day = AsyncMock(return_value=True)
+            response = await api_delete_workout_day(request)
+
+            instance.delete_workout_day.assert_awaited_once_with("lifter", "1")
+
+        assert response.status == 200
 
 
 class TestApiDeleteExercise:

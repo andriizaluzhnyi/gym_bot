@@ -229,6 +229,38 @@
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
+        /* Muscle-group sections in the list view (GYM-41) — only shown
+           when a day has more than one group. */
+        .muscle-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 16px 4px;
+        }
+
+        .muscle-section-header:first-child {
+            padding-top: 8px;
+        }
+
+        .muscle-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .muscle-section-delete-btn {
+            border: none;
+            background: transparent;
+            color: #f87171;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            padding: 4px 8px;
+        }
+
         .exercise-plan {
             font-size: 13px;
             color: var(--tg-theme-hint-color, var(--text-muted));
@@ -1200,6 +1232,11 @@
         // get_sets_reps_keyboard() in src/bot/keyboards.py, so the bot and
         // webapp offer the same shortcuts.
         const SETS_REPS_CHIPS = ['3/10', '3/12', '3/15', '4/8', '4/10', '4/12', '4/15', '5/5', '5/10'];
+        // Same list as src/bot/keyboards.py's MUSCLE_GROUPS. GYM-41: a day
+        // can span several groups, and /workout no longer assumes a
+        // single one from ?muscle=, so the add-exercise form must always
+        // ask which group the new exercise belongs to.
+        const MUSCLE_GROUPS = ['🦴 Спина', '💪 Руки', '🎯 Плечі', '🏋️ Груди', '🦵 Ноги'];
 
         function showAddExerciseModal(onConfirm) {
             const container = document.getElementById('modalContainer');
@@ -1208,6 +1245,13 @@
                 <div class="modal-overlay add-exercise-modal" id="modalOverlay">
                     <div class="modal-content">
                         <div class="modal-title">Додати вправу</div>
+
+                        <div class="add-exercise-field">
+                            <div class="add-exercise-field-label">Група м'язів</div>
+                            <div class="chip-row" id="muscleGroupChips">
+                                ${MUSCLE_GROUPS.map(g => `<button type="button" class="chip${g === PARAM_MUSCLE ? ' selected' : ''}" data-value="${g}">${g}</button>`).join('')}
+                            </div>
+                        </div>
 
                         <div class="add-exercise-field">
                             <div class="add-exercise-field-label">Назва вправи</div>
@@ -1246,19 +1290,29 @@
             const commentInput = document.getElementById('commentInput');
             const errorBox = document.getElementById('addExerciseError');
 
+            // PARAM_MUSCLE pre-selects a chip (a direct/legacy link still
+            // scoped to one group); otherwise nothing is selected yet.
+            let selectedMuscleGroup = MUSCLE_GROUPS.includes(PARAM_MUSCLE) ? PARAM_MUSCLE : null;
+            document.getElementById('muscleGroupChips').querySelectorAll('.chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    document.querySelectorAll('#muscleGroupChips .chip').forEach(c => c.classList.remove('selected'));
+                    chip.classList.add('selected');
+                    selectedMuscleGroup = chip.dataset.value;
+                });
+            });
+
             let searchTimeout = null;
             let searchAbortController = null;
 
+            // GYM-41: a blank `q` now returns recent catalog entries
+            // (not an empty list) — shown as a pick-list on focus, before
+            // the user types anything, so an existing exercise can be
+            // reused without retyping it or risking a near-duplicate.
             async function runSearch(q) {
-                if (!q || q.trim().length === 0) {
-                    resultsBox.hidden = true;
-                    resultsBox.innerHTML = '';
-                    return;
-                }
                 try {
                     if (searchAbortController) searchAbortController.abort();
                     searchAbortController = new AbortController();
-                    const response = await fetch(`/api/exercises?q=${encodeURIComponent(q)}`, {
+                    const response = await fetch(`/api/exercises?q=${encodeURIComponent(q || '')}`, {
                         headers: { 'Authorization': tg.initData },
                         signal: searchAbortController.signal,
                     });
@@ -1288,6 +1342,11 @@
                 }
             }
 
+            // Show the pick-list immediately on focus (blank query — the
+            // "recent entries" list), before any typing.
+            nameInput.addEventListener('focus', () => {
+                runSearch(nameInput.value);
+            });
             nameInput.addEventListener('input', (e) => {
                 if (searchTimeout) clearTimeout(searchTimeout);
                 const q = e.target.value;
@@ -1324,6 +1383,11 @@
                 const setsReps = setsRepsInput.value.trim();
                 const comment = commentInput.value.trim();
 
+                if (!selectedMuscleGroup) {
+                    errorBox.textContent = "Оберіть групу м'язів";
+                    errorBox.style.display = 'block';
+                    return;
+                }
                 if (!exerciseName) {
                     errorBox.textContent = 'Вкажіть назву вправи';
                     errorBox.style.display = 'block';
@@ -1336,12 +1400,17 @@
                 }
                 errorBox.style.display = 'none';
                 close();
-                onConfirm({ exercise: exerciseName, sets_reps: setsReps, comment });
+                onConfirm({
+                    muscle_group: selectedMuscleGroup,
+                    exercise: exerciseName,
+                    sets_reps: setsReps,
+                    comment,
+                });
             });
         }
 
         function onAddExercise() {
-            showAddExerciseModal(async ({ exercise, sets_reps, comment }) => {
+            showAddExerciseModal(async ({ muscle_group, exercise, sets_reps, comment }) => {
                 try {
                     const response = await fetch('/api/workout/program/exercise', {
                         method: 'POST',
@@ -1352,7 +1421,7 @@
                         body: JSON.stringify({
                             user: PARAM_USER,
                             day: parseInt(PARAM_DAY, 10),
-                            muscle_group: PARAM_MUSCLE,
+                            muscle_group,
                             exercise,
                             sets_reps,
                             comment,
@@ -1776,6 +1845,30 @@
 
         // --- Views ---
 
+        /* Pure function (GYM-41): groups a flat exercises[] array into
+         * per-muscle-group sections, preserving each exercise's original
+         * index into `exercises` (click handlers/detail view/delete all
+         * address exercises by that flat index, so it must survive
+         * grouping) and each group's internal order (already sorted by
+         * `position` from the API). No DOM/global reads — extracted out
+         * of showListView()'s render loop specifically so this logic has
+         * a name and a single, testable shape (this sandbox has no JS
+         * test runner to actually exercise it, unlike the Python side).
+         */
+        function groupExercisesByMuscleGroup(exerciseList) {
+            const groups = [];
+            const sectionIndexByGroup = new Map();
+            exerciseList.forEach((ex, idx) => {
+                const key = ex.muscle_group || '';
+                if (!sectionIndexByGroup.has(key)) {
+                    sectionIndexByGroup.set(key, groups.length);
+                    groups.push({ muscleGroup: key, items: [] });
+                }
+                groups[sectionIndexByGroup.get(key)].items.push({ ex, idx });
+            });
+            return groups;
+        }
+
         function showListView() {
             currentView = 'list';
             const container = document.getElementById('mainContainer');
@@ -1791,54 +1884,74 @@
                 if (addBtnEmpty) {
                     addBtnEmpty.addEventListener('click', onAddExercise);
                 }
+                const deleteDayBtnEmpty = document.getElementById('deleteDayBtn');
+                if (deleteDayBtnEmpty) deleteDayBtnEmpty.style.display = 'none';
                 return;
             }
 
+            const groups = groupExercisesByMuscleGroup(exercises);
+            const showSectionHeaders = groups.length > 1;
             let html = '';
 
-            exercises.forEach((ex, idx) => {
-                const completed = isExerciseCompleted(ex);
-                const filledSets = getFilledSetsCount(ex);
-                const totalSets = ex._sets.length;
-
-                let statusHtml = '';
-                if (completed) {
-                    statusHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                } else if (totalSets > 0) {
-                    statusHtml = `<span class="sets-count">${filledSets}/${totalSets}</span>`;
+            groups.forEach(group => {
+                // A section header (with its own "Видалити [група]" button)
+                // only earns its place on screen once a day actually spans
+                // more than one muscle group — otherwise it's just visual
+                // noise repeating what the header's "Видалити день" already
+                // says (GYM-41).
+                if (showSectionHeaders) {
+                    html += `
+                        <div class="muscle-section-header">
+                            <div class="muscle-section-title">${group.muscleGroup || 'Без групи'}</div>
+                            <button type="button" class="muscle-section-delete-btn" data-muscle="${group.muscleGroup}">Видалити</button>
+                        </div>
+                    `;
                 }
 
-                html += `
-                    <div class="exercise-list-item${completed ? ' completed-item' : ''}" data-index="${idx}">
-                        <div class="exercise-list-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M6.5 6.5h-3a1 1 0 00-1 1v9a1 1 0 001 1h3"></path>
-                                <path d="M17.5 6.5h3a1 1 0 011 1v9a1 1 0 01-1 1h-3"></path>
-                                <rect x="6.5" y="4" width="4" height="16" rx="1"></rect>
-                                <rect x="13.5" y="4" width="4" height="16" rx="1"></rect>
-                                <line x1="10.5" y1="12" x2="13.5" y2="12"></line>
-                            </svg>
-                        </div>
-                        <div class="exercise-list-info">
-                            <div class="exercise-list-name-row">
-                                <div class="exercise-list-name">${ex.exercise}</div>
-                                ${ex.has_details ? `<button type="button" class="details-icon-btn" onclick="showExerciseDetails(event, ${ex.exercise_id})">ⓘ</button>` : ''}
+                group.items.forEach(({ ex, idx }) => {
+                    const completed = isExerciseCompleted(ex);
+                    const filledSets = getFilledSetsCount(ex);
+                    const totalSets = ex._sets.length;
+
+                    let statusHtml = '';
+                    if (completed) {
+                        statusHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                    } else if (totalSets > 0) {
+                        statusHtml = `<span class="sets-count">${filledSets}/${totalSets}</span>`;
+                    }
+
+                    html += `
+                        <div class="exercise-list-item${completed ? ' completed-item' : ''}" data-index="${idx}">
+                            <div class="exercise-list-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M6.5 6.5h-3a1 1 0 00-1 1v9a1 1 0 001 1h3"></path>
+                                    <path d="M17.5 6.5h3a1 1 0 011 1v9a1 1 0 01-1 1h-3"></path>
+                                    <rect x="6.5" y="4" width="4" height="16" rx="1"></rect>
+                                    <rect x="13.5" y="4" width="4" height="16" rx="1"></rect>
+                                    <line x1="10.5" y1="12" x2="13.5" y2="12"></line>
+                                </svg>
                             </div>
-                            <div class="exercise-list-plan">${ex.sets_reps || ''}</div>
-                            ${ex.comment ? `<div class="exercise-list-comment">${ex.comment}</div>` : ''}
+                            <div class="exercise-list-info">
+                                <div class="exercise-list-name-row">
+                                    <div class="exercise-list-name">${ex.exercise}</div>
+                                    ${ex.has_details ? `<button type="button" class="details-icon-btn" onclick="showExerciseDetails(event, ${ex.exercise_id})">ⓘ</button>` : ''}
+                                </div>
+                                <div class="exercise-list-plan">${ex.sets_reps || ''}</div>
+                                ${ex.comment ? `<div class="exercise-list-comment">${ex.comment}</div>` : ''}
+                            </div>
+                            <div class="exercise-list-status">${statusHtml}</div>
+                            <button class="delete-btn" data-exercise-idx="${idx}" onclick="deleteExercise(event, ${idx})">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 6h18"></path>
+                                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path>
+                                    <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                                </svg>
+                            </button>
                         </div>
-                        <div class="exercise-list-status">${statusHtml}</div>
-                        <button class="delete-btn" data-exercise-idx="${idx}" onclick="deleteExercise(event, ${idx})">
-                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 6h18"></path>
-                                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path>
-                                <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
-                                <line x1="10" y1="11" x2="10" y2="17"></line>
-                                <line x1="14" y1="11" x2="14" y2="17"></line>
-                            </svg>
-                        </button>
-                    </div>
-                `;
+                    `;
+                });
             });
 
             // "➕ Додати вправу" (GYM-30) — always available at the bottom
@@ -1869,6 +1982,16 @@
                 });
             });
 
+            // "Видалити [група]" (GYM-41) — only present when there's
+            // more than one section; scopes the delete to just that
+            // muscle group's rows instead of the whole day.
+            container.querySelectorAll('.muscle-section-delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    onDeleteMuscleGroup(btn.dataset.muscle);
+                });
+            });
+
             const addBtn = document.getElementById('addExerciseBtn');
             if (addBtn) {
                 addBtn.addEventListener('click', onAddExercise);
@@ -1879,10 +2002,14 @@
                 finishBtn.addEventListener('click', saveWorkout);
             }
 
-            // Show delete day button
+            // "Видалити день"/"Видалити весь день" (GYM-41: relabeled once
+            // there's more than one section, so it reads as the broader
+            // action next to the per-section buttons above) — always
+            // deletes every group in the day, no ?muscle= filter.
             const deleteDayBtn = document.getElementById('deleteDayBtn');
             if (deleteDayBtn) {
                 deleteDayBtn.style.display = 'block';
+                deleteDayBtn.textContent = showSectionHeaders ? 'Видалити весь день' : 'Видалити день';
                 deleteDayBtn.onclick = deleteWorkoutDay;
             }
 
@@ -2301,8 +2428,14 @@
         async function deleteWorkoutDay() {
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
 
+            // GYM-41 AC: the confirmation lists every group about to
+            // disappear, since this action (unlike the per-section
+            // buttons) takes all of them, not just the one on screen.
+            const muscleGroups = [...new Set(exercises.map(ex => ex.muscle_group).filter(Boolean))];
+            const groupsText = muscleGroups.length > 1 ? ` (${muscleGroups.join(', ')})` : '';
+
             tg.showConfirm(
-                `Видалити всі вправи з дня ${PARAM_DAY}?`,
+                `Видалити всі вправи з дня ${PARAM_DAY}${groupsText}?`,
                 async (confirmed) => {
                     if (!confirmed) return;
 
@@ -2328,6 +2461,48 @@
                     } catch (err) {
                         console.error('Failed to delete day:', err);
                         tg.showAlert('Помилка видалення дня');
+                    }
+                }
+            );
+        }
+
+        // "Видалити [група]" (GYM-41) — scoped to one muscle group's rows
+        // in this day via ?muscle=, leaving the day's other groups (and
+        // their logged sets) untouched. Unlike deleteWorkoutDay(), this
+        // doesn't close the Mini App — it refreshes the list in place,
+        // since there may well be exercises left to work through.
+        async function onDeleteMuscleGroup(muscleGroup) {
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+
+            tg.showConfirm(
+                `Видалити групу "${muscleGroup}" з дня ${PARAM_DAY}?`,
+                async (confirmed) => {
+                    if (!confirmed) return;
+
+                    try {
+                        const params = new URLSearchParams({
+                            user: PARAM_USER,
+                            day: PARAM_DAY,
+                            muscle: muscleGroup,
+                        });
+                        const response = await fetch(`/api/workout/day?${params}`, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': tg.initData },
+                        });
+
+                        if (response.ok) {
+                            if (tg.HapticFeedback) {
+                                tg.HapticFeedback.notificationOccurred('success');
+                            }
+                            exercises = exercises.filter(ex => ex.muscle_group !== muscleGroup);
+                            saveWorkoutSession();
+                            showListView();
+                        } else {
+                            tg.showAlert('Помилка видалення групи');
+                        }
+                    } catch (err) {
+                        console.error('Failed to delete muscle group:', err);
+                        tg.showAlert('Помилка видалення групи');
                     }
                 }
             );

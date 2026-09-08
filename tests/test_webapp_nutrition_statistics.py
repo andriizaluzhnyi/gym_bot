@@ -19,7 +19,11 @@ from aiohttp.test_utils import make_mocked_request
 import pytest
 
 from src.database.models import Base
-from src.database.repository import DailyNutritionRepository, UserRepository
+from src.database.repository import (
+    DailyNutritionRepository,
+    ProfileRepository,
+    UserRepository,
+)
 from src.database.session import async_session_maker, engine
 from src.utils.datetime_utils import to_local_date, utcnow
 from src.webapp.server import api_get_nutrition_statistics, settings
@@ -75,6 +79,13 @@ def _utc_for_local(local_date, hour=12) -> datetime:
 
 def _today_local():
     return to_local_date(utcnow(), settings.timezone)
+
+
+async def _set_profile_goals(user_id, **goals):
+    async with async_session_maker() as session:
+        await ProfileRepository(session).get_or_create(user_id)
+        await ProfileRepository(session).update(user_id, **goals)
+        await session.commit()
 
 
 class TestAuthAndValidation:
@@ -240,3 +251,89 @@ class TestRepositoryLocalDayBoundary:
             )
 
         assert totals == {}
+
+
+class TestAvgVsGoal:
+    """GYM-16: avg_vs_goal in GET /api/nutrition/statistics."""
+
+    async def test_no_records_returns_none(self):
+        await _make_user("eater", telegram_id=1)
+        request = _mock_get_request(
+            "/api/nutrition/statistics?period=week", telegram_id=1
+        )
+        response = await api_get_nutrition_statistics(request)
+        payload = json.loads(response.body)["data"]
+
+        assert payload["avg_vs_goal"] is None
+
+    async def test_uses_default_goals_when_no_profile(self):
+        user = await _make_user("eater", telegram_id=1)
+        # Default calories goal is 2500 (no Profile row yet).
+        await _add_record(
+            user.id, _utc_for_local(_today_local()),
+            calories=2000, protein=100, fats=60, carbs=200,
+        )
+
+        request = _mock_get_request(
+            "/api/nutrition/statistics?period=week", telegram_id=1
+        )
+        response = await api_get_nutrition_statistics(request)
+        avg_vs_goal = json.loads(response.body)["data"]["avg_vs_goal"]
+
+        assert avg_vs_goal["calories_diff_pct"] == round((2000 - 2500) / 2500 * 100, 1)
+        assert avg_vs_goal["protein_diff_pct"] == round((100 - 150) / 150 * 100, 1)
+        assert avg_vs_goal["fats_diff_pct"] == round((60 - 80) / 80 * 100, 1)
+        assert avg_vs_goal["carbs_diff_pct"] == round((200 - 250) / 250 * 100, 1)
+
+    async def test_uses_profile_goals(self):
+        user = await _make_user("eater", telegram_id=1)
+        await _set_profile_goals(
+            user.id, daily_calories=2000, daily_protein=200,
+            daily_fats=70, daily_carbs=180,
+        )
+        await _add_record(
+            user.id, _utc_for_local(_today_local()),
+            calories=2200, protein=180, fats=70, carbs=198,
+        )
+
+        request = _mock_get_request(
+            "/api/nutrition/statistics?period=week", telegram_id=1
+        )
+        response = await api_get_nutrition_statistics(request)
+        avg_vs_goal = json.loads(response.body)["data"]["avg_vs_goal"]
+
+        assert avg_vs_goal["calories_diff_pct"] == 10.0    # +200/2000
+        assert avg_vs_goal["protein_diff_pct"] == -10.0    # -20/200
+        assert avg_vs_goal["fats_diff_pct"] == 0.0
+        assert avg_vs_goal["carbs_diff_pct"] == 10.0        # +18/180
+
+    async def test_days_without_records_are_excluded_from_the_average(self):
+        user = await _make_user("eater", telegram_id=1)
+        await _set_profile_goals(user.id, daily_calories=2000)
+        # Only today has a record; the rest of the week is zero-filled in
+        # by_day but must NOT drag the average toward zero.
+        await _add_record(
+            user.id, _utc_for_local(_today_local()), calories=2000,
+        )
+
+        request = _mock_get_request(
+            "/api/nutrition/statistics?period=week", telegram_id=1
+        )
+        response = await api_get_nutrition_statistics(request)
+        avg_vs_goal = json.loads(response.body)["data"]["avg_vs_goal"]
+
+        # If zero-days were included, avg would be far below goal.
+        assert avg_vs_goal["calories_diff_pct"] == 0.0
+
+    async def test_goal_of_zero_returns_none_for_that_metric(self):
+        user = await _make_user("eater", telegram_id=1)
+        await _set_profile_goals(user.id, daily_carbs=0)
+        await _add_record(user.id, _utc_for_local(_today_local()), carbs=50)
+
+        request = _mock_get_request(
+            "/api/nutrition/statistics?period=week", telegram_id=1
+        )
+        response = await api_get_nutrition_statistics(request)
+        avg_vs_goal = json.loads(response.body)["data"]["avg_vs_goal"]
+
+        assert avg_vs_goal["carbs_diff_pct"] is None

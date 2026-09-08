@@ -34,6 +34,11 @@ class TestStatisticsPage:
             assert 'Історія' in body
             assert '/api/statistics/history' in body
             assert 'historyLoadMore' in body
+            # GYM-12/GYM-13a/GYM-13b's achievements tab.
+            assert 'Досягнення' in body
+            assert '/api/statistics/streak' in body
+            assert '/api/statistics/achievements' in body
+            assert 'achievementsGrid' in body
 
     async def test_reads_telegram_webapp_js_like_other_pages(self):
         app = create_webapp()

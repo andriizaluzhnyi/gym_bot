@@ -521,6 +521,64 @@
             opacity: 0.5;
         }
 
+        /* Achievements (GYM-13b) — streak strip (GYM-12) + badge grid */
+        .streak-strip {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .achievement-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .achievement-badge {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 6px;
+            padding: 16px 10px;
+            border-radius: 16px;
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+        }
+
+        .achievement-badge-icon {
+            font-size: 28px;
+            line-height: 1;
+        }
+
+        .achievement-badge-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .achievement-badge-caption {
+            font-size: 11px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .achievement-badge.locked {
+            border-color: transparent;
+        }
+
+        .achievement-badge.locked .achievement-badge-icon {
+            filter: grayscale(1);
+            opacity: 0.35;
+        }
+
+        .achievement-badge.locked .achievement-badge-title {
+            color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        .achievement-badge.unlocked {
+            border-color: var(--accent-green);
+        }
+
         /* Loading / empty state */
         .loading {
             display: flex;
@@ -608,6 +666,7 @@
         <button class="tab-btn" data-tab="activity">Активність</button>
         <button class="tab-btn" data-tab="records">Рекорди</button>
         <button class="tab-btn" data-tab="history">Історія</button>
+        <button class="tab-btn" data-tab="achievements">Досягнення</button>
     </div>
 
     <div id="tabContent">
@@ -719,6 +778,28 @@
                 <p id="historyEmptyStateText">Ще немає завершених тренувань.</p>
             </div>
         </section>
+
+        <section class="tab-panel" id="tab-achievements" style="display:none;">
+            <div class="streak-strip" id="achievementsStreakStrip">
+                <div class="summary-card">
+                    <div class="summary-value" id="achievementsCurrentStreak">—</div>
+                    <div class="summary-label">Поточний стрік (тижні)</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-value" id="achievementsLongestStreak">—</div>
+                    <div class="summary-label">Найкращий стрік (тижні)</div>
+                </div>
+            </div>
+
+            <div class="loading" id="achievementsLoading">Завантаження досягнень...</div>
+
+            <div class="achievement-grid" id="achievementsGrid" style="display:none;"></div>
+
+            <div class="empty-state" id="achievementsEmptyState" style="display:none;">
+                <div class="empty-state-icon">🏅</div>
+                <p id="achievementsEmptyStateText">Не вдалося завантажити досягнення.</p>
+            </div>
+        </section>
     </div>
 
     <nav class="bottom-nav">
@@ -777,10 +858,11 @@
         });
 
         // Tabs. "volume" (GYM-4), "progress" (GYM-5a/GYM-5b), "records"
-        // (GYM-7/GYM-8) and "history" (GYM-10/GYM-11) are wired to real
-        // data, below. "activity" is still a page-shell placeholder
-        // (GYM-3) — GYM-6 covers overall activity via the summary strip
-        // above, not this tab's own body, which awaits a future ticket.
+        // (GYM-7/GYM-8), "history" (GYM-10/GYM-11) and "achievements"
+        // (GYM-12/GYM-13a/GYM-13b) are wired to real data, below.
+        // "activity" is still a page-shell placeholder (GYM-3) — GYM-6
+        // covers overall activity via the summary strip above, not this
+        // tab's own body, which awaits a future ticket.
         const tabButtons = document.querySelectorAll('.tab-btn');
         const tabPanels = {
             volume: document.getElementById('tab-volume'),
@@ -788,6 +870,7 @@
             activity: document.getElementById('tab-activity'),
             records: document.getElementById('tab-records'),
             history: document.getElementById('tab-history'),
+            achievements: document.getElementById('tab-achievements'),
         };
 
         function activateTab(name) {
@@ -1671,6 +1754,108 @@
         document.getElementById('historyLoadMore').addEventListener('click', loadMoreHistory);
 
         loadHistoryTab();
+
+        // --- "Досягнення" tab (GYM-13b) ---
+        // Streak strip: GET /api/statistics/streak (GYM-12). Badge grid:
+        // GET /api/statistics/achievements (GYM-13a's fixed catalog,
+        // merged server-side with the caller's unlocked rows) — unlocked
+        // badges render in color, locked ones greyed out with their
+        // `description` as the "how to unlock" hint.
+
+        const ACHIEVEMENT_ICONS = {
+            WORKOUTS_10: '🏋️',
+            WORKOUTS_50: '💪',
+            WORKOUTS_100: '🔥',
+            STREAK_4_WEEKS: '📅',
+            STREAK_12_WEEKS: '🗓️',
+            FIRST_PR: '🏆',
+            VOLUME_10T: '⚖️',
+        };
+
+        async function loadAchievementsStreak() {
+            try {
+                const params = new URLSearchParams();
+                if (PARAM_USER) {
+                    params.set('user', PARAM_USER);
+                }
+                const response = await fetch(`/api/statistics/streak?${params}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const { data } = await response.json();
+
+                document.getElementById('achievementsCurrentStreak').textContent =
+                    String(data.current_streak);
+                document.getElementById('achievementsLongestStreak').textContent =
+                    String(data.longest_streak);
+            } catch (error) {
+                console.log('Failed to load streak:', error);
+                // Leave the "—" placeholders; the badge grid below is the
+                // main content of this tab.
+            }
+        }
+
+        function renderAchievementBadge(achievement) {
+            const badge = document.createElement('div');
+            badge.className = `achievement-badge ${achievement.unlocked ? 'unlocked' : 'locked'}`;
+
+            const icon = document.createElement('div');
+            icon.className = 'achievement-badge-icon';
+            icon.textContent = ACHIEVEMENT_ICONS[achievement.code] || '🏅';
+
+            const title = document.createElement('div');
+            title.className = 'achievement-badge-title';
+            title.textContent = achievement.title;
+
+            const caption = document.createElement('div');
+            caption.className = 'achievement-badge-caption';
+            caption.textContent = achievement.unlocked
+                ? formatFullDate(achievement.unlocked_at)
+                : achievement.description;
+
+            badge.appendChild(icon);
+            badge.appendChild(title);
+            badge.appendChild(caption);
+            return badge;
+        }
+
+        async function loadAchievements() {
+            const loadingEl = document.getElementById('achievementsLoading');
+            const gridEl = document.getElementById('achievementsGrid');
+            const emptyEl = document.getElementById('achievementsEmptyState');
+
+            loadingEl.style.display = '';
+            gridEl.style.display = 'none';
+            emptyEl.style.display = 'none';
+
+            try {
+                const params = new URLSearchParams();
+                if (PARAM_USER) {
+                    params.set('user', PARAM_USER);
+                }
+                const response = await fetch(`/api/statistics/achievements?${params}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const { data: achievements } = await response.json();
+                loadingEl.style.display = 'none';
+
+                gridEl.innerHTML = '';
+                achievements.forEach(a => gridEl.appendChild(renderAchievementBadge(a)));
+                gridEl.style.display = '';
+            } catch (error) {
+                console.log('Failed to load achievements:', error);
+                loadingEl.style.display = 'none';
+                emptyEl.style.display = '';
+            }
+        }
+
+        loadAchievementsStreak();
+        loadAchievements();
     </script>
 </body>
 </html>

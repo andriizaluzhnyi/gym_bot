@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_settings
 from src.database.repository import (
     DailyNutritionRepository,
+    UserAchievementRepository,
     UserRepository,
     WorkoutSessionRepository,
     WorkoutSetRepository,
@@ -19,7 +20,7 @@ from src.database.repository import (
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
-from src.services.achievements import AchievementsService
+from src.services.achievements import ACHIEVEMENTS, AchievementsService
 from src.services.personal_records import calculate_prs
 from src.services.streak import calculate_streak
 from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
@@ -708,6 +709,49 @@ async def api_get_streak(request: web.Request) -> web.Response:
     ]
     today = to_local_date(utcnow(), settings.timezone)
     data = calculate_streak(session_dates, today)
+
+    return web.json_response({'success': True, 'data': data})
+
+
+@webapp_auth
+async def api_get_achievements(request: web.Request) -> web.Response:
+    """API endpoint (GYM-13b): every achievement in the fixed catalog
+    (GYM-13a's `ACHIEVEMENTS`), each flagged whether the caller (or
+    `?user=` client) has unlocked it and when — the "Досягнення" tab
+    renders unlocked ones in color and locked ones greyed out with
+    `description` as the hint. Catalog order (unlike GYM-8's records,
+    there's no "which is most interesting" sort here).
+
+    Query params: `user` (optional username, trainer viewing a client's
+    achievements — same convention as `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        unlocked_at_by_code = await UserAchievementRepository(
+            session
+        ).get_unlocked_at_by_code(owner.id)
+
+    data = [
+        {
+            'code': achievement.code,
+            'title': achievement.title,
+            'description': achievement.description,
+            'unlocked': achievement.code in unlocked_at_by_code,
+            'unlocked_at': (
+                to_local_date(
+                    unlocked_at_by_code[achievement.code], settings.timezone
+                ).isoformat()
+                if achievement.code in unlocked_at_by_code else None
+            ),
+        }
+        for achievement in ACHIEVEMENTS
+    ]
 
     return web.json_response({'success': True, 'data': data})
 
@@ -1730,6 +1774,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/statistics/exercise-progress', api_get_exercise_progress)
     app.router.add_get('/api/statistics/records', api_get_records)
     app.router.add_get('/api/statistics/streak', api_get_streak)
+    app.router.add_get('/api/statistics/achievements', api_get_achievements)
     app.router.add_get('/api/statistics/history', api_get_history)
     app.router.add_get(
         '/api/statistics/history/{session_id}', api_get_history_session

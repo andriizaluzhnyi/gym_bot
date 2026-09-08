@@ -1495,6 +1495,139 @@ async def _notify_new_prs(
             )
 
 
+_DEFAULT_HISTORY_LIMIT = 20
+_MAX_HISTORY_LIMIT = 100
+
+
+def _serialize_session_summary(workout_session) -> dict:
+    """One completed ``WorkoutSession`` (sets eagerly loaded) as a history
+    list row (GYM-10): counts + total volume + duration, local calendar
+    date (`settings.timezone`, same convention as the other
+    `/api/statistics/*` endpoints).
+    """
+    return {
+        'session_id': workout_session.id,
+        'date': to_local_date(
+            workout_session.performed_at, settings.timezone
+        ).isoformat(),
+        'muscle_group': workout_session.muscle_group,
+        'exercises_count': len(
+            {s.exercise_name for s in workout_session.sets}
+        ),
+        'sets_count': len(workout_session.sets),
+        'total_volume': sum(
+            s.weight * s.reps for s in workout_session.sets
+        ),
+        'duration_minutes': (
+            round(workout_session.duration_seconds / 60, 1)
+            if workout_session.duration_seconds is not None
+            else 0
+        ),
+    }
+
+
+@webapp_auth
+async def api_get_history(request: web.Request) -> web.Response:
+    """API endpoint (GYM-10): a page of the caller's past *completed*
+    workout sessions, most recent first, each with its summary — the
+    "Історія" tab list (rendered by GYM-11).
+
+    Query params: `limit` (default 20, max 100), `offset` (default 0),
+    `user` (optional username, trainer viewing a client's history — same
+    convention as `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    try:
+        limit = int(request.query.get('limit', _DEFAULT_HISTORY_LIMIT))
+        offset = int(request.query.get('offset', 0))
+    except ValueError:
+        return web.json_response(
+            {'error': 'Invalid limit/offset: must be integers'}, status=400
+        )
+    if limit < 1 or offset < 0:
+        return web.json_response(
+            {'error': 'Invalid limit/offset: limit must be >= 1, offset >= 0'},
+            status=400,
+        )
+    limit = min(limit, _MAX_HISTORY_LIMIT)
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        sessions = await WorkoutSessionRepository(session).get_history_page(
+            owner.id, limit=limit, offset=offset
+        )
+
+    return web.json_response({
+        'success': True,
+        'data': [_serialize_session_summary(s) for s in sessions],
+    })
+
+
+@webapp_auth
+async def api_get_history_session(request: web.Request) -> web.Response:
+    """API endpoint (GYM-10): one workout session's detail — exercises →
+    sets — for the "Історія" detail view (GYM-11).
+
+    Path param: `session_id`. Query params: `user` (optional username,
+    same trainer-viewing-a-client convention as `/api/statistics/volume`,
+    used to authorize access to the session).
+    Expects Authorization header with Telegram initData.
+    """
+    session_id_raw = request.match_info.get('session_id', '')
+    if not session_id_raw.isdigit():
+        return web.json_response({'error': 'Invalid session_id'}, status=400)
+    session_id = int(session_id_raw)
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        workout_session = await WorkoutSessionRepository(
+            session
+        ).get_by_id_with_sets(session_id)
+        if (
+            workout_session is None
+            or workout_session.user_id != owner.id
+            or workout_session.completed_at is None
+        ):
+            return web.json_response({'error': 'Session not found'}, status=404)
+
+        # Group by exercise, preserving first-seen order; sets sorted by
+        # set_number within each exercise.
+        order: list[str] = []
+        by_exercise: dict[str, list] = {}
+        for workout_set in workout_session.sets:
+            if workout_set.exercise_name not in by_exercise:
+                order.append(workout_set.exercise_name)
+                by_exercise[workout_set.exercise_name] = []
+            by_exercise[workout_set.exercise_name].append(workout_set)
+
+        exercises = []
+        for exercise_name in order:
+            exercise_sets = sorted(
+                by_exercise[exercise_name], key=lambda s: s.set_number
+            )
+            exercises.append({
+                'exercise': exercise_name,
+                'muscle_group': exercise_sets[0].muscle_group,
+                'sets': [
+                    {'set': s.set_number, 'weight': s.weight, 'reps': s.reps}
+                    for s in exercise_sets
+                ],
+            })
+
+        data = _serialize_session_summary(workout_session)
+        data['exercises'] = exercises
+
+    return web.json_response({'success': True, 'data': data})
+
+
 def create_webapp() -> web.Application:
     """Create and configure the web application."""
     app = web.Application()
@@ -1530,6 +1663,10 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/statistics/exercises', api_get_exercises)
     app.router.add_get('/api/statistics/exercise-progress', api_get_exercise_progress)
     app.router.add_get('/api/statistics/records', api_get_records)
+    app.router.add_get('/api/statistics/history', api_get_history)
+    app.router.add_get(
+        '/api/statistics/history/{session_id}', api_get_history_session
+    )
 
     # Static files
     app.router.add_static('/static', TEMPLATES_DIR, name='static')

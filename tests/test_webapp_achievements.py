@@ -1,28 +1,34 @@
-"""Tests for GYM-13a: AchievementsService / UserAchievementRepository
-(DB-backed) and their wiring into api_save_workout_log
-(src/webapp/server.py).
+"""Tests for GYM-13a/GYM-13b: AchievementsService / UserAchievementRepository
+(DB-backed), their wiring into api_save_workout_log, and
+GET /api/statistics/achievements (src/webapp/server.py).
 
 evaluate_achievements() itself (which achievements a given history
 satisfies) is unit-tested without a DB in test_achievements.py; these
 tests cover persistence (unlocking writes a row, idempotency, the unique
-constraint) and the end-to-end notification flow instead.
+constraint), the end-to-end save-a-workout notification flow, and the
+catalog-merge endpoint instead.
 """
 
+import json
 from datetime import date, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 from sqlalchemy.exc import IntegrityError
 
 from src.database.models import Base
 from src.database.repository import UserAchievementRepository, WorkoutSessionRepository
 from src.database.session import async_session_maker, engine
-from src.services.achievements import AchievementsService
+from src.services.achievements import ACHIEVEMENTS, AchievementsService
 from src.webapp.server import (
+    api_get_achievements,
     api_save_workout_log,
     get_bot_instance,
     set_bot_instance,
 )
+from tests.test_webapp_auth import build_init_data
 from tests.test_webapp_workout_log import WORKOUT_BODY, _make_user, _mock_request
 
 TZ = "Europe/Kyiv"
@@ -202,3 +208,106 @@ class TestApiSaveWorkoutLogUnlocksAchievements:
             response = await _save_workout(telegram_id=1)
 
         assert response.status == 200
+
+
+class TestUserAchievementRepositoryUnlockedAtByCode:
+    async def test_empty_for_new_user(self):
+        user = await _make_user("lifter", telegram_id=1)
+        async with async_session_maker() as session:
+            by_code = await UserAchievementRepository(
+                session
+            ).get_unlocked_at_by_code(user.id)
+        assert by_code == {}
+
+    async def test_maps_code_to_its_unlocked_at(self):
+        user = await _make_user("lifter", telegram_id=1)
+        async with async_session_maker() as session:
+            await UserAchievementRepository(session).unlock(
+                user.id, "FIRST_PR", unlocked_at=datetime(2026, 1, 6, 8, 0)
+            )
+            await session.commit()
+
+        async with async_session_maker() as session:
+            by_code = await UserAchievementRepository(
+                session
+            ).get_unlocked_at_by_code(user.id)
+        assert by_code == {"FIRST_PR": datetime(2026, 1, 6, 8, 0)}
+
+
+def _mock_get_request(path: str, *, telegram_id: int) -> web.Request:
+    init_data = build_init_data({"id": telegram_id, "first_name": "Test"})
+    return make_mocked_request(
+        "GET", path, headers={"Authorization": init_data}
+    )
+
+
+class TestApiGetAchievementsAuthAndValidation:
+    async def test_unauthorized_without_valid_init_data(self):
+        request = make_mocked_request(
+            "GET", "/api/statistics/achievements",
+            headers={"Authorization": "garbage"},
+        )
+        response = await api_get_achievements(request)
+        assert response.status == 401
+
+    async def test_unknown_caller_returns_404(self):
+        request = _mock_get_request(
+            "/api/statistics/achievements", telegram_id=999
+        )
+        response = await api_get_achievements(request)
+        assert response.status == 404
+
+
+class TestApiGetAchievements:
+    async def test_full_catalog_returned_all_locked_by_default(self):
+        await _make_user("lifter", telegram_id=1)
+        request = _mock_get_request(
+            "/api/statistics/achievements", telegram_id=1
+        )
+        response = await api_get_achievements(request)
+        payload = json.loads(response.body)["data"]
+
+        assert response.status == 200
+        assert len(payload) == len(ACHIEVEMENTS)
+        assert [row["code"] for row in payload] == [a.code for a in ACHIEVEMENTS]
+        assert all(row["unlocked"] is False for row in payload)
+        assert all(row["unlocked_at"] is None for row in payload)
+
+    async def test_unlocked_achievement_has_shape_and_local_date(self):
+        user = await _make_user("lifter", telegram_id=1)
+        async with async_session_maker() as session:
+            await UserAchievementRepository(session).unlock(
+                user.id, "FIRST_PR", unlocked_at=datetime(2026, 1, 6, 8, 0)
+            )
+            await session.commit()
+
+        request = _mock_get_request(
+            "/api/statistics/achievements", telegram_id=1
+        )
+        response = await api_get_achievements(request)
+        payload = json.loads(response.body)["data"]
+
+        first_pr = next(row for row in payload if row["code"] == "FIRST_PR")
+        assert first_pr["unlocked"] is True
+        assert first_pr["unlocked_at"] == "2026-01-06"
+        assert first_pr["title"]
+        assert first_pr["description"]
+
+        others = [row for row in payload if row["code"] != "FIRST_PR"]
+        assert all(row["unlocked"] is False for row in others)
+
+    async def test_user_param_overrides_caller(self):
+        owner = await _make_user("lifter", telegram_id=1)
+        await _make_user("trainer", telegram_id=999)
+        async with async_session_maker() as session:
+            await UserAchievementRepository(session).unlock(owner.id, "FIRST_PR")
+            await session.commit()
+
+        request = _mock_get_request(
+            "/api/statistics/achievements?user=lifter", telegram_id=999
+        )
+        response = await api_get_achievements(request)
+        payload = json.loads(response.body)["data"]
+
+        first_pr = next(row for row in payload if row["code"] == "FIRST_PR")
+        assert first_pr["unlocked"] is True

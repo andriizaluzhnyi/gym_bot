@@ -595,7 +595,7 @@ UI — GYM-13b.
 
 **SP:** 5
 
-### GYM-13b: Досягнення — UI
+### ✅ GYM-13b: Досягнення — UI — **виконано**
 
 **Acceptance criteria:**
 
@@ -603,6 +603,18 @@ UI — GYM-13b.
   `unlocked_at`.
 - Вкладка «Досягнення»: отримані — кольорові, невідримані — сірі з підказкою
   умови; блок стріку зверху (`current_streak` / `longest_streak`).
+
+**Примітка щодо реалізації:** ендпоінт мерджить фіксований каталог
+`ACHIEVEMENTS` (GYM-13a) з `UserAchievementRepository.get_unlocked_at_by_code`
+(нова мапа `{code: unlocked_at}`, окремо від `get_unlocked_codes`, який
+далі лишається для `AchievementsService`) — у порядку каталогу, кожен
+елемент `{code, title, description, unlocked, unlocked_at}`
+(`unlocked_at` — локальна дата, `settings.timezone`, конвенція GYM-4).
+Вкладка «Досягнення» в `statistics.html`, за зразком «Рекорди»/«Історія» —
+плитка-грід (`achievement-grid`), розблоковані підсвічені зеленою рамкою,
+заблоковані — grayscale-іконка + `description` замість дати як підказка
+умови. Стрік-стрічка зверху перевикористовує `.summary-card` (той самий
+компонент, що й GYM-6) і б'є в `GET /api/statistics/streak` (GYM-12).
 
 **SP:** 3
 

@@ -1028,6 +1028,20 @@ class UserAchievementRepository:
         )
         return set(result.scalars().all())
 
+    async def get_unlocked_at_by_code(
+        self, user_id: uuid.UUID
+    ) -> dict[str, datetime]:
+        """``{achievement_code: unlocked_at}`` for this user — GYM-13b's
+        ``GET /api/statistics/achievements`` merges this against the
+        in-code catalog (``ACHIEVEMENTS``) to report every achievement's
+        ``unlocked``/``unlocked_at``, locked ones included.
+        """
+        result = await self.session.execute(
+            select(UserAchievement.achievement_code, UserAchievement.unlocked_at)
+            .where(UserAchievement.user_id == user_id)
+        )
+        return dict(result.tuples().all())
+
     async def unlock(
         self,
         user_id: uuid.UUID,

@@ -24,7 +24,8 @@ class TestCmdNutrition:
 
         message.answer.assert_awaited_once()
         (text,), kwargs = message.answer.call_args
-        assert "Трекер харчування" in text
+        assert "Харчування" in text
         keyboard = kwargs["reply_markup"]
         button = keyboard.inline_keyboard[0][0]
+        assert button.text == "📱 Відкрити щоденник"
         assert button.web_app.url == "https://example.com/nutrition"

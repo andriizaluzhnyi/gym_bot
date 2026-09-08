@@ -5,7 +5,13 @@ from typing import Any
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
 
 from src.config import get_settings
 from src.database.models import Gender
@@ -31,11 +37,28 @@ class ProfileSettingsStates(StatesGroup):
 
 
 def get_profile_settings_keyboard() -> InlineKeyboardMarkup:
-    """Get inline keyboard for profile settings."""
+    """Get inline keyboard for profile settings (GYM-35).
+
+    The second button opens the WebApp directly via a ``web_app`` inline
+    button when ``WEBAPP_URL`` is configured (works in private chats,
+    unlike the reply-keyboard chat-menu button); without it, falls back to
+    a callback that tells the user the WebApp isn't set up
+    (``open_webapp_callback``).
+    """
     buttons = [
-        [InlineKeyboardButton(text="⚙️ Редагувати налаштування БЖУ", callback_data="profile:edit_nutrition")],
-        [InlineKeyboardButton(text="🍎 Відкрити трекер БЖУ", callback_data="profile:open_webapp")],
+        [InlineKeyboardButton(text="🎯 Цілі харчування", callback_data="profile:edit_nutrition")],
     ]
+    if settings.webapp_url:
+        buttons.append([
+            InlineKeyboardButton(
+                text="📱 Відкрити щоденник",
+                web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition"),
+            )
+        ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text="📱 Відкрити щоденник", callback_data="profile:open_webapp")
+        ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -99,7 +122,7 @@ def _format_nutrition_settings(nutrition: dict[str, Any]) -> str:
     weight = nutrition.get("weight")
 
     return (
-        "📊 *Налаштування БЖУ*\n"
+        "🎯 *Цілі харчування*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "*Особисті дані:*\n"
         f"🎂 Вік: {age if age else 'не вказано'} р.\n"
@@ -168,14 +191,13 @@ async def show_nutrition_settings(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "profile:open_webapp")
 async def open_webapp_callback(callback: CallbackQuery) -> None:
-    """Show message about webapp."""
-    if settings.webapp_url:
-        await callback.answer(
-            "Натисніть кнопку 🍎 БЖУ в меню бота",
-            show_alert=True
-        )
-    else:
-        await callback.answer("Web App не налаштований", show_alert=True)
+    """Fallback shown only when WEBAPP_URL isn't configured.
+
+    ``get_profile_settings_keyboard`` gives this button real
+    ``callback_data`` only in that case — when a URL is set, it's a
+    ``web_app`` button instead and this handler never fires.
+    """
+    await callback.answer("Web App не налаштований", show_alert=True)
 
 
 @router.callback_query(F.data == "edit:back")

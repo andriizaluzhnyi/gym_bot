@@ -7,6 +7,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import MenuButtonWebApp, WebAppInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
@@ -41,6 +42,26 @@ def create_bot() -> Bot:
     return Bot(
         token=settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
+    )
+
+
+async def configure_default_menu_button(bot: Bot) -> None:
+    """Set the global default chat-menu button for private chats (GYM-35).
+
+    Called once at startup with no ``chat_id``, so it applies to every
+    private chat that hasn't set its own menu button — unlike the old
+    per-chat call in ``/start`` (removed), which only reached users who
+    ran ``/start`` again after a rename. No-op without ``WEBAPP_URL``
+    configured, same guard as the rest of the WebApp integration.
+    """
+    if not settings.webapp_url:
+        return
+
+    await bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(
+            text="📱 Щоденник",
+            web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition"),
+        )
     )
 
 
@@ -107,6 +128,9 @@ async def run_bot() -> None:
     # Set bot instance for webapp
     from src.webapp.server import set_bot_instance
     set_bot_instance(bot)
+
+    # Set the default chat-menu button globally (GYM-35)
+    await configure_default_menu_button(bot)
 
     # Setup routers
     main_router = setup_routers()

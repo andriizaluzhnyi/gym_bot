@@ -66,18 +66,15 @@ async def meal_entry_handler(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(html_path)
 
 
+@webapp_auth
 async def api_get_user_settings(request: web.Request) -> web.Response:
-    """API endpoint to get user nutrition settings.
+    """API endpoint to get user nutrition/body settings, plus
+    ``notifications_enabled`` (GYM-26) — the WebApp profile screen's
+    single combined read.
 
     Expects Authorization header with Telegram initData.
     """
-    init_data = request.headers.get('Authorization', '')
-    user_data = validate_telegram_webapp_data(init_data)
-
-    if not user_data:
-        return web.json_response({'error': 'Unauthorized'}, status=401)
-
-    telegram_id = user_data.get('id')
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
     if not telegram_id:
         return web.json_response({'error': 'Invalid user data'}, status=400)
 
@@ -94,18 +91,16 @@ async def api_get_user_settings(request: web.Request) -> web.Response:
         })
 
 
+@webapp_auth
 async def api_update_user_settings(request: web.Request) -> web.Response:
-    """API endpoint to update user nutrition settings.
+    """API endpoint to update user nutrition/body settings and
+    ``notifications_enabled`` (GYM-26; a ``User`` column, set via
+    ``UserRepository.set_notifications_enabled`` rather than
+    ``update_nutrition_settings``, which only ever touched ``Profile``).
 
     Expects Authorization header with Telegram initData.
     """
-    init_data = request.headers.get('Authorization', '')
-    user_data = validate_telegram_webapp_data(init_data)
-
-    if not user_data:
-        return web.json_response({'error': 'Unauthorized'}, status=401)
-
-    telegram_id = user_data.get('id')
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
     if not telegram_id:
         return web.json_response({'error': 'Invalid user data'}, status=400)
 
@@ -117,12 +112,7 @@ async def api_update_user_settings(request: web.Request) -> web.Response:
     async with async_session_maker() as session:
         user_repo = UserRepository(session)
 
-        # Get user first to get user_id
-        user = await user_repo.get_by_telegram_id(telegram_id)
-        if not user:
-            return web.json_response({'error': 'User not found'}, status=404)
-
-        # Update user nutrition goals
+        # Update user nutrition/body goals
         user = await user_repo.update_nutrition_settings(
             telegram_id=telegram_id,
             age=body.get('age'),
@@ -136,6 +126,13 @@ async def api_update_user_settings(request: web.Request) -> web.Response:
             daily_fats=body.get('daily_fats'),
             daily_carbs=body.get('daily_carbs'),
         )
+        if not user:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        if body.get('notifications_enabled') is not None:
+            await user_repo.set_notifications_enabled(
+                telegram_id, bool(body['notifications_enabled'])
+            )
 
         await session.commit()
 

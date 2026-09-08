@@ -107,6 +107,18 @@ class UserRepository:
             await self.session.flush()
         return user
 
+    async def set_notifications_enabled(
+        self, telegram_id: int, enabled: bool
+    ) -> User | None:
+        """Toggle reminder notifications (GYM-26) — read by
+        ``get_all_with_notifications`` when sending training reminders.
+        """
+        user = await self.get_by_telegram_id(telegram_id)
+        if user:
+            user.notifications_enabled = enabled
+            await self.session.flush()
+        return user
+
     async def get_all_with_notifications(self) -> list[User]:
         """Get all users with notifications enabled."""
         result = await self.session.execute(
@@ -171,9 +183,12 @@ class UserRepository:
         return user
 
     async def get_nutrition_settings(self, telegram_id: int) -> dict | None:
-        """Get user's nutrition settings as dictionary.
+        """Get user's nutrition/body settings as a dictionary, plus
+        ``notifications_enabled`` (``User``, GYM-26 — included here so the
+        WebApp settings screen can read everything in one request instead
+        of a second round trip).
 
-        Deprecated: Use ProfileRepository instead.
+        Deprecated: Use ProfileRepository instead for the Profile fields.
         This method is kept for backward compatibility.
         """
         user = await self.get_by_telegram_id(telegram_id)
@@ -196,6 +211,7 @@ class UserRepository:
                 "daily_protein": 150,
                 "daily_fats": 80,
                 "daily_carbs": 250,
+                "notifications_enabled": user.notifications_enabled,
             }
 
         return {
@@ -209,6 +225,7 @@ class UserRepository:
             "daily_protein": profile.daily_protein or 150,
             "daily_fats": profile.daily_fats or 80,
             "daily_carbs": profile.daily_carbs or 250,
+            "notifications_enabled": user.notifications_enabled,
         }
 
 

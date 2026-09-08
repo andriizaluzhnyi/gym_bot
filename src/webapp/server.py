@@ -3,7 +3,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from aiohttp import web
@@ -352,6 +352,62 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
                 for meal in meals
             ]
         })
+
+
+_VALID_NUTRITION_PERIODS = ('week', 'month')
+
+
+@webapp_auth
+async def api_get_nutrition_statistics(request: web.Request) -> web.Response:
+    """API endpoint (GYM-14): daily calorie/macro/water totals over a
+    period, one entry per local calendar day (`settings.timezone`) — a day
+    with no logged record gets zeros rather than being omitted, so the
+    response always covers every day of the period (7 for a week, however
+    many days are in the current month) ready for a bar chart with no
+    client-side gap-filling (GYM-15).
+
+    Unlike the `/api/statistics/*` workout endpoints, there's no `?user=`
+    trainer-viewing-a-client convention here — nutrition data is always
+    the caller's own, same as the other `/api/nutrition/*` endpoints.
+
+    Query params: `period=week|month` (default `week`).
+    Expects Authorization header with Telegram initData.
+    """
+    period = request.query.get('period', 'week')
+    if period not in _VALID_NUTRITION_PERIODS:
+        return web.json_response(
+            {'error': "Invalid period: must be 'week' or 'month'"}, status=400
+        )
+
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
+    if not telegram_id:
+        return web.json_response({'error': 'Invalid user data'}, status=400)
+
+    async with async_session_maker() as session:
+        user = await UserRepository(session).get_by_telegram_id(telegram_id)
+        if not user:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        start, end = period_bounds_utc(period, settings.timezone)
+        # period is validated to be 'week' or 'month' above, so
+        # period_bounds_utc never takes its (None, None)-returning "all"
+        # branch — this is just narrowing the type for mypy.
+        assert start is not None and end is not None
+        totals_by_day = await DailyNutritionRepository(session).get_totals_by_range(
+            user.id, start, end, settings.timezone
+        )
+
+    by_day = []
+    day = to_local_date(start, settings.timezone)
+    end_day = to_local_date(end, settings.timezone)
+    while day < end_day:
+        totals = totals_by_day.get(day, {
+            'calories': 0, 'protein': 0, 'fats': 0, 'carbs': 0, 'water_ml': 0,
+        })
+        by_day.append({'date': day.isoformat(), **totals})
+        day += timedelta(days=1)
+
+    return web.json_response({'success': True, 'data': {'by_day': by_day}})
 
 
 async def workout_handler(request: web.Request) -> web.StreamResponse:
@@ -1758,6 +1814,7 @@ def create_webapp() -> web.Application:
     app.router.add_post('/api/nutrition/daily', api_save_daily_nutrition)
     app.router.add_post('/api/nutrition/meal', api_add_meal)
     app.router.add_get('/api/nutrition/meals', api_get_today_meals)
+    app.router.add_get('/api/nutrition/statistics', api_get_nutrition_statistics)
     app.router.add_get('/api/workout/program', api_get_workout_program)
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
     app.router.add_post('/api/workout/session/start', api_start_workout_session)

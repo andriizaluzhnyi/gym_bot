@@ -537,3 +537,33 @@ def get_group_reminders_time_keyboard(reminder_type: str) -> InlineKeyboardMarku
 
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="grem:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# --- Deep-link Mini App sections (`/start <section>`, GYM-34) ---
+
+DEEPLINK_SECTIONS = {
+    "nutrition": ("🍎 Харчування", "/nutrition"),
+    "profile": ("👤 Профіль", "/profile"),
+    "statistics": ("📊 Статистика", "/statistics"),
+}
+
+
+def get_deeplink_section_keyboard(section: str) -> InlineKeyboardMarkup | None:
+    """A single `web_app` button opening `section`'s Mini App page —
+    reached via `/start <section>` (GYM-34), itself reached from a group
+    reminder's `url` button (group chats can't render `web_app` buttons,
+    hence this two-step deep-link/private-chat handoff). Returns ``None``
+    if `section` isn't recognized or `settings.webapp_url` isn't
+    configured — the caller falls back to plain `/start` in that case.
+    """
+    settings = get_settings()
+    if section not in DEEPLINK_SECTIONS or not settings.webapp_url:
+        return None
+
+    label, path = DEEPLINK_SECTIONS[section]
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=label,
+            web_app=WebAppInfo(url=f"{settings.webapp_url}{path}"),
+        )
+    ]])

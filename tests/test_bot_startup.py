@@ -79,3 +79,41 @@ class TestConfigureBotCommands:
         await bot_module.configure_bot_commands(bot)
 
         bot.set_chat_menu_button.assert_not_awaited()
+
+
+class TestSetupScheduler:
+    def test_registers_a_group_reminders_job_every_five_minutes(self):
+        """GYM-34: the scheduler job driving GroupReminderService."""
+        scheduler = bot_module.setup_scheduler(_make_bot())
+        job = scheduler.get_job("group_reminders")
+
+        assert job is not None
+        assert str(job.trigger) == "interval[0:05:00]"
+
+    def test_does_not_remove_the_existing_training_reminder_jobs(self):
+        scheduler = bot_module.setup_scheduler(_make_bot())
+
+        assert scheduler.get_job("reminder_24h") is not None
+        assert scheduler.get_job("reminder_2h") is not None
+
+
+class TestBotUsernameCache:
+    """GYM-34: `set_bot_username`/`get_bot_username`
+    (src/webapp/server.py) — the "set_bot_instance-style" cache for the
+    bot's own @username, used to build group-reminder deep links.
+    """
+
+    def test_round_trips(self):
+        from src.webapp import server
+
+        try:
+            server.set_bot_username("my_gym_bot")
+            assert server.get_bot_username() == "my_gym_bot"
+        finally:
+            server.set_bot_username(None)  # don't leak into other tests
+
+    def test_defaults_to_none(self):
+        from src.webapp import server
+
+        server.set_bot_username(None)
+        assert server.get_bot_username() is None

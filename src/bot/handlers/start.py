@@ -1,10 +1,10 @@
 """Start and help command handlers."""
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import Message
 
-from src.bot.keyboards import get_admin_menu_keyboard, get_main_menu_keyboard
+from src.bot.keyboards import get_admin_menu_keyboard, get_deeplink_section_keyboard, get_main_menu_keyboard
 from src.config import get_settings
 from src.database.repository import UserRepository
 from src.database.session import async_session_maker
@@ -13,7 +13,33 @@ router = Router()
 settings = get_settings()
 
 
-@router.message(CommandStart())
+@router.message(CommandStart(deep_link=True))
+async def cmd_start_deep_link(message: Message, command: CommandObject) -> None:
+    """`/start <section>` (GYM-34) — reached from a group reminder's
+    "🍎 Відкрити щоденник"/"👤 Профіль" button, a plain `url` link
+    (`https://t.me/<bot>?start=<section>`) that always opens a private
+    chat first. Replies with a real `web_app` button for that section,
+    since `web_app` buttons only work in a private chat.
+
+    Only meaningful in a private chat — `deep_link=True` already implies
+    args are present, so this handler (registered separately from the
+    plain ``CommandStart()`` below) only ever fires for `/start <args>`,
+    never bare `/start`. An unrecognized section, or the chat not being
+    private, falls back to the same welcome message plain `/start` gives.
+    """
+    keyboard = (
+        get_deeplink_section_keyboard(command.args.strip())
+        if message.chat.type == "private" and command.args
+        else None
+    )
+    if keyboard is None:
+        await cmd_start(message)
+        return
+
+    await message.answer("Відкрийте розділ:", reply_markup=keyboard)
+
+
+@router.message(CommandStart(deep_link=False))
 async def cmd_start(message: Message) -> None:
     """Handle /start command."""
     if message.from_user is None:

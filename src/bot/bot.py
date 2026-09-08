@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from src.bot.handlers import setup_routers
 from src.config import get_settings
 from src.database.session import init_db
+from src.services.group_reminders import GroupReminderService
 from src.services.notifications import NotificationService
 from src.webapp.server import start_webapp, stop_webapp
 
@@ -136,6 +137,18 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    # GYM-34: group nutrition/measurements/photo-progress reminders —
+    # checked every 5 minutes so a scheduled time is never missed by more
+    # than that, without the DB churn of a finer interval.
+    group_reminder_service = GroupReminderService(bot)
+    scheduler.add_job(
+        group_reminder_service.send_due_reminders,
+        "interval",
+        minutes=5,
+        id="group_reminders",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -172,8 +185,17 @@ async def run_bot() -> None:
     dp = Dispatcher()
 
     # Set bot instance for webapp
-    from src.webapp.server import set_bot_instance
+    from src.webapp.server import set_bot_instance, set_bot_username
     set_bot_instance(bot)
+
+    # GYM-34: cache the bot's own @username once — group reminder deep
+    # links (`https://t.me/<bot>?start=...`) need it, and re-fetching via
+    # get_me() on every reminder send would be wasteful.
+    try:
+        bot_info = await bot.get_me()
+        set_bot_username(bot_info.username)
+    except Exception as e:
+        logger.warning(f"Failed to fetch bot username via get_me(): {e}")
 
     # Register command list and the default chat-menu button (GYM-35/36)
     await configure_bot_commands(bot)

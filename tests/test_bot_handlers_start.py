@@ -3,14 +3,16 @@
 """
 
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
+from aiogram.filters import CommandObject
 
 from src.bot.handlers import start
 from src.database.models import Base
 from src.database.repository import UserRepository
 from src.database.session import async_session_maker, engine
-from tests.bot_mocks import make_contact, make_message, make_telegram_user
+from tests.bot_mocks import make_chat, make_contact, make_message, make_telegram_user
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +76,125 @@ class TestCmdStart:
         await start.cmd_start(message)
 
         message.bot.set_chat_menu_button.assert_not_awaited()
+
+
+class TestCmdStartDeepLink:
+    """GYM-34: `/start <section>` — reached from a group reminder's `url`
+    button (always opens a private chat first, since `web_app` buttons
+    don't render in a group).
+    """
+
+    async def test_known_section_gets_a_web_app_button(self, monkeypatch):
+        monkeypatch.setattr(start.settings, "webapp_url", "https://example.com")
+        message = make_message(chat=make_chat(chat_type="private"))
+        command = CommandObject(command="start", args="nutrition")
+
+        await start.cmd_start_deep_link(message, command)
+
+        message.answer.assert_awaited_once()
+        _, kwargs = message.answer.call_args
+        keyboard = kwargs["reply_markup"]
+        button = keyboard.inline_keyboard[0][0]
+        assert button.web_app.url == "https://example.com/nutrition"
+
+    async def test_each_known_section_maps_to_its_own_page(self, monkeypatch):
+        monkeypatch.setattr(start.settings, "webapp_url", "https://example.com")
+        for section, path in [
+            ("nutrition", "/nutrition"),
+            ("profile", "/profile"),
+            ("statistics", "/statistics"),
+        ]:
+            message = make_message(chat=make_chat(chat_type="private"))
+            command = CommandObject(command="start", args=section)
+
+            await start.cmd_start_deep_link(message, command)
+
+            _, kwargs = message.answer.call_args
+            button = kwargs["reply_markup"].inline_keyboard[0][0]
+            assert button.web_app.url == f"https://example.com{path}"
+
+    async def test_unknown_section_falls_back_to_plain_start(self, monkeypatch):
+        monkeypatch.setattr(start.settings, "admin_user_id", 0)
+        monkeypatch.setattr(start.settings, "webapp_url", "https://example.com")
+        telegram_id = _unique_telegram_id()
+        message = make_message(
+            chat=make_chat(chat_type="private"),
+            from_user=make_telegram_user(user_id=telegram_id, first_name="Andrii"),
+        )
+        command = CommandObject(command="start", args="something-unknown")
+
+        await start.cmd_start_deep_link(message, command)
+
+        message.answer.assert_awaited_once()
+        (text,), kwargs = message.answer.call_args
+        # The plain-/start welcome text, not the deep-link "Відкрийте розділ:".
+        assert "Andrii" in text
+        assert kwargs["parse_mode"] == "Markdown"
+
+    async def test_group_chat_falls_back_to_plain_start(self, monkeypatch):
+        """Deep-link sections only make sense in a private chat — a
+        `web_app` button wouldn't render in a group anyway."""
+        monkeypatch.setattr(start.settings, "admin_user_id", 0)
+        monkeypatch.setattr(start.settings, "webapp_url", "https://example.com")
+        message = make_message(
+            chat=make_chat(chat_type="group"),
+            from_user=make_telegram_user(user_id=_unique_telegram_id(), first_name="Andrii"),
+        )
+        command = CommandObject(command="start", args="nutrition")
+
+        await start.cmd_start_deep_link(message, command)
+
+        (text,), _ = message.answer.call_args
+        assert "Andrii" in text  # the plain-/start welcome text
+
+    async def test_missing_webapp_url_falls_back_to_plain_start(self, monkeypatch):
+        monkeypatch.setattr(start.settings, "admin_user_id", 0)
+        monkeypatch.setattr(start.settings, "webapp_url", "")
+        message = make_message(
+            chat=make_chat(chat_type="private"),
+            from_user=make_telegram_user(user_id=_unique_telegram_id(), first_name="Andrii"),
+        )
+        command = CommandObject(command="start", args="nutrition")
+
+        await start.cmd_start_deep_link(message, command)
+
+        (text,), _ = message.answer.call_args
+        assert "Andrii" in text  # the plain-/start welcome text
+
+
+class TestStartFilterWiring:
+    """Confirms `/start` (no args) and `/start <section>` route to the
+    two separate handlers (``CommandStart(deep_link=False)`` vs
+    ``CommandStart(deep_link=True)``) rather than one swallowing the
+    other — exercised through the router's own observer, same technique
+    as GYM-32/33's ``TestFilterWiring``.
+    """
+
+    async def test_bare_start_routes_to_cmd_start(self, monkeypatch):
+        monkeypatch.setattr(start.settings, "admin_user_id", 0)
+        message = make_message(
+            text="/start", from_user=make_telegram_user(user_id=_unique_telegram_id())
+        )
+
+        await start.router.message.trigger(message, bot=MagicMock())
+
+        message.answer.assert_awaited_once()
+        (text,), _ = message.answer.call_args
+        assert "Привіт" in text
+
+    async def test_start_with_args_routes_to_the_deep_link_handler(self, monkeypatch):
+        monkeypatch.setattr(start.settings, "webapp_url", "https://example.com")
+        message = make_message(
+            text="/start nutrition", chat=make_chat(chat_type="private"),
+        )
+
+        await start.router.message.trigger(message, bot=MagicMock())
+
+        message.answer.assert_awaited_once()
+        _, kwargs = message.answer.call_args
+        assert kwargs["reply_markup"].inline_keyboard[0][0].web_app.url == (
+            "https://example.com/nutrition"
+        )
 
 
 class TestCmdHelp:

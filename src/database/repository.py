@@ -1,7 +1,7 @@
 """Repository pattern for database operations."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,10 @@ from src.database.models import (
     WorkoutSet,
 )
 from src.utils.datetime_utils import utcnow
+
+# How long a draft (in-progress) workout session stays resumable before it's
+# treated as abandoned. See WorkoutSessionRepository.get_active_draft.
+DRAFT_SESSION_MAX_AGE = timedelta(hours=24)
 
 
 class UserRepository:
@@ -678,17 +682,23 @@ class WorkoutSessionRepository:
         muscle_group: str | None = None,
         duration_seconds: int | None = None,
     ) -> WorkoutSession:
-        """Create a workout session together with all its sets.
+        """Atomically create an already-*completed* workout session.
 
         ``sets`` is a list of dicts with ``exercise_name``, ``weight``,
         ``reps``, ``set_number``, and optionally ``muscle_group``,
         ``planned_sets_reps`` and ``performed_at`` (defaults to the
         session's ``performed_at``, e.g. for backfilled per-row timestamps).
         Everything is added in a single flush, i.e. one transaction.
+
+        This is the one-shot fallback path used when no draft session exists
+        (see ``start_draft_session`` / GYM-2c) — e.g. an older client, or the
+        draft autosave never having run. ``completed_at`` is set to
+        ``performed_at`` immediately since there was no separate draft phase.
         """
         workout_session = WorkoutSession(
             user_id=user_id,
             performed_at=performed_at,
+            completed_at=performed_at,
             day=day,
             muscle_group=muscle_group,
             duration_seconds=duration_seconds,
@@ -714,18 +724,113 @@ class WorkoutSessionRepository:
         await self.session.flush()
         return workout_session
 
+    async def get_by_id(self, session_id: int) -> WorkoutSession | None:
+        """Get a session by its primary key (sets not eagerly loaded)."""
+        return await self.session.get(WorkoutSession, session_id)
+
+    async def get_active_draft(
+        self,
+        user_id: uuid.UUID,
+        day: int | None = None,
+        muscle_group: str | None = None,
+        max_age: timedelta = DRAFT_SESSION_MAX_AGE,
+    ) -> WorkoutSession | None:
+        """Get the most recent unfinished (``completed_at is None``) session
+        for this user/day/muscle combo, started within ``max_age``.
+
+        Used to resume an in-progress workout from the DB (GYM-2c) instead
+        of the browser's ``localStorage``. A draft older than ``max_age`` is
+        treated as abandoned and not returned (the caller will start a new
+        one); it is left in the DB rather than deleted.
+        """
+        conditions = [
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.completed_at.is_(None),
+            WorkoutSession.performed_at >= utcnow() - max_age,
+            WorkoutSession.day == day
+            if day is not None
+            else WorkoutSession.day.is_(None),
+            WorkoutSession.muscle_group == muscle_group
+            if muscle_group is not None
+            else WorkoutSession.muscle_group.is_(None),
+        ]
+
+        result = await self.session.execute(
+            select(WorkoutSession)
+            .where(and_(*conditions))
+            .options(selectinload(WorkoutSession.sets))
+            .order_by(WorkoutSession.performed_at.desc())
+        )
+        return result.scalars().first()
+
+    async def start_draft_session(
+        self,
+        user_id: uuid.UUID,
+        day: int | None = None,
+        muscle_group: str | None = None,
+    ) -> WorkoutSession:
+        """Create a new draft session (``completed_at is None``) with no sets
+        yet — called as soon as the WebApp opens to start a workout, so the
+        DB (not ``localStorage``) becomes the source of truth from the
+        start.
+        """
+        workout_session = WorkoutSession(
+            user_id=user_id,
+            performed_at=utcnow(),
+            day=day,
+            muscle_group=muscle_group,
+        )
+        self.session.add(workout_session)
+        await self.session.flush()
+        return workout_session
+
+    async def complete_session(
+        self,
+        session_id: int,
+        user_id: uuid.UUID,
+        duration_seconds: int | None = None,
+        day: int | None = None,
+        muscle_group: str | None = None,
+    ) -> WorkoutSession | None:
+        """Mark a draft session as finished.
+
+        Returns ``None`` if the session doesn't exist or belongs to a
+        different user. Idempotent: calling it again on an already-completed
+        session just updates ``duration_seconds``/``day``/``muscle_group`
+        without touching ``completed_at`` a second time.
+        """
+        workout_session = await self.get_by_id(session_id)
+        if workout_session is None or workout_session.user_id != user_id:
+            return None
+
+        if workout_session.completed_at is None:
+            workout_session.completed_at = utcnow()
+        if duration_seconds is not None:
+            workout_session.duration_seconds = duration_seconds
+        if day is not None:
+            workout_session.day = day
+        if muscle_group is not None:
+            workout_session.muscle_group = muscle_group
+
+        await self.session.flush()
+        return workout_session
+
     async def get_sessions_by_period(
         self,
         user_id: uuid.UUID,
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> list[WorkoutSession]:
-        """Get a user's sessions (with sets eagerly loaded) in a time range.
+        """Get a user's *completed* sessions (sets eagerly loaded) in a time
+        range. Draft (in-progress) sessions are excluded.
 
         ``start``/``end`` are inclusive UTC bounds; omit either for an
         open-ended range. Most recent first.
         """
-        conditions = [WorkoutSession.user_id == user_id]
+        conditions = [
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.completed_at.isnot(None),
+        ]
         if start is not None:
             conditions.append(WorkoutSession.performed_at >= start)
         if end is not None:
@@ -752,13 +857,18 @@ class WorkoutSetRepository:
         exercise_name: str,
         limit: int | None = None,
     ) -> list[WorkoutSet]:
-        """Get a user's sets for one exercise, ordered by date (oldest first)."""
+        """Get a user's sets for one exercise from *completed* sessions,
+        ordered by date (oldest first). Sets from an in-progress draft
+        session are excluded, same as ``get_sessions_by_period``.
+        """
         query = (
             select(WorkoutSet)
+            .join(WorkoutSession, WorkoutSet.session_id == WorkoutSession.id)
             .where(
                 and_(
                     WorkoutSet.user_id == user_id,
                     WorkoutSet.exercise_name == exercise_name,
+                    WorkoutSession.completed_at.isnot(None),
                 )
             )
             .order_by(WorkoutSet.performed_at.asc())
@@ -768,3 +878,49 @@ class WorkoutSetRepository:
 
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def replace_exercise_sets(
+        self,
+        session_id: int,
+        user_id: uuid.UUID,
+        exercise_name: str,
+        sets: list[dict],
+        muscle_group: str | None = None,
+        planned_sets_reps: str | None = None,
+        performed_at: datetime | None = None,
+    ) -> None:
+        """Replace all of one exercise's sets within a session with ``sets``.
+
+        Used to autosave a draft session (GYM-2c): the WebApp always sends
+        the exercise's *full* current set list (it renumbers sets after a
+        removal), so delete-then-recreate is simpler and safer than trying
+        to patch individual rows by ``set_number`` and keeps numbering
+        contiguous for free. ``sets`` is a list of dicts with
+        ``set_number``, ``weight``, ``reps``.
+        """
+        existing = await self.session.execute(
+            select(WorkoutSet).where(
+                WorkoutSet.session_id == session_id,
+                WorkoutSet.exercise_name == exercise_name,
+            )
+        )
+        for row in existing.scalars().all():
+            await self.session.delete(row)
+        await self.session.flush()
+
+        for set_data in sets:
+            self.session.add(
+                WorkoutSet(
+                    session_id=session_id,
+                    user_id=user_id,
+                    exercise_name=exercise_name,
+                    muscle_group=muscle_group,
+                    set_number=set_data["set_number"],
+                    weight=set_data["weight"],
+                    reps=set_data["reps"],
+                    planned_sets_reps=planned_sets_reps,
+                    performed_at=performed_at or utcnow(),
+                )
+            )
+
+        await self.session.flush()

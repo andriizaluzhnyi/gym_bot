@@ -290,6 +290,14 @@ class WorkoutSession(Base):
     Owns the sets performed during it. A session is the unit used for
     history, streaks and duration; two workouts on the same day are kept as
     separate sessions rather than merged.
+
+    A session with ``completed_at is None`` is a *draft*: created as soon as
+    the WebApp is opened to start/resume a workout (GYM-2c), so the DB is the
+    source of truth for the in-progress log, not just the finished one.
+    ``performed_at`` is therefore the session's *start* time; it stays fixed
+    once set, while ``completed_at`` is filled in when the workout is
+    finished. History/statistics queries should only consider sessions where
+    ``completed_at is not None``.
     """
 
     __tablename__ = "workout_sessions"
@@ -309,6 +317,9 @@ class WorkoutSession(Base):
     performed_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, index=True
     )
+    # NULL while the workout is still in progress (a draft); set once the
+    # user finishes it. See class docstring.
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     # Relationships

@@ -705,6 +705,13 @@
         let activeExerciseIndex = 0;
         let backButtonHandler = null;
 
+        // DB-backed draft session (GYM-2c). The DB is now the source of
+        // truth for the in-progress log; localStorage stays as an offline
+        // fallback cache in case /api/workout/session/start can't be reached.
+        let currentSessionId = null;
+        let sessionRestoredFromServer = false;
+        const exerciseSyncTimers = {};
+
         // Timers
         let workoutStartTime = null;
         let workoutTimerInterval = null;
@@ -760,6 +767,96 @@
                 localStorage.removeItem(STORAGE_KEY);
             } catch (error) {
                 console.log('Failed to clear session:', error);
+            }
+        }
+
+        // --- DB-backed draft session (GYM-2c) ---
+
+        async function startOrResumeServerSession() {
+            try {
+                const response = await fetch('/api/workout/session/start', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': tg.initData,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user: PARAM_USER,
+                        day: PARAM_DAY,
+                        muscle: PARAM_MUSCLE,
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                if (!result.success || !result.data) {
+                    throw new Error('Unexpected response shape');
+                }
+
+                currentSessionId = result.data.session_id;
+                sessionRestoredFromServer = result.data.resumed;
+                if (result.data.resumed) {
+                    workoutStartTime = result.data.started_at_ms;
+                    console.log('Workout session restored from the database');
+                }
+                return result.data;
+            } catch (error) {
+                // Offline or the server is unreachable: keep going without a
+                // session id — set edits just won't autosave to the DB until
+                // it's reachable again, and "Завершити тренування" still
+                // saves everything at the end either way.
+                console.log('Failed to start/resume session from server:', error);
+                currentSessionId = null;
+                return null;
+            }
+        }
+
+        // Autosaves one exercise's current sets to the draft session.
+        // Debounced while typing; immediate for discrete add/remove actions.
+        function syncExerciseToServer(exIdx, { debounceMs = 0 } = {}) {
+            if (!currentSessionId) return;
+            const ex = exercises[exIdx];
+            if (!ex) return;
+
+            if (exerciseSyncTimers[exIdx]) {
+                clearTimeout(exerciseSyncTimers[exIdx]);
+            }
+
+            const doSync = async () => {
+                delete exerciseSyncTimers[exIdx];
+                try {
+                    await fetch('/api/workout/session/exercise', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': tg.initData,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            session_id: currentSessionId,
+                            exercise: ex.exercise,
+                            muscle_group: ex.muscle_group || '',
+                            planned_sets_reps: ex.sets_reps || '',
+                            sets: ex._sets.map(s => ({
+                                set: s.set,
+                                weight: s.weight,
+                                reps: s.reps,
+                            })),
+                        }),
+                    });
+                } catch (error) {
+                    // Non-critical: localStorage still has this set, and
+                    // "Завершити тренування" resends everything anyway.
+                    console.log('Exercise autosave failed (non-critical):', error);
+                }
+            };
+
+            if (debounceMs > 0) {
+                exerciseSyncTimers[exIdx] = setTimeout(doSync, debounceMs);
+            } else {
+                doSync();
             }
         }
 
@@ -1472,6 +1569,7 @@
             const field = e.target.dataset.field;
             exercises[exIdx]._sets[setIdx][field] = e.target.value;
             saveWorkoutSession();
+            syncExerciseToServer(exIdx, { debounceMs: 600 });
         }
 
         function onAddSet() {
@@ -1491,6 +1589,7 @@
                 showDetailView();
                 resetRestTimer();
                 saveWorkoutSession();
+                syncExerciseToServer(activeExerciseIndex);
                 if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
             });
         }
@@ -1502,6 +1601,7 @@
             exercises[exIdx]._sets.forEach((s, i) => { s.set = i + 1; });
             showDetailView();
             saveWorkoutSession();
+            syncExerciseToServer(exIdx);
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         }
 
@@ -1530,14 +1630,23 @@
         // --- API ---
 
         async function loadProgram() {
-            // First try to restore session
-            const sessionRestored = loadWorkoutSession();
-            if (sessionRestored) {
-                console.log('Workout session restored from localStorage');
-                return;
+            // The DB is the source of truth for the in-progress workout
+            // (GYM-2c): this creates a fresh draft session, or resumes one
+            // already started for this user/day/muscle.
+            const serverDraft = await startOrResumeServerSession();
+
+            if (!serverDraft) {
+                // Server unreachable (offline) — fall back to whatever was
+                // cached locally rather than losing in-progress data.
+                const sessionRestored = loadWorkoutSession();
+                if (sessionRestored) {
+                    console.log('Workout session restored from localStorage (offline fallback)');
+                    return;
+                }
             }
 
-            // If no session, load fresh program
+            // Always (re)load the program definition — exercise order,
+            // comments and planned reps live there, not in the draft session.
             try {
                 const params = new URLSearchParams({
                     user: PARAM_USER,
@@ -1555,11 +1664,21 @@
 
                 const result = await response.json();
                 if (result.success && result.data && result.data.exercises) {
-                    exercises = result.data.exercises.map(ex => ({
-                        ...ex,
-                        _sets: [],          // Start with no sets
-                        _completed: false,  // Not completed yet
-                    }));
+                    const setsByExercise = (serverDraft && serverDraft.sets_by_exercise) || {};
+                    exercises = result.data.exercises.map(ex => {
+                        const savedSets = setsByExercise[ex.exercise] || [];
+                        return {
+                            ...ex,
+                            _sets: savedSets.map((s, i) => ({
+                                set: s.set,
+                                plannedReps: getPlannedRepsForSet(ex.sets_reps, i),
+                                weight: s.weight,
+                                reps: s.reps,
+                            })),
+                            _completed: savedSets.length > 0,
+                        };
+                    });
+                    saveWorkoutSession(); // keep the offline cache in sync
                 }
             } catch (err) {
                 console.error('Failed to load program:', err);
@@ -1640,6 +1759,7 @@
                 if (response.ok) {
                     // Clear saved session after successful save
                     clearWorkoutSession();
+                    currentSessionId = null;
                     if (tg.HapticFeedback) {
                         tg.HapticFeedback.notificationOccurred('success');
                     }

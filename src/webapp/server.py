@@ -11,6 +11,7 @@ from src.database.repository import (
     DailyNutritionRepository,
     UserRepository,
     WorkoutSessionRepository,
+    WorkoutSetRepository,
 )
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
@@ -506,6 +507,146 @@ async def api_update_sync_settings(request: web.Request) -> web.Response:
         })
 
 
+@webapp_auth
+async def api_start_workout_session(request: web.Request) -> web.Response:
+    """API endpoint to start or resume an in-progress workout session.
+
+    The DB is the source of truth for the in-progress log, not just the
+    finished one (GYM-2c): called when the WebApp opens, this returns an
+    existing unfinished session for (user, day, muscle) if one was started
+    within the last 24h, or creates a fresh one. The WebApp uses the
+    response to restore already-logged sets instead of (or in addition to)
+    its ``localStorage`` cache.
+
+    Expects Authorization header with Telegram initData.
+    Body: { user, day, muscle }
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    user_name = body.get('user', '')
+    day = body.get('day', '')
+    muscle = body.get('muscle', '')
+
+    if not user_name:
+        return web.json_response(
+            {'error': 'Missing required field: user'}, status=400
+        )
+
+    day_int = int(day) if str(day).isdigit() else None
+    muscle_norm = muscle or None
+
+    async with async_session_maker() as session:
+        owner = await UserRepository(session).get_by_username(user_name)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        session_repo = WorkoutSessionRepository(session)
+        draft = await session_repo.get_active_draft(
+            owner.id, day=day_int, muscle_group=muscle_norm
+        )
+        resumed = draft is not None
+        if draft is None:
+            draft = await session_repo.start_draft_session(
+                owner.id, day=day_int, muscle_group=muscle_norm
+            )
+        await session.commit()
+
+        sets_by_exercise: dict[str, list[dict]] = {}
+        if resumed:
+            for workout_set in sorted(draft.sets, key=lambda s: s.set_number):
+                sets_by_exercise.setdefault(workout_set.exercise_name, []).append({
+                    'set': workout_set.set_number,
+                    'weight': workout_set.weight,
+                    'reps': workout_set.reps,
+                })
+
+        from datetime import timezone
+
+        started_at_ms = int(
+            draft.performed_at.replace(tzinfo=timezone.utc).timestamp() * 1000
+        )
+
+        return web.json_response({
+            'success': True,
+            'data': {
+                'session_id': draft.id,
+                'resumed': resumed,
+                'started_at_ms': started_at_ms,
+                'sets_by_exercise': sets_by_exercise,
+            },
+        })
+
+
+@webapp_auth
+async def api_sync_workout_session_exercise(request: web.Request) -> web.Response:
+    """API endpoint to autosave one exercise's sets within a draft session.
+
+    Called after every add/edit/remove of a set while the workout is in
+    progress (GYM-2c), so the DB reflects the log without waiting for
+    "Завершити тренування". Replaces *all* of the exercise's sets in one
+    call (see ``WorkoutSetRepository.replace_exercise_sets``).
+
+    Expects Authorization header with Telegram initData.
+    Body: { session_id, exercise, muscle_group, planned_sets_reps,
+            sets: [{ set, weight, reps }] }
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    session_id = body.get('session_id')
+    exercise_name = body.get('exercise', '')
+    muscle_group = body.get('muscle_group') or None
+    planned_sets_reps = body.get('planned_sets_reps') or None
+    raw_sets = body.get('sets', [])
+
+    if not session_id or not exercise_name:
+        return web.json_response(
+            {'error': 'Missing required fields: session_id, exercise'},
+            status=400,
+        )
+
+    # Skip incomplete sets (empty weight/reps), same as api_save_workout_log.
+    sets = [
+        {
+            'set_number': s.get('set'),
+            'weight': float(s.get('weight')),
+            'reps': int(s.get('reps')),
+        }
+        for s in raw_sets
+        if s.get('weight', '') and s.get('reps', '')
+    ]
+
+    async with async_session_maker() as session:
+        workout_session = await WorkoutSessionRepository(session).get_by_id(
+            session_id
+        )
+
+        if workout_session is None:
+            return web.json_response({'error': 'Session not found'}, status=404)
+        if workout_session.completed_at is not None:
+            return web.json_response(
+                {'error': 'Session already completed'}, status=409
+            )
+
+        await WorkoutSetRepository(session).replace_exercise_sets(
+            session_id=session_id,
+            user_id=workout_session.user_id,
+            exercise_name=exercise_name,
+            muscle_group=muscle_group,
+            planned_sets_reps=planned_sets_reps,
+            sets=sets,
+            performed_at=workout_session.performed_at,
+        )
+        await session.commit()
+
+    return web.json_response({'success': True})
+
+
 async def api_save_workout_log(request: web.Request) -> web.Response:
     """API endpoint to save a completed workout log.
 
@@ -515,10 +656,13 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
 
     The database is the source of truth (GYM-2): the session and its sets
     are saved there first, and that write must succeed for the request to
-    succeed. Google Sheets is written to afterwards, and only if the
-    workout's owner opted in via ``/api/user/sync-settings``; a Sheets
-    failure is logged but never fails the request (the DB copy already
-    exists).
+    succeed. If a draft session for (user, day, muscle) already exists
+    (started via ``/api/workout/session/start``, GYM-2c), it is reconciled
+    to match this body and marked completed; otherwise a fresh session is
+    created atomically (older client, or the draft never got created).
+    Google Sheets is written to afterwards, and only if the workout's owner
+    opted in via ``/api/user/sync-settings``; a Sheets failure is logged but
+    never fails the request (the DB copy already exists).
     """
     init_data = request.headers.get('Authorization', '')
     user_data = validate_telegram_webapp_data(init_data)
@@ -557,14 +701,25 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
 
     log_entries = []
     db_sets = []
+    # Per-exercise view of the same data, for reconciling a draft session
+    # (GYM-2c): {exercise_name: {muscle_group, planned_sets_reps, sets}}.
+    exercise_meta: dict[str, dict] = {}
     for ex in exercises:
+        exercise_name = ex.get('exercise', '')
+        muscle_group_ex = ex.get('muscle_group') or None
+        planned = ex.get('planned_sets_reps') or None
+        meta = exercise_meta.setdefault(
+            exercise_name,
+            {'muscle_group': muscle_group_ex, 'planned_sets_reps': planned, 'sets': []},
+        )
+
         for s in ex.get('sets', []):
             weight = s.get('weight', '')
             reps = s.get('reps', '')
 
             log_entries.append({
                 'date': date_str,
-                'exercise': ex.get('exercise', ''),
+                'exercise': exercise_name,
                 'muscle_group': ex.get('muscle_group', ''),
                 'day': day,
                 'set_number': s.get('set', ''),
@@ -579,13 +734,19 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
             if not weight or not reps:
                 continue
 
-            db_sets.append({
-                'exercise_name': ex.get('exercise', ''),
-                'muscle_group': ex.get('muscle_group') or None,
+            set_row = {
+                'exercise_name': exercise_name,
+                'muscle_group': muscle_group_ex,
                 'set_number': s.get('set'),
                 'weight': float(weight),
                 'reps': int(reps),
-                'planned_sets_reps': ex.get('planned_sets_reps') or None,
+                'planned_sets_reps': planned,
+            }
+            db_sets.append(set_row)
+            meta['sets'].append({
+                'set_number': set_row['set_number'],
+                'weight': set_row['weight'],
+                'reps': set_row['reps'],
             })
 
     async with async_session_maker() as session:
@@ -593,15 +754,43 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
         if not owner:
             return web.json_response({'error': 'User not found'}, status=404)
 
+        session_repo = WorkoutSessionRepository(session)
+        muscle_norm = muscle or None
+
         try:
-            await WorkoutSessionRepository(session).create_session_with_sets(
-                user_id=owner.id,
-                performed_at=performed_at,
-                day=day_int,
-                muscle_group=muscle or None,
-                duration_seconds=duration_seconds,
-                sets=db_sets,
+            draft = await session_repo.get_active_draft(
+                owner.id, day=day_int, muscle_group=muscle_norm
             )
+            if draft is not None:
+                set_repo = WorkoutSetRepository(session)
+                for exercise_name, meta in exercise_meta.items():
+                    await set_repo.replace_exercise_sets(
+                        session_id=draft.id,
+                        user_id=owner.id,
+                        exercise_name=exercise_name,
+                        muscle_group=meta['muscle_group'],
+                        planned_sets_reps=meta['planned_sets_reps'],
+                        sets=meta['sets'],
+                        performed_at=draft.performed_at,
+                    )
+                await session_repo.complete_session(
+                    draft.id,
+                    owner.id,
+                    duration_seconds=duration_seconds,
+                    day=day_int,
+                    muscle_group=muscle_norm,
+                )
+            else:
+                # No draft (older client, or /session/start was never
+                # called) — fall back to the original one-shot save.
+                await session_repo.create_session_with_sets(
+                    user_id=owner.id,
+                    performed_at=performed_at,
+                    day=day_int,
+                    muscle_group=muscle_norm,
+                    duration_seconds=duration_seconds,
+                    sets=db_sets,
+                )
             await session.commit()
         except Exception as e:
             await session.rollback()
@@ -934,6 +1123,10 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/nutrition/meals', api_get_today_meals)
     app.router.add_get('/api/workout/program', api_get_workout_program)
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
+    app.router.add_post('/api/workout/session/start', api_start_workout_session)
+    app.router.add_post(
+        '/api/workout/session/exercise', api_sync_workout_session_exercise
+    )
     app.router.add_post('/api/workout/log', api_save_workout_log)
     app.router.add_post('/api/workout/rest-timer', api_start_rest_timer)
     app.router.add_delete('/api/workout/day', api_delete_workout_day)

@@ -376,6 +376,151 @@
             font-size: 12px;
         }
 
+        /* History (GYM-10/GYM-11) — cards per session, click to expand */
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .history-card {
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .history-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 16px 20px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .history-card-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .history-card-date-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .history-card-date {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .history-card-muscle {
+            flex-shrink: 0;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background-color: var(--card-border);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .history-card-summary {
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .history-card-chevron {
+            flex-shrink: 0;
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            transition: transform 0.2s;
+        }
+
+        .history-card.expanded .history-card-chevron {
+            transform: rotate(180deg);
+        }
+
+        .history-card-details {
+            display: none;
+            padding: 0 20px 16px;
+            border-top: 1px solid var(--card-border);
+        }
+
+        .history-card.expanded .history-card-details {
+            display: block;
+            padding-top: 12px;
+        }
+
+        .history-exercise {
+            margin-bottom: 14px;
+        }
+
+        .history-exercise:last-child {
+            margin-bottom: 0;
+        }
+
+        .history-exercise-header {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .history-exercise-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .history-set-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .history-set-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+        }
+
+        .history-set-row-label {
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .history-set-row-value {
+            color: var(--tg-theme-text-color, var(--text-primary));
+            font-weight: 500;
+        }
+
+        .history-details-loading {
+            padding: 8px 0;
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .load-more-btn {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            padding: 12px 0;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-link-color, var(--accent));
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .load-more-btn:disabled {
+            opacity: 0.5;
+        }
+
         /* Loading / empty state */
         .loading {
             display: flex;
@@ -462,6 +607,7 @@
         <button class="tab-btn" data-tab="progress">Прогрес по вправі</button>
         <button class="tab-btn" data-tab="activity">Активність</button>
         <button class="tab-btn" data-tab="records">Рекорди</button>
+        <button class="tab-btn" data-tab="history">Історія</button>
     </div>
 
     <div id="tabContent">
@@ -558,6 +704,21 @@
                 <p id="recordsEmptyStateText">Ще немає жодного рекорду.</p>
             </div>
         </section>
+
+        <section class="tab-panel" id="tab-history" style="display:none;">
+            <div class="loading" id="historyLoading">Завантаження історії...</div>
+
+            <div class="history-list" id="historyList" style="display:none;"></div>
+
+            <button class="load-more-btn" id="historyLoadMore" style="display:none;">
+                Завантажити ще
+            </button>
+
+            <div class="empty-state" id="historyEmptyState" style="display:none;">
+                <div class="empty-state-icon">🗓️</div>
+                <p id="historyEmptyStateText">Ще немає завершених тренувань.</p>
+            </div>
+        </section>
     </div>
 
     <nav class="bottom-nav">
@@ -615,17 +776,18 @@
             });
         });
 
-        // Tabs. "volume" (GYM-4), "progress" (GYM-5a/GYM-5b) and "records"
-        // (GYM-7/GYM-8) are wired to real data, below. "activity" is still
-        // a page-shell placeholder (GYM-3) — GYM-6 covers overall activity
-        // via the summary strip above, not this tab's own body, which
-        // awaits a future ticket.
+        // Tabs. "volume" (GYM-4), "progress" (GYM-5a/GYM-5b), "records"
+        // (GYM-7/GYM-8) and "history" (GYM-10/GYM-11) are wired to real
+        // data, below. "activity" is still a page-shell placeholder
+        // (GYM-3) — GYM-6 covers overall activity via the summary strip
+        // above, not this tab's own body, which awaits a future ticket.
         const tabButtons = document.querySelectorAll('.tab-btn');
         const tabPanels = {
             volume: document.getElementById('tab-volume'),
             progress: document.getElementById('tab-progress'),
             activity: document.getElementById('tab-activity'),
             records: document.getElementById('tab-records'),
+            history: document.getElementById('tab-history'),
         };
 
         function activateTab(name) {
@@ -695,6 +857,16 @@
         function formatShortDate(isoDate) {
             const [, month, day] = isoDate.split('-');
             return `${day}.${month}`;
+        }
+
+        const UK_MONTHS_GENITIVE = [
+            'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня',
+            'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'
+        ];
+
+        function formatFullDate(isoDate) {
+            const [, month, day] = isoDate.split('-').map(Number);
+            return `${day} ${UK_MONTHS_GENITIVE[month - 1]}`;
         }
 
         async function fetchVolumeStats(period, muscle) {
@@ -1248,6 +1420,257 @@
         });
 
         loadRecords();
+
+        // --- "Історія" tab (GYM-10/GYM-11) ---
+        // GET /api/statistics/history?limit=&offset= for the card list
+        // (paginated via "Завантажити ще"); a card's details (exercise →
+        // sets) are fetched lazily on first expand via
+        // GET /api/statistics/history/{session_id} and cached client-side
+        // so re-collapsing/re-expanding the same card doesn't refetch.
+
+        const HISTORY_PAGE_SIZE = 20;
+        let historyOffset = 0;
+        let historyHasMore = true;
+        const historyDetailsCache = new Map();
+
+        async function fetchHistoryPage(offset) {
+            const params = new URLSearchParams({
+                limit: String(HISTORY_PAGE_SIZE),
+                offset: String(offset),
+            });
+            if (PARAM_USER) {
+                params.set('user', PARAM_USER);
+            }
+            const response = await fetch(`/api/statistics/history?${params}`, {
+                headers: { 'Authorization': tg.initData },
+            });
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+            const payload = await response.json();
+            return payload.data;
+        }
+
+        function buildHistorySetRow(setEntry) {
+            const row = document.createElement('div');
+            row.className = 'history-set-row';
+
+            const label = document.createElement('span');
+            label.className = 'history-set-row-label';
+            label.textContent = `Підхід ${setEntry.set}`;
+
+            const value = document.createElement('span');
+            value.className = 'history-set-row-value';
+            value.textContent = `${formatKg(setEntry.weight)} кг × ${setEntry.reps}`;
+
+            row.appendChild(label);
+            row.appendChild(value);
+            return row;
+        }
+
+        function renderHistoryExercise(exercise) {
+            const block = document.createElement('div');
+            block.className = 'history-exercise';
+
+            const header = document.createElement('div');
+            header.className = 'history-exercise-header';
+
+            const name = document.createElement('span');
+            name.className = 'history-exercise-name';
+            name.textContent = exercise.exercise;
+            header.appendChild(name);
+
+            if (exercise.muscle_group) {
+                const badge = document.createElement('span');
+                badge.className = 'history-card-muscle';
+                badge.textContent = exercise.muscle_group;
+                header.appendChild(badge);
+            }
+
+            const rows = document.createElement('div');
+            rows.className = 'history-set-rows';
+            exercise.sets.forEach(s => rows.appendChild(buildHistorySetRow(s)));
+
+            block.appendChild(header);
+            block.appendChild(rows);
+            return block;
+        }
+
+        function renderHistoryDetails(detailsEl, exercises) {
+            detailsEl.innerHTML = '';
+            exercises.forEach(exercise => {
+                detailsEl.appendChild(renderHistoryExercise(exercise));
+            });
+        }
+
+        async function loadHistorySessionDetails(sessionId, detailsEl) {
+            if (historyDetailsCache.has(sessionId)) {
+                renderHistoryDetails(detailsEl, historyDetailsCache.get(sessionId));
+                return;
+            }
+
+            detailsEl.innerHTML = '';
+            const loadingEl = document.createElement('div');
+            loadingEl.className = 'history-details-loading';
+            loadingEl.textContent = 'Завантаження деталей...';
+            detailsEl.appendChild(loadingEl);
+
+            try {
+                const params = new URLSearchParams();
+                if (PARAM_USER) {
+                    params.set('user', PARAM_USER);
+                }
+                const response = await fetch(
+                    `/api/statistics/history/${sessionId}?${params}`,
+                    { headers: { 'Authorization': tg.initData } }
+                );
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const { data } = await response.json();
+                historyDetailsCache.set(sessionId, data.exercises);
+                renderHistoryDetails(detailsEl, data.exercises);
+            } catch (error) {
+                console.log('Failed to load session details:', error);
+                detailsEl.innerHTML = '';
+                const errorEl = document.createElement('div');
+                errorEl.className = 'history-details-loading';
+                errorEl.textContent = 'Не вдалося завантажити деталі тренування.';
+                detailsEl.appendChild(errorEl);
+            }
+        }
+
+        function renderHistoryCard(row) {
+            const card = document.createElement('div');
+            card.className = 'history-card';
+
+            const header = document.createElement('div');
+            header.className = 'history-card-header';
+
+            const main = document.createElement('div');
+            main.className = 'history-card-main';
+
+            const dateRow = document.createElement('div');
+            dateRow.className = 'history-card-date-row';
+
+            const date = document.createElement('span');
+            date.className = 'history-card-date';
+            date.textContent = formatFullDate(row.date);
+            dateRow.appendChild(date);
+
+            if (row.muscle_group) {
+                const badge = document.createElement('span');
+                badge.className = 'history-card-muscle';
+                badge.textContent = row.muscle_group;
+                dateRow.appendChild(badge);
+            }
+
+            const summary = document.createElement('div');
+            summary.className = 'history-card-summary';
+            summary.textContent =
+                `${row.exercises_count} вправ · ${row.sets_count} підходів · ` +
+                `${formatKg(row.total_volume)} кг` +
+                (row.duration_minutes ? ` · ${Math.round(row.duration_minutes)} хв` : '');
+
+            main.appendChild(dateRow);
+            main.appendChild(summary);
+
+            const chevron = document.createElement('span');
+            chevron.className = 'history-card-chevron';
+            chevron.textContent = '▾';
+
+            header.appendChild(main);
+            header.appendChild(chevron);
+
+            const details = document.createElement('div');
+            details.className = 'history-card-details';
+
+            header.addEventListener('click', () => {
+                const expanding = !card.classList.contains('expanded');
+                card.classList.toggle('expanded', expanding);
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+                if (expanding) {
+                    loadHistorySessionDetails(row.session_id, details);
+                }
+            });
+
+            card.appendChild(header);
+            card.appendChild(details);
+            return card;
+        }
+
+        function updateHistoryLoadMoreButton() {
+            const btn = document.getElementById('historyLoadMore');
+            btn.disabled = false;
+            btn.textContent = 'Завантажити ще';
+            btn.style.display = historyHasMore ? '' : 'none';
+        }
+
+        async function loadHistoryTab() {
+            const loadingEl = document.getElementById('historyLoading');
+            const listEl = document.getElementById('historyList');
+            const emptyEl = document.getElementById('historyEmptyState');
+            const loadMoreBtn = document.getElementById('historyLoadMore');
+
+            historyOffset = 0;
+            historyHasMore = true;
+            historyDetailsCache.clear();
+            listEl.innerHTML = '';
+            listEl.style.display = 'none';
+            loadMoreBtn.style.display = 'none';
+            emptyEl.style.display = 'none';
+            loadingEl.style.display = '';
+
+            try {
+                const rows = await fetchHistoryPage(historyOffset);
+                loadingEl.style.display = 'none';
+
+                if (rows.length === 0) {
+                    document.getElementById('historyEmptyStateText').textContent =
+                        'Ще немає завершених тренувань.';
+                    emptyEl.style.display = '';
+                    return;
+                }
+
+                listEl.style.display = '';
+                rows.forEach(row => listEl.appendChild(renderHistoryCard(row)));
+                historyOffset = rows.length;
+                historyHasMore = rows.length === HISTORY_PAGE_SIZE;
+                updateHistoryLoadMoreButton();
+            } catch (error) {
+                console.log('Failed to load workout history:', error);
+                loadingEl.style.display = 'none';
+                document.getElementById('historyEmptyStateText').textContent =
+                    'Не вдалося завантажити історію. Спробуйте пізніше.';
+                emptyEl.style.display = '';
+            }
+        }
+
+        async function loadMoreHistory() {
+            const loadMoreBtn = document.getElementById('historyLoadMore');
+            const listEl = document.getElementById('historyList');
+
+            loadMoreBtn.disabled = true;
+            loadMoreBtn.textContent = 'Завантаження...';
+
+            try {
+                const rows = await fetchHistoryPage(historyOffset);
+                rows.forEach(row => listEl.appendChild(renderHistoryCard(row)));
+                historyOffset += rows.length;
+                historyHasMore = rows.length === HISTORY_PAGE_SIZE;
+                updateHistoryLoadMoreButton();
+            } catch (error) {
+                console.log('Failed to load more workout history:', error);
+                loadMoreBtn.disabled = false;
+                loadMoreBtn.textContent = 'Завантажити ще';
+            }
+        }
+
+        document.getElementById('historyLoadMore').addEventListener('click', loadMoreHistory);
+
+        loadHistoryTab();
     </script>
 </body>
 </html>

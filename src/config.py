@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # Notifications
     reminder_hours_before_str: str = "24,2"
 
+    # OpenAI (photo -> macros recognition, GYM-23)
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+
     @property
     def admin_user_ids(self) -> list[int]:
         """Get admin user IDs as list."""

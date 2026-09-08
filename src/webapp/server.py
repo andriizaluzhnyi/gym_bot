@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from aiohttp import web
+from aiohttp import BodyPartReader, web
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
@@ -25,6 +25,11 @@ from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
 from src.services.achievements import ACHIEVEMENTS, AchievementsService
+from src.services.food_recognition import (
+    FoodRecognitionError,
+    NotFoodError,
+    recognize_food,
+)
 from src.services.personal_records import calculate_prs
 from src.services.streak import calculate_streak
 from src.services.workout_program_parsing import MUSCLE_GROUPS, is_valid_sets_reps
@@ -94,8 +99,10 @@ async def meal_entry_handler(request: web.Request) -> web.StreamResponse:
 @webapp_auth
 async def api_get_user_settings(request: web.Request) -> web.Response:
     """API endpoint to get user nutrition/body settings, plus
-    ``notifications_enabled`` (GYM-26) — the WebApp profile screen's
-    single combined read.
+    ``notifications_enabled`` (GYM-26) and ``photo_recognition_enabled``
+    (GYM-23 — a global app setting, not per-user, so the WebApp knows
+    whether to show the "📷 Фото" button at all) — the WebApp profile
+    screen's single combined read.
 
     Expects Authorization header with Telegram initData.
     """
@@ -109,6 +116,8 @@ async def api_get_user_settings(request: web.Request) -> web.Response:
 
         if not nutrition:
             return web.json_response({'error': 'User not found'}, status=404)
+
+        nutrition['photo_recognition_enabled'] = bool(settings.openai_api_key)
 
         return web.json_response({
             'success': True,
@@ -331,6 +340,105 @@ async def api_add_meal(request: web.Request) -> web.Response:
                 'created_at': record.created_at.isoformat(),
             }
         })
+
+
+_MAX_MEAL_PHOTO_BYTES = 5 * 1024 * 1024
+_ALLOWED_MEAL_PHOTO_MIME_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic'}
+
+
+async def _read_meal_photo_field(
+    request: web.Request,
+) -> tuple[bytes | None, str | None, str | None]:
+    """Pull the `photo` field out of a multipart request, capping the
+    read at `_MAX_MEAL_PHOTO_BYTES` (checked as the bytes come in, not
+    just via the possibly-absent/spoofable `Content-Length` header).
+
+    Returns `(image_bytes, mime, error_code)` — exactly one of the first
+    two or the third is set. `error_code` is one of `"missing_photo"` /
+    `"too_large"`.
+    """
+    reader = await request.multipart()
+    field = None
+    async for part in reader:
+        if isinstance(part, BodyPartReader) and part.name == 'photo':
+            field = part
+            break
+
+    if field is None:
+        return None, None, 'missing_photo'
+
+    chunks = []
+    total = 0
+    while True:
+        chunk = await field.read_chunk(size=65536)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_MEAL_PHOTO_BYTES:
+            return None, None, 'too_large'
+        chunks.append(chunk)
+
+    mime = (field.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+    return b''.join(chunks), mime, None
+
+
+@webapp_auth
+async def api_recognize_meal_photo(request: web.Request) -> web.Response:
+    """API endpoint (GYM-23): estimate a meal's macros from a photo via
+    OpenAI Vision. Never persists the photo or the estimate anywhere —
+    the client shows the result on ``/meal-entry`` for the user to review
+    and edit before an explicit ``POST /api/nutrition/meal`` (GYM-21/24).
+
+    Body: multipart/form-data, one field `photo` (≤ 5 MB,
+    image/jpeg|png|webp|heic).
+    Expects Authorization header with Telegram initData.
+    """
+    if not settings.openai_api_key:
+        return web.json_response(
+            {'error': 'photo_recognition_disabled'}, status=503
+        )
+
+    try:
+        image_bytes, mime, error_code = await _read_meal_photo_field(request)
+    except Exception as e:
+        logger.warning(f'Failed to read meal photo upload: {e}')
+        return web.json_response({'error': 'Invalid multipart body'}, status=400)
+
+    if error_code == 'missing_photo':
+        return web.json_response(
+            {'error': "Missing required multipart field: photo"}, status=400
+        )
+    if error_code == 'too_large':
+        return web.json_response({'error': 'Photo exceeds 5MB limit'}, status=413)
+
+    assert image_bytes is not None and mime is not None  # no error_code above fired
+
+    if mime not in _ALLOWED_MEAL_PHOTO_MIME_TYPES:
+        return web.json_response(
+            {'error': f'Unsupported photo type: {mime or "unknown"}'}, status=400
+        )
+
+    try:
+        estimate = await recognize_food(image_bytes, mime)
+    except NotFoodError:
+        return web.json_response({'error': 'not_food'}, status=422)
+    except FoodRecognitionError as e:
+        logger.warning(f'Food recognition failed: {e}')
+        return web.json_response({'error': 'recognition_failed'}, status=502)
+
+    return web.json_response({
+        'success': True,
+        'data': {
+            'meal_name': estimate.meal_name,
+            'portion_grams': estimate.portion_grams,
+            'protein': estimate.protein,
+            'fats': estimate.fats,
+            'carbs': estimate.carbs,
+            'calories': estimate.calories,
+            'confidence': estimate.confidence,
+            'notes': estimate.notes,
+        },
+    })
 
 
 async def api_get_today_meals(request: web.Request) -> web.Response:
@@ -2163,6 +2271,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/nutrition/daily', api_get_daily_nutrition)
     app.router.add_post('/api/nutrition/daily', api_save_daily_nutrition)
     app.router.add_post('/api/nutrition/meal', api_add_meal)
+    app.router.add_post('/api/nutrition/meal/photo', api_recognize_meal_photo)
     app.router.add_get('/api/nutrition/meals', api_get_today_meals)
     app.router.add_delete('/api/nutrition/meal/{id}', api_delete_meal)
     app.router.add_get('/api/nutrition/statistics', api_get_nutrition_statistics)

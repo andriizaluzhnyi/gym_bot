@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -790,6 +791,45 @@ class GoogleSheetsService:
             return []
         except Exception as e:
             print(f"Error getting workout programs: {e}")
+            return []
+
+    async def list_program_sheet_usernames(self) -> list[str]:
+        """Return the usernames for which a "Програми (<username>)" tab
+        exists in the spreadsheet.
+
+        ``get_workout_programs`` needs a username to build the sheet name
+        it reads — it can't discover tabs on its own. GYM-29's one-time
+        import script uses this to report sheets that have no matching
+        ``User`` row in the DB, per its AC ("Аркуші, для яких немає
+        користувача з таким username, лише перелічуються у звіті").
+        """
+        if not self.spreadsheet_id:
+            return []
+
+        try:
+            service = self._get_service()
+            loop = asyncio.get_event_loop()
+
+            result = await loop.run_in_executor(
+                None,
+                lambda: service.spreadsheets()
+                .get(spreadsheetId=self.spreadsheet_id)
+                .execute(),
+            )
+
+            usernames = []
+            for sheet in result.get("sheets", []):
+                title = sheet.get("properties", {}).get("title", "")
+                match = re.match(r"^Програми \((.+)\)$", title)
+                if match:
+                    usernames.append(match.group(1))
+            return usernames
+
+        except HttpError as e:
+            print(f"Google Sheets API error: {e}")
+            return []
+        except Exception as e:
+            print(f"Error listing program sheets: {e}")
             return []
 
     async def get_last_program_day(self, user_name: str | None = None) -> int:

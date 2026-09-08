@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>БЖУ Монітор</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Vendored, not loaded from a CDN — see GYM-17 in
+         docs/WEBAPP_STATISTICS_PLAN.md for why. -->
+    <script src="/static/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -43,6 +46,82 @@
             border-radius: 16px;
             padding: 16px;
             margin-bottom: 12px;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        /* "Сьогодні" / "Статистика" sub-tabs (GYM-15) — a page-level
+           in-place toggle, same idea as the bottom nav's own
+           "Тренування" section swap, not a real navigation. */
+        .page-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .page-tab-btn {
+            flex: 1;
+            padding: 10px 0;
+            border-radius: 20px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
+        }
+
+        .page-tab-btn.active {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        /* Nutrition statistics sub-tab (GYM-15) */
+        .period-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .period-btn {
+            flex: 1;
+            padding: 8px 0;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: all 0.2s;
+        }
+
+        .period-btn.active {
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            border-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 220px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px 0;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            font-size: 14px;
         }
 
         /* Calories Section */
@@ -452,73 +531,108 @@
 <body>
     <div class="date" id="currentDate">24 січня</div>
 
-    <div class="card">
-        <div class="water-header">
-            <span class="water-icon">💧</span>
-            <h3>Вода</h3>
+    <div class="page-tabs" id="nutritionPageTabs">
+        <button class="page-tab-btn active" data-page-tab="today">Сьогодні</button>
+        <button class="page-tab-btn" data-page-tab="stats">Статистика</button>
+    </div>
+
+    <div id="todaySection">
+        <div class="card">
+            <div class="water-header">
+                <span class="water-icon">💧</span>
+                <h3>Вода</h3>
+            </div>
+            <div class="water-display">
+                <span class="water-current" id="waterCurrent">0 мл</span>
+                <span class="water-total" id="waterGoal">/ 2500 мл</span>
+            </div>
+            <div class="water-progress-bar">
+                <div class="water-progress-fill" id="waterProgressFill"></div>
+            </div>
+            <div class="water-buttons">
+                <button class="water-btn" data-amount="100">+100 мл</button>
+                <button class="water-btn" data-amount="200">+200 мл</button>
+                <button class="water-btn" data-amount="250">+250 мл</button>
+                <button class="water-btn" data-amount="500">+500 мл</button>
+                <button class="water-btn undo-water" id="undoWaterBtn" disabled>↩️ Відмінити</button>
+            </div>
         </div>
-        <div class="water-display">
-            <span class="water-current" id="waterCurrent">0 мл</span>
-            <span class="water-total" id="waterGoal">/ 2500 мл</span>
+
+        <div class="card">
+            <div class="calories-section">
+                <div class="calories-ring">
+                    <svg viewBox="0 0 100 100">
+                        <circle class="bg" cx="50" cy="50" r="40"/>
+                        <circle class="bg" cx="50" cy="50" r="33"/>
+                        <circle class="bg" cx="50" cy="50" r="26"/>
+                        <circle class="protein-progress" id="proteinProgress" cx="50" cy="50" r="40"/>
+                        <circle class="fat-progress" id="fatProgress" cx="50" cy="50" r="33"/>
+                        <circle class="carbs-progress" id="carbsProgress" cx="50" cy="50" r="26"/>
+                    </svg>
+                    <div class="calories-text">
+                        <div class="calories-value" id="caloriesValue">0</div>
+                        <div class="calories-label">ккал</div>
+                    </div>
+                </div>
+                <div class="macros">
+                    <div class="macro-item">
+                        <span class="macro-name protein">Білки</span>
+                        <span class="macro-value" id="proteinValue">0/150 г</span>
+                    </div>
+                    <div class="macro-item">
+                        <span class="macro-name fat">Жири</span>
+                        <span class="macro-value" id="fatValue">0/80 г</span>
+                    </div>
+                    <div class="macro-item">
+                        <span class="macro-name carbs">Вуглеводи</span>
+                        <span class="macro-value" id="carbsValue">0/250 г</span>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="water-progress-bar">
-            <div class="water-progress-fill" id="waterProgressFill"></div>
-        </div>
-        <div class="water-buttons">
-            <button class="water-btn" data-amount="100">+100 мл</button>
-            <button class="water-btn" data-amount="200">+200 мл</button>
-            <button class="water-btn" data-amount="250">+250 мл</button>
-            <button class="water-btn" data-amount="500">+500 мл</button>
-            <button class="water-btn undo-water" id="undoWaterBtn" disabled>↩️ Відмінити</button>
+
+        <div class="card">
+            <div class="meals-header">
+                <span class="meals-title">Прийоми їжі</span>
+                <div class="meals-actions">
+                    <button class="action-btn edit-btn">✏️</button>
+                    <button class="action-btn photo-btn">📷 Фото</button>
+                </div>
+            </div>
+            <div class="empty-state" id="mealsEmpty">
+                <p>Немає записів за сьогодні</p>
+                <p class="subtitle">Додайте перший прийом їжі</p>
+            </div>
+            <div id="mealsList"></div>
         </div>
     </div>
 
-    <div class="card">
-        <div class="calories-section">
-            <div class="calories-ring">
-                <svg viewBox="0 0 100 100">
-                    <circle class="bg" cx="50" cy="50" r="40"/>
-                    <circle class="bg" cx="50" cy="50" r="33"/>
-                    <circle class="bg" cx="50" cy="50" r="26"/>
-                    <circle class="protein-progress" id="proteinProgress" cx="50" cy="50" r="40"/>
-                    <circle class="fat-progress" id="fatProgress" cx="50" cy="50" r="33"/>
-                    <circle class="carbs-progress" id="carbsProgress" cx="50" cy="50" r="26"/>
-                </svg>
-                <div class="calories-text">
-                    <div class="calories-value" id="caloriesValue">0</div>
-                    <div class="calories-label">ккал</div>
-                </div>
-            </div>
-            <div class="macros">
-                <div class="macro-item">
-                    <span class="macro-name protein">Білки</span>
-                    <span class="macro-value" id="proteinValue">0/150 г</span>
-                </div>
-                <div class="macro-item">
-                    <span class="macro-name fat">Жири</span>
-                    <span class="macro-value" id="fatValue">0/80 г</span>
-                </div>
-                <div class="macro-item">
-                    <span class="macro-name carbs">Вуглеводи</span>
-                    <span class="macro-value" id="carbsValue">0/250 г</span>
-                </div>
-            </div>
+    <!-- "Статистика" sub-tab (GYM-15) — trends over the current
+         week/month; hidden by default, lazy-loaded on first switch (same
+         convention as #workoutSection / loadWorkoutPrograms below). -->
+    <div id="nutritionStatsSection" style="display: none;">
+        <div class="period-selector" id="statsPeriodSelector">
+            <button class="period-btn active" data-period="week">Тиждень</button>
+            <button class="period-btn" data-period="month">Місяць</button>
         </div>
-    </div>
 
-    <div class="card">
-        <div class="meals-header">
-            <span class="meals-title">Прийоми їжі</span>
-            <div class="meals-actions">
-                <button class="action-btn edit-btn">✏️</button>
-                <button class="action-btn photo-btn">📷 Фото</button>
+        <div class="loading" id="statsLoading">Завантаження статистики...</div>
+
+        <div id="statsContent" style="display: none;">
+            <div class="card">
+                <div class="card-title">Калорії</div>
+                <div class="chart-container">
+                    <canvas id="caloriesTrendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Білки / Жири / Вуглеводи</div>
+                <div class="chart-container">
+                    <canvas id="macrosTrendChart"></canvas>
+                </div>
             </div>
         </div>
-        <div class="empty-state" id="mealsEmpty">
-            <p>Немає записів за сьогодні</p>
-            <p class="subtitle">Додайте перший прийом їжі</p>
-        </div>
-        <div id="mealsList"></div>
     </div>
 
     <!-- Workout Section (hidden by default) -->
@@ -882,19 +996,58 @@
             updateMacrosDisplay();
         }
 
-        // Show/hide sections
+        // Show/hide sections. "Сьогодні" (today's tracking cards) and
+        // "Статистика" (GYM-15) are sub-tabs *within* the nutrition
+        // section, switched via #nutritionPageTabs; "Тренування" is a
+        // separate top-level bottom-nav destination that replaces the
+        // whole nutrition section instead.
         function showNutritionSection() {
             document.querySelector('.date').style.display = 'block';
-            document.querySelectorAll('.card').forEach(card => card.style.display = 'block');
+            document.getElementById('nutritionPageTabs').style.display = 'flex';
             document.getElementById('workoutSection').style.display = 'none';
+            showTodayPageTab();
         }
 
         function showWorkoutSection() {
             document.querySelector('.date').style.display = 'none';
-            document.querySelectorAll('.card').forEach(card => card.style.display = 'none');
+            document.getElementById('nutritionPageTabs').style.display = 'none';
+            document.getElementById('todaySection').style.display = 'none';
+            document.getElementById('nutritionStatsSection').style.display = 'none';
             document.getElementById('workoutSection').style.display = 'block';
             loadWorkoutPrograms();
         }
+
+        function setPageTabActive(tab) {
+            document.querySelectorAll('.page-tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.pageTab === tab);
+            });
+        }
+
+        function showTodayPageTab() {
+            document.getElementById('todaySection').style.display = 'block';
+            document.getElementById('nutritionStatsSection').style.display = 'none';
+            setPageTabActive('today');
+        }
+
+        function showStatsPageTab() {
+            document.getElementById('todaySection').style.display = 'none';
+            document.getElementById('nutritionStatsSection').style.display = 'block';
+            setPageTabActive('stats');
+            loadNutritionStats();
+        }
+
+        document.querySelectorAll('.page-tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+                if (btn.dataset.pageTab === 'today') {
+                    showTodayPageTab();
+                } else {
+                    showStatsPageTab();
+                }
+            });
+        });
 
         // Load workout programs
         async function loadWorkoutPrograms() {
@@ -983,6 +1136,191 @@
                 tg.showAlert('Помилка завантаження програм тренувань');
             }
         }
+
+        // --- "Статистика" sub-tab (GYM-15): GET /api/nutrition/statistics ---
+        // Calorie trend (bar) with a dashed goal line (caloriesGoal, from
+        // /api/user/settings via applyUserSettings above) plus a stacked
+        // bar for protein/fats/carbs — one chart each, both over the same
+        // week/month period. Re-fetched on every period switch (no
+        // caching, same as statistics.html's exercise-progress tab).
+
+        let statsPeriod = 'week';
+        let caloriesTrendChart = null;
+        let macrosTrendChart = null;
+
+        function formatShortDate(isoDate) {
+            const [, month, day] = isoDate.split('-');
+            return `${day}.${month}`;
+        }
+
+        function chartTooltipStyle() {
+            return {
+                backgroundColor: '#1a1a1a',
+                borderColor: '#2a2a2a',
+                borderWidth: 1,
+                titleColor: '#ffffff',
+                bodyColor: '#ffffff',
+                padding: 10,
+            };
+        }
+
+        function renderCaloriesTrendChart(byDay) {
+            const canvas = document.getElementById('caloriesTrendChart');
+            const hint = (tg.themeParams && tg.themeParams.hint_color) || '#888888';
+
+            if (caloriesTrendChart) {
+                caloriesTrendChart.destroy();
+            }
+
+            caloriesTrendChart = new Chart(canvas.getContext('2d'), {
+                data: {
+                    labels: byDay.map(d => formatShortDate(d.date)),
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Калорії',
+                            data: byDay.map(d => d.calories),
+                            backgroundColor: '#4ade80',
+                            borderRadius: 4,
+                            maxBarThickness: 24,
+                        },
+                        {
+                            type: 'line',
+                            label: 'Ціль',
+                            data: byDay.map(() => caloriesGoal),
+                            borderColor: '#888888',
+                            borderDash: [6, 4],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            ...chartTooltipStyle(),
+                            displayColors: false,
+                            callbacks: {
+                                label: (item) => item.dataset.label === 'Ціль'
+                                    ? `Ціль: ${item.parsed.y} ккал`
+                                    : `${item.parsed.y} ккал`,
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: hint, font: { size: 11 } },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            ticks: { color: hint, font: { size: 11 } },
+                        },
+                    },
+                },
+            });
+        }
+
+        function renderMacrosTrendChart(byDay) {
+            const canvas = document.getElementById('macrosTrendChart');
+            const hint = (tg.themeParams && tg.themeParams.hint_color) || '#888888';
+
+            if (macrosTrendChart) {
+                macrosTrendChart.destroy();
+            }
+
+            macrosTrendChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: byDay.map(d => formatShortDate(d.date)),
+                    datasets: [
+                        { label: 'Білки', data: byDay.map(d => d.protein), backgroundColor: '#3b82f6' },
+                        { label: 'Жири', data: byDay.map(d => d.fats), backgroundColor: '#f59e0b' },
+                        { label: 'Вуглеводи', data: byDay.map(d => d.carbs), backgroundColor: '#10b981' },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: { color: hint, boxWidth: 10, font: { size: 11 } },
+                        },
+                        tooltip: {
+                            ...chartTooltipStyle(),
+                            callbacks: {
+                                label: (item) => `${item.dataset.label}: ${item.parsed.y} г`,
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: { display: false },
+                            ticks: { color: hint, font: { size: 11 } },
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            ticks: { color: hint, font: { size: 11 } },
+                        },
+                    },
+                },
+            });
+        }
+
+        async function loadNutritionStats() {
+            const loadingEl = document.getElementById('statsLoading');
+            const contentEl = document.getElementById('statsContent');
+
+            loadingEl.textContent = 'Завантаження статистики...';
+            loadingEl.style.display = '';
+            contentEl.style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/nutrition/statistics?period=${statsPeriod}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const { data } = await response.json();
+                loadingEl.style.display = 'none';
+                contentEl.style.display = '';
+
+                renderCaloriesTrendChart(data.by_day);
+                renderMacrosTrendChart(data.by_day);
+            } catch (error) {
+                console.log('Failed to load nutrition statistics:', error);
+                contentEl.style.display = 'none';
+                loadingEl.style.display = '';
+                loadingEl.textContent = 'Не вдалося завантажити статистику. Спробуйте пізніше.';
+            }
+        }
+
+        document.querySelectorAll('#statsPeriodSelector .period-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.period === statsPeriod) {
+                    return;
+                }
+                statsPeriod = btn.dataset.period;
+                document.querySelectorAll('#statsPeriodSelector .period-btn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (tg.HapticFeedback) {
+                    tg.HapticFeedback.selectionChanged();
+                }
+                loadNutritionStats();
+            });
+        });
 
         // Water buttons
         document.querySelectorAll('.water-btn:not(.undo-water)').forEach(btn => {

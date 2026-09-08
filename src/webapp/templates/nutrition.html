@@ -1588,9 +1588,13 @@
                             tg.HapticFeedback.impactOccurred('medium');
                         }
 
-                        // Navigate to workout page
-                        const muscle = muscleGroups[0] || '';
-                        window.location.href = `/workout?user=${encodeURIComponent(userName)}&day=${day}&muscle=${encodeURIComponent(muscle)}`;
+                        // Navigate to the whole day (GYM-41) — no ?muscle=
+                        // filter. A day can span several muscle groups
+                        // (GYM-30); passing only muscleGroups[0] used to
+                        // hide the rest of the day on /workout. That page
+                        // now groups the full day into per-muscle sections
+                        // itself instead of relying on a server-side filter.
+                        window.location.href = `/workout?user=${encodeURIComponent(userName)}&day=${day}`;
                     });
 
                     // "➕ Вправа" (GYM-30) — stop the click from bubbling up
@@ -1685,16 +1689,15 @@
             let searchTimeout = null;
             let searchAbortController = null;
 
+            // GYM-41: a blank `q` now returns recent catalog entries
+            // (not an empty list) — shown as a pick-list on focus, before
+            // the user types anything, so an existing exercise can be
+            // reused without retyping it or risking a near-duplicate.
             async function runSearch(q) {
-                if (!q || q.trim().length === 0) {
-                    resultsBox.hidden = true;
-                    resultsBox.innerHTML = '';
-                    return;
-                }
                 try {
                     if (searchAbortController) searchAbortController.abort();
                     searchAbortController = new AbortController();
-                    const response = await fetch(`/api/exercises?q=${encodeURIComponent(q)}`, {
+                    const response = await fetch(`/api/exercises?q=${encodeURIComponent(q || '')}`, {
                         headers: { 'Authorization': tg.initData },
                         signal: searchAbortController.signal,
                     });
@@ -1724,6 +1727,11 @@
                 }
             }
 
+            // Show the pick-list immediately on focus (blank query — the
+            // "recent entries" list), before any typing.
+            nameInput.addEventListener('focus', () => {
+                runSearch(nameInput.value);
+            });
             nameInput.addEventListener('input', (e) => {
                 if (searchTimeout) clearTimeout(searchTimeout);
                 const q = e.target.value;

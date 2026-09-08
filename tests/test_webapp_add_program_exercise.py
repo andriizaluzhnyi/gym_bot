@@ -320,7 +320,7 @@ class TestApiSearchExercises:
         response = await api_search_exercises(request)
         assert response.status == 401
 
-    async def test_blank_query_returns_empty_list(self):
+    async def test_blank_query_with_empty_catalog_returns_empty_list(self):
         await _make_user("lifter", telegram_id=1)
         request = _mock_request("GET", "/api/exercises", telegram_id=1)
         response = await api_search_exercises(request)
@@ -328,6 +328,32 @@ class TestApiSearchExercises:
 
         assert response.status == 200
         assert payload == {"success": True, "data": []}
+
+    async def test_blank_query_lists_existing_catalog_entries(self):
+        """GYM-41: the "add exercise" name field shows a pick-list on
+        focus, before the user types anything — GET /api/exercises with
+        no `q` must return something to pick from, not an empty list.
+        """
+        await _make_user("lifter", telegram_id=1)
+        await _add_catalog_exercise("Жим лежачи", muscle_group="🏋️ Груди")
+        await _add_catalog_exercise("Присідання", muscle_group="🦵 Ноги")
+
+        request = _mock_request("GET", "/api/exercises", telegram_id=1)
+        response = await api_search_exercises(request)
+        payload = json.loads(response.body)["data"]
+
+        assert response.status == 200
+        assert {row["name"] for row in payload} == {"Жим лежачи", "Присідання"}
+
+    async def test_blank_query_with_no_q_param_at_all_also_lists_entries(self):
+        await _make_user("lifter", telegram_id=1)
+        await _add_catalog_exercise("Тяга")
+
+        request = _mock_request("GET", "/api/exercises?q=", telegram_id=1)
+        response = await api_search_exercises(request)
+        payload = json.loads(response.body)["data"]
+
+        assert len(payload) == 1
 
     async def test_matches_case_and_whitespace_insensitively(self):
         await _make_user("lifter", telegram_id=1)

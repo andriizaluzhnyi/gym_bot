@@ -1667,18 +1667,24 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
 
 @webapp_auth
 async def api_delete_workout_day(request: web.Request) -> web.Response:
-    """API endpoint to delete an entire workout program day.
+    """API endpoint to delete a workout program day, or (GYM-41) just one
+    muscle group within it.
 
     DB is the primary store (GYM-28); the deletion is also mirrored to
     Sheets — non-critically, logged on failure only — when the owner has
     `sync_workout_to_sheets` enabled.
 
     Query params: `user` (optional — defaults to the caller; someone
-    else's requires `settings.admin_user_ids`, GYM-28), `day` (required).
+    else's requires `settings.admin_user_ids`, GYM-28), `day` (required),
+    `muscle` (optional — GYM-41: a day can span several muscle groups
+    since GYM-30, so scoping the delete to one avoids silently taking the
+    others with it; omitted, this deletes the whole day, unchanged from
+    before GYM-41).
     Expects Authorization header with Telegram initData.
     """
     param_user = request.query.get('user') or None
     day_str = request.query.get('day', '')
+    muscle = request.query.get('muscle') or None
 
     if not day_str or not day_str.isdigit():
         return web.json_response(
@@ -1691,7 +1697,20 @@ async def api_delete_workout_day(request: web.Request) -> web.Response:
         if isinstance(owner, web.Response):
             return owner
 
-        deleted = await WorkoutProgramRepository(session).delete_day(owner.id, day)
+        program_repo = WorkoutProgramRepository(session)
+        # Sheets has no muscle-scoped "delete this day" call — when
+        # narrowing to one group, mirror it as one delete_exercise() per
+        # affected row instead of the blanket delete_workout_day() below,
+        # so Sheets doesn't lose the *other* groups' rows the DB kept.
+        exercise_names_for_sheets_mirror = (
+            [row['exercise'] for row in await program_repo.get_program(
+                owner.id, day=day, muscle=muscle,
+            )]
+            if muscle
+            else []
+        )
+
+        deleted = await program_repo.delete_day(owner.id, day, muscle=muscle)
         if not deleted:
             return web.json_response({'error': 'Day not found'}, status=404)
         await session.commit()
@@ -1702,7 +1721,13 @@ async def api_delete_workout_day(request: web.Request) -> web.Response:
     if sync_enabled and owner_username:
         try:
             sheets_service = GoogleSheetsService()
-            await sheets_service.delete_workout_day(owner_username, str(day))
+            if muscle:
+                for exercise_name in exercise_names_for_sheets_mirror:
+                    await sheets_service.delete_exercise(
+                        owner_username, str(day), exercise_name
+                    )
+            else:
+                await sheets_service.delete_workout_day(owner_username, str(day))
         except Exception as e:
             logger.warning(f'Failed to mirror day deletion to Sheets: {e}')
 

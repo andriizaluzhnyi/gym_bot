@@ -1287,15 +1287,24 @@ class ExerciseRepository:
         """Catalog autocomplete (GYM-30): entries whose normalized name
         contains ``q`` (also normalized), so a search is case/whitespace/
         apostrophe-insensitive the same way ``get_or_create_by_name``'s
-        de-duplication is. Ordered alphabetically by ``name``. Blank/
-        whitespace-only ``q`` returns an empty list rather than the whole
-        catalog — this backs a "type to search" field, not a browse view.
+        de-duplication is. Ordered alphabetically by ``name``.
+
+        Blank/whitespace-only ``q`` (GYM-41) returns the ``limit`` most
+        recently added catalog entries instead of an empty list — the
+        "add exercise" form shows this as a pick-list on focus, before
+        the user types anything, so an existing exercise can be reused
+        without retyping it (and without risking a near-duplicate catalog
+        entry). Most-recent is used as the ordering since the catalog
+        doesn't track per-exercise usage frequency.
         """
         from src.services.exercise_names import normalize_exercise_name
 
         normalized_q = normalize_exercise_name(q)
         if not normalized_q:
-            return []
+            result = await self.session.execute(
+                select(Exercise).order_by(Exercise.created_at.desc()).limit(limit)
+            )
+            return list(result.scalars().all())
 
         result = await self.session.execute(
             select(Exercise)
@@ -1446,22 +1455,32 @@ class WorkoutProgramRepository:
             for row, catalog_exercise in rows
         ]
 
-    async def delete_day(self, user_id: uuid.UUID, day: int) -> bool:
-        """Delete every exercise in ``day``'s program.
+    async def delete_day(
+        self, user_id: uuid.UUID, day: int, muscle: str | None = None
+    ) -> bool:
+        """Delete exercises in ``day``'s program.
 
-        Returns ``True`` if anything was deleted, ``False`` if the day was
-        already empty — mirrors
+        ``muscle`` (GYM-41) narrows this to only that day's rows in that
+        muscle group — a day can span several groups (GYM-30), so a plain
+        "delete this day" from a view scoped to one group must not also
+        wipe the others. Omitting ``muscle`` keeps the original "delete
+        the whole day" behavior (all groups).
+
+        Returns ``True`` if anything was deleted, ``False`` if there was
+        nothing matching — mirrors
         ``GoogleSheetsService.delete_workout_day``'s success/not-found
         return, so GYM-28's endpoint doesn't need to change its response
         shape when it switches backing store.
         """
+        conditions = [
+            WorkoutProgramExercise.user_id == user_id,
+            WorkoutProgramExercise.day == day,
+        ]
+        if muscle is not None:
+            conditions.append(WorkoutProgramExercise.muscle_group == muscle)
+
         result = await self.session.execute(
-            select(WorkoutProgramExercise).where(
-                and_(
-                    WorkoutProgramExercise.user_id == user_id,
-                    WorkoutProgramExercise.day == day,
-                )
-            )
+            select(WorkoutProgramExercise).where(and_(*conditions))
         )
         rows = result.scalars().all()
         if not rows:

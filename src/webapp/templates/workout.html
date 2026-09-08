@@ -150,11 +150,83 @@
             padding: 16px;
         }
 
+        .exercise-name-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
         .exercise-name {
             font-size: 18px;
             font-weight: 600;
             margin-bottom: 4px;
             color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        /* Details icon (GYM-31) */
+        .details-icon-btn {
+            width: 22px;
+            height: 22px;
+            min-width: 22px;
+            border-radius: 50%;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            margin-bottom: 4px;
+        }
+
+        .details-icon-btn:active {
+            opacity: 0.7;
+        }
+
+        .exercise-list-name-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .exercise-details-image {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+
+        .exercise-details-description {
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+        }
+
+        .exercise-details-video-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background-color: var(--accent);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .exercise-details-empty {
+            text-align: center;
+            padding: 20px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
         .exercise-plan {
@@ -1309,6 +1381,90 @@
             });
         }
 
+        // "ⓘ" exercise details (GYM-31): GET /api/exercises/{id} — image,
+        // description, and a "▶️ Відео" button that hands the URL to
+        // tg.openLink rather than embedding it. Instagram/YouTube/TikTok
+        // often block embedding inside the WebView, so an external
+        // browser/app open is the reliable option here.
+        async function showExerciseDetails(event, exerciseId) {
+            if (event) event.stopPropagation();
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
+            const container = document.getElementById('modalContainer');
+            container.innerHTML = `
+                <div class="modal-overlay" id="modalOverlay">
+                    <div class="modal-content">
+                        <div class="modal-title">Про вправу</div>
+                        <div class="exercise-details-empty">Завантаження...</div>
+                        <div class="modal-buttons">
+                            <button class="modal-btn modal-btn-cancel" id="modalCancel">Закрити</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            function close() {
+                container.innerHTML = '';
+            }
+            document.getElementById('modalCancel').addEventListener('click', close);
+            document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) close();
+            });
+
+            try {
+                const response = await fetch(`/api/exercises/${exerciseId}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    container.innerHTML = '';
+                    tg.showAlert(result.error || 'Не вдалося завантажити інформацію про вправу');
+                    return;
+                }
+
+                const details = result.data;
+                let bodyHtml = '';
+                if (details.image_url) {
+                    bodyHtml += `<img class="exercise-details-image" src="${details.image_url}" loading="lazy" alt="${details.name}">`;
+                }
+                if (details.description) {
+                    bodyHtml += `<div class="exercise-details-description">${details.description}</div>`;
+                }
+                if (details.video_url) {
+                    bodyHtml += `<button type="button" class="exercise-details-video-btn" id="openVideoBtn">▶️ Відео</button>`;
+                }
+                if (!details.image_url && !details.description && !details.video_url) {
+                    bodyHtml = `<div class="exercise-details-empty">Опис ще не додано</div>`;
+                }
+
+                container.innerHTML = `
+                    <div class="modal-overlay" id="modalOverlay">
+                        <div class="modal-content">
+                            <div class="modal-title">${details.name}</div>
+                            ${bodyHtml}
+                            <div class="modal-buttons">
+                                <button class="modal-btn modal-btn-cancel" id="modalCancel">Закрити</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('modalCancel').addEventListener('click', close);
+                document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                    if (e.target === e.currentTarget) close();
+                });
+                const videoBtn = document.getElementById('openVideoBtn');
+                if (videoBtn) {
+                    videoBtn.addEventListener('click', () => {
+                        tg.openLink(details.video_url);
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load exercise details:', err);
+                container.innerHTML = '';
+                tg.showAlert('Помилка мережі. Спробуйте ще раз.');
+            }
+        }
+
         function showRestTimerModal() {
             const container = document.getElementById('modalContainer');
 
@@ -1664,7 +1820,10 @@
                             </svg>
                         </div>
                         <div class="exercise-list-info">
-                            <div class="exercise-list-name">${ex.exercise}</div>
+                            <div class="exercise-list-name-row">
+                                <div class="exercise-list-name">${ex.exercise}</div>
+                                ${ex.has_details ? `<button type="button" class="details-icon-btn" onclick="showExerciseDetails(event, ${ex.exercise_id})">ⓘ</button>` : ''}
+                            </div>
                             <div class="exercise-list-plan">${ex.sets_reps || ''}</div>
                             ${ex.comment ? `<div class="exercise-list-comment">${ex.comment}</div>` : ''}
                         </div>
@@ -1753,7 +1912,10 @@
             if (ex.muscle_group) {
                 html += `<span class="muscle-group-badge">${ex.muscle_group}</span>`;
             }
-            html += `<div class="exercise-name">${ex.exercise}</div>`;
+            html += `<div class="exercise-name-row">
+                <div class="exercise-name">${ex.exercise}</div>
+                ${ex.has_details ? `<button type="button" class="details-icon-btn" onclick="showExerciseDetails(event, ${ex.exercise_id})">ⓘ</button>` : ''}
+            </div>`;
             html += `<div class="exercise-plan">${ex.sets_reps || ''}</div>`;
             if (ex.comment) {
                 html += `<div class="exercise-comment">${ex.comment}</div>`;

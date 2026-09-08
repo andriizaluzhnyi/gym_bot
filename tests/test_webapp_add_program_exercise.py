@@ -188,6 +188,10 @@ class TestApiAddProgramExercise:
             "sets_reps": "3/10",
             "comment": "повільно",
             "created_at": payload["data"]["created_at"],
+            # GYM-31: exercise_id/has_details, same shape GET
+            # /api/workout/program returns.
+            "exercise_id": payload["data"]["exercise_id"],
+            "has_details": False,
         }
 
     async def test_appends_after_existing_exercises_in_the_day(self):
@@ -219,6 +223,23 @@ class TestApiAddProgramExercise:
             all_exercises = await ExerciseRepository(session).search("жим", limit=10)
         assert len(all_exercises) == 1
         assert all_exercises[0].id == existing.id
+
+    async def test_has_details_true_when_catalog_entry_already_has_media(self):
+        await _make_user("lifter", telegram_id=1)
+        existing = await _add_catalog_exercise("Жим лежачи", muscle_group="🏋️ Груди")
+        async with async_session_maker() as session:
+            exercise = await ExerciseRepository(session).get_by_id(existing.id)
+            exercise.description = "Опис"
+            await session.commit()
+
+        request = _mock_request(
+            "POST", "/api/workout/program/exercise", telegram_id=1, body=VALID_BODY
+        )
+        response = await api_add_program_exercise(request)
+        payload = json.loads(response.body)
+
+        assert payload["data"]["exercise_id"] == existing.id
+        assert payload["data"]["has_details"] is True
 
     async def test_optional_comment_defaults_to_empty_string(self):
         await _make_user("lifter", telegram_id=1)

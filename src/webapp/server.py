@@ -1022,6 +1022,12 @@ async def api_add_program_exercise(request: web.Request) -> web.Response:
         )
         await session.commit()
         row = created_rows[0]
+        # GYM-31: exercise_id/has_details, same as GET /api/workout/program
+        # — fetched explicitly rather than via the row's lazy `exercise`
+        # relationship, which isn't awaitable under async SQLAlchemy.
+        catalog_exercise = await ExerciseRepository(session).get_by_id(
+            row.exercise_id
+        )
         response_row = {
             'day': str(row.day),
             'muscle_group': row.muscle_group,
@@ -1029,6 +1035,15 @@ async def api_add_program_exercise(request: web.Request) -> web.Response:
             'sets_reps': row.sets_reps,
             'comment': row.comment or '',
             'created_at': row.created_at.strftime('%d.%m.%Y %H:%M'),
+            'exercise_id': row.exercise_id,
+            'has_details': bool(
+                catalog_exercise
+                and (
+                    catalog_exercise.description
+                    or catalog_exercise.image_url
+                    or catalog_exercise.video_url
+                )
+            ),
         }
 
         sync_enabled = owner.sync_workout_to_sheets
@@ -1055,8 +1070,8 @@ async def api_search_exercises(request: web.Request) -> web.Response:
 
     Query params: `q` (search text; blank returns an empty list — see
     ``ExerciseRepository.search``). No `user`/ownership check — the
-    catalog is shared across every user, same as GYM-31's planned
-    ``GET /api/exercises/{id}``.
+    catalog is shared across every user, same as
+    ``GET /api/exercises/{id}`` (GYM-31).
     Expects Authorization header with Telegram initData.
     """
     q = request.query.get('q', '')
@@ -1070,6 +1085,39 @@ async def api_search_exercises(request: web.Request) -> web.Response:
             {'id': ex.id, 'name': ex.name, 'muscle_group': ex.muscle_group}
             for ex in exercises
         ],
+    })
+
+
+@webapp_auth
+async def api_get_exercise(request: web.Request) -> web.Response:
+    """API endpoint (GYM-31): one catalog entry's details, for the
+    ``/workout`` "ⓘ" bottom sheet (image/video/description).
+
+    No `user`/ownership check — the ``Exercise`` catalog is shared across
+    every user, same as ``GET /api/exercises`` (GYM-30).
+    Path param: `id` (int). Expects Authorization header with Telegram
+    initData.
+    """
+    id_str = request.match_info.get('id', '')
+    if not id_str.isdigit():
+        return web.json_response({'error': 'Invalid exercise id'}, status=400)
+
+    async with async_session_maker() as session:
+        exercise = await ExerciseRepository(session).get_by_id(int(id_str))
+
+    if exercise is None:
+        return web.json_response({'error': 'Exercise not found'}, status=404)
+
+    return web.json_response({
+        'success': True,
+        'data': {
+            'id': exercise.id,
+            'name': exercise.name,
+            'muscle_group': exercise.muscle_group,
+            'description': exercise.description,
+            'image_url': exercise.image_url,
+            'video_url': exercise.video_url,
+        },
     })
 
 
@@ -2074,6 +2122,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/workout/program', api_get_workout_program)
     app.router.add_post('/api/workout/program/exercise', api_add_program_exercise)
     app.router.add_get('/api/exercises', api_search_exercises)
+    app.router.add_get('/api/exercises/{id}', api_get_exercise)
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
     app.router.add_post('/api/workout/session/start', api_start_workout_session)
     app.router.add_post(

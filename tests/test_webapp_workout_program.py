@@ -87,6 +87,9 @@ class TestApiGetWorkoutProgram:
             "sets_reps": "3/10",
             "comment": "",
             "created_at": payload["data"]["exercises"][0]["created_at"],
+            # GYM-31: exercise_id/has_details back the "ⓘ" details icon.
+            "exercise_id": payload["data"]["exercises"][0]["exercise_id"],
+            "has_details": False,
         }]
 
     async def test_empty_program_returns_empty_list(self):

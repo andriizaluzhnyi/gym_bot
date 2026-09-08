@@ -71,7 +71,7 @@ ACHIEVEMENTS: tuple[AchievementDefinition, ...] = (
         is_unlocked=lambda stats: stats.workouts_count >= 100,
     ),
     AchievementDefinition(
-        code='STREAK_4_WEEKS', title='Стрік 4 тижні',
+        code='STREAK_4_WEEKS', title='Серія 4 тижні',
         description='Тренуйтесь 4 тижні поспіль',
         # The best streak ever reached (GYM-12's longest_streak), not just
         # the one currently active — once earned, a badge stays earned
@@ -79,7 +79,7 @@ ACHIEVEMENTS: tuple[AchievementDefinition, ...] = (
         is_unlocked=lambda stats: stats.longest_streak >= 4,
     ),
     AchievementDefinition(
-        code='STREAK_12_WEEKS', title='Стрік 12 тижнів',
+        code='STREAK_12_WEEKS', title='Серія 12 тижнів',
         description='Тренуйтесь 12 тижнів поспіль',
         is_unlocked=lambda stats: stats.longest_streak >= 12,
     ),

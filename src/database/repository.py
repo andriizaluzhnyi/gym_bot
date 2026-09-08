@@ -728,6 +728,20 @@ class WorkoutSessionRepository:
         """Get a session by its primary key (sets not eagerly loaded)."""
         return await self.session.get(WorkoutSession, session_id)
 
+    async def get_by_id_with_sets(
+        self, session_id: int
+    ) -> WorkoutSession | None:
+        """Get a session by its primary key with its sets eagerly loaded —
+        used by the history detail endpoint (GYM-10), where per-set data is
+        read after the request-scoped session that fetched it is gone.
+        """
+        result = await self.session.execute(
+            select(WorkoutSession)
+            .where(WorkoutSession.id == session_id)
+            .options(selectinload(WorkoutSession.sets))
+        )
+        return result.scalar_one_or_none()
+
     async def get_active_draft(
         self,
         user_id: uuid.UUID,
@@ -841,6 +855,33 @@ class WorkoutSessionRepository:
             .where(and_(*conditions))
             .options(selectinload(WorkoutSession.sets))
             .order_by(WorkoutSession.performed_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_history_page(
+        self,
+        user_id: uuid.UUID,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[WorkoutSession]:
+        """Get one page of a user's *completed* sessions (sets eagerly
+        loaded), most recent first — GYM-10's history list. Same
+        "completed only" filter as ``get_sessions_by_period``, but paged at
+        the SQL level (``limit``/``offset``) instead of loading the whole
+        history, since the history list has no natural time bound.
+        """
+        result = await self.session.execute(
+            select(WorkoutSession)
+            .where(
+                and_(
+                    WorkoutSession.user_id == user_id,
+                    WorkoutSession.completed_at.isnot(None),
+                )
+            )
+            .options(selectinload(WorkoutSession.sets))
+            .order_by(WorkoutSession.performed_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         return list(result.scalars().all())
 

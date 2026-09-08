@@ -19,6 +19,7 @@ from src.database.repository import (
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
+from src.services.achievements import AchievementsService
 from src.services.personal_records import calculate_prs
 from src.services.streak import calculate_streak
 from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
@@ -1191,6 +1192,13 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
     except Exception as pr_err:
         logger.warning(f'PR notification failed (non-critical): {pr_err}')
 
+    # Unlock any achievement this session's updated history now satisfies
+    # (GYM-13a), notifying the owner about anything newly earned.
+    try:
+        await _check_and_unlock_achievements(owner_id, owner_telegram_id)
+    except Exception as achievement_err:
+        logger.warning(f'Achievement check failed (non-critical): {achievement_err}')
+
     return web.json_response({
         'success': True,
         'synced_to_sheets': synced_to_sheets,
@@ -1519,6 +1527,38 @@ async def _notify_new_prs(
                 f'🏆 Новий рекорд! {exercise_name}: '
                 f'{pr_value.weight:g} кг × {pr_value.reps}',
             )
+
+
+async def _check_and_unlock_achievements(
+    owner_id: uuid.UUID, owner_telegram_id: int
+) -> None:
+    """Unlock any achievement (GYM-13a) the workout owner's updated history
+    now satisfies, and message them about each newly-unlocked one.
+
+    Unlike ``_notify_new_prs``, the unlock check (and its DB write) runs
+    even when no bot instance is available — an achievement is a
+    persisted, permanent row, not just a notification, so it must not be
+    skipped merely because there's nothing to message right now. Called
+    from a try/except in ``api_save_workout_log``, same non-critical spot
+    as ``_notify_new_prs`` (GYM-9) — a failure here must not affect
+    whether the workout itself is considered saved.
+    """
+    async with async_session_maker() as session:
+        today = to_local_date(utcnow(), settings.timezone)
+        newly_unlocked = await AchievementsService(session).check_and_unlock(
+            owner_id, today, settings.timezone
+        )
+        await session.commit()
+
+    bot = get_bot_instance()
+    if not bot:
+        return
+
+    for achievement in newly_unlocked:
+        await bot.send_message(
+            owner_telegram_id,
+            f'🏅 Нове досягнення: {achievement.title}',
+        )
 
 
 _DEFAULT_HISTORY_LIMIT = 20

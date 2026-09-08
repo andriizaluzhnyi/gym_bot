@@ -657,6 +657,19 @@
             </div>
             <div id="mealsList"></div>
         </div>
+
+        <!-- "Тренування сьогодні" (GYM-40) — hidden (display:none) unless
+             GET /api/statistics/today finds a completed session; this is
+             the normal state on most days, not an empty-state message. -->
+        <div class="card" id="todayWorkoutCard" style="display: none;">
+            <div class="workout-day-card" id="todayWorkoutRow">
+                <div class="workout-day-info">
+                    <div class="workout-day-title">🏋️ Тренування сьогодні</div>
+                    <div class="workout-day-subtitle" id="todayWorkoutSubtitle"></div>
+                </div>
+                <div class="workout-day-arrow">→</div>
+            </div>
+        </div>
     </div>
 
     <!-- "Статистика" sub-tab (GYM-15) — trends over the current
@@ -1165,6 +1178,56 @@
             }
         }
 
+        // "Тренування сьогодні" card (GYM-40): GET /api/statistics/today
+        async function loadTodayWorkoutSummary() {
+            try {
+                const response = await fetch('/api/statistics/today', {
+                    headers: { 'Authorization': tg.initData }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    displayTodayWorkoutSummary(result.success ? result.data : null);
+                } else {
+                    console.error('Failed to load today\'s workout:', response.status);
+                    displayTodayWorkoutSummary(null);
+                }
+            } catch (error) {
+                console.error('Error loading today\'s workout:', error);
+                displayTodayWorkoutSummary(null);
+            }
+        }
+
+        // `workout` is `null` on most days (no session yet) — the card
+        // stays display:none rather than showing an empty state, since
+        // "no workout logged yet today" isn't something to prompt about
+        // the way an empty meals list is.
+        function displayTodayWorkoutSummary(workout) {
+            const card = document.getElementById('todayWorkoutCard');
+            if (!workout) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = '';
+
+            const parts = [];
+            if (workout.muscle_group) {
+                parts.push(workout.muscle_group);
+            }
+            parts.push(`${Math.round(workout.duration_minutes)} хв`);
+            parts.push(`${workout.exercises_count} вправ · ${workout.sets_count} підходів`);
+            parts.push(`${Math.round(workout.total_volume)} кг`);
+
+            document.getElementById('todayWorkoutSubtitle').textContent = parts.join(' · ');
+        }
+
+        document.getElementById('todayWorkoutRow').addEventListener('click', () => {
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('medium');
+            }
+            window.location.href = '/statistics?tab=history';
+        });
+
         // Apply user settings to UI
         function applyUserSettings(settings) {
             // GYM-25: hide the water card entirely when tracking is off —
@@ -1668,6 +1731,7 @@
                 // Page became visible - reload data
                 loadDailyNutrition();
                 loadMealsList();
+                loadTodayWorkoutSummary();
             }
         });
 
@@ -1680,6 +1744,7 @@
         loadUserSettings();
         loadDailyNutrition();
         loadMealsList();
+        loadTodayWorkoutSummary();
 
         // Open the "Тренування" section directly when linked with
         // ?tab=workout (GYM-36: main menu's 🏋️ Тренування button opens

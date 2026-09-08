@@ -891,6 +891,16 @@
             });
         });
 
+        // Deep-link into a specific tab (GYM-40: the "🏋️ Тренування
+        // сьогодні" card on /nutrition links here with ?tab=history).
+        // Every tab's data already loads unconditionally below (none of
+        // them are lazy-loaded on first click), so switching which panel
+        // starts visible is enough — no extra fetch to trigger.
+        const requestedTab = urlParams.get('tab');
+        if (requestedTab && tabPanels[requestedTab]) {
+            activateTab(requestedTab);
+        }
+
         // --- Summary strip (GYM-6): GET /api/statistics/summary ---
         // Always shows "this week", independent of the tabs' own period
         // selectors below — a stable at-a-glance header, not another

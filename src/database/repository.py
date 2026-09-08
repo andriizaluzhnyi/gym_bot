@@ -1,7 +1,7 @@
 """Repository pattern for database operations."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ from src.database.models import (
     WorkoutSession,
     WorkoutSet,
 )
-from src.utils.datetime_utils import utcnow
+from src.utils.datetime_utils import to_local_date, utcnow
 
 # How long a draft (in-progress) workout session stays resumable before it's
 # treated as abandoned. See WorkoutSessionRepository.get_active_draft.
@@ -666,6 +666,46 @@ class DailyNutritionRepository:
             'fats': row.fats or 0,
             'carbs': row.carbs or 0,
         }
+
+    async def get_totals_by_range(
+        self, user_id: uuid.UUID, start: datetime, end: datetime, tz_name: str
+    ) -> dict[date, dict]:
+        """Per-local-calendar-day nutrition totals (sum of every record
+        that day) for records with ``date`` in ``[start, end)`` naive UTC —
+        GYM-14.
+
+        Storage/query bounds stay UTC (``utcnow()``, GYM-2's convention);
+        which day a record belongs to is resolved via
+        ``to_local_date(record.date, tz_name)`` in Python, since neither
+        SQLite nor Postgres is asked to do timezone-aware grouping here —
+        same UTC-storage/local-grouping split as GYM-4's volume-by-day.
+        Only days with at least one record appear; the caller
+        (``api_get_nutrition_statistics``) fills in the zero days for the
+        full requested period.
+        """
+        result = await self.session.execute(
+            select(DailyNutrition).where(
+                and_(
+                    DailyNutrition.user_id == user_id,
+                    DailyNutrition.date >= start,
+                    DailyNutrition.date < end,
+                )
+            )
+        )
+
+        totals: dict[date, dict] = {}
+        for record in result.scalars().all():
+            day = to_local_date(record.date, tz_name)
+            bucket = totals.setdefault(day, {
+                'calories': 0, 'protein': 0, 'fats': 0, 'carbs': 0, 'water_ml': 0,
+            })
+            bucket['calories'] += record.calories or 0
+            bucket['protein'] += record.protein or 0
+            bucket['fats'] += record.fats or 0
+            bucket['carbs'] += record.carbs or 0
+            bucket['water_ml'] += record.water_ml or 0
+
+        return totals
 
 
 class WorkoutSessionRepository:

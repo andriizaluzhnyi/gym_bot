@@ -20,6 +20,9 @@ class TestStatisticsPage:
             assert 'Активність' in body
             # Chart.js is served from /static (vendored, GYM-17), not a CDN.
             assert '/static/chart.umd.min.js' in body
+            # GYM-6's summary strip, always visible above the tabs.
+            assert '/api/statistics/summary' in body
+            assert 'summaryWorkouts' in body
 
     async def test_reads_telegram_webapp_js_like_other_pages(self):
         app = create_webapp()

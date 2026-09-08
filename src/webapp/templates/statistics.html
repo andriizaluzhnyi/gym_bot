@@ -59,6 +59,38 @@
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
+        /* Activity summary strip (GYM-6) — always visible above the tabs,
+           independent of whichever tab/period is selected below. */
+        .summary-strip {
+            display: flex;
+            gap: 8px;
+            padding: 16px 16px 0;
+        }
+
+        .summary-card {
+            flex: 1;
+            min-width: 0;
+            background-color: var(--tg-theme-secondary-bg-color, var(--card-bg));
+            border-radius: 12px;
+            padding: 12px 8px;
+            text-align: center;
+        }
+
+        .summary-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .summary-label {
+            font-size: 11px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
         /* Tabs */
         .tabs {
             display: flex;
@@ -304,6 +336,21 @@
         <div class="header-user" id="headerUser"></div>
     </div>
 
+    <div class="summary-strip" id="summaryStrip">
+        <div class="summary-card">
+            <div class="summary-value" id="summaryWorkouts">—</div>
+            <div class="summary-label">Тренувань за тиждень</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-value" id="summaryDuration">—</div>
+            <div class="summary-label">Сер. тривалість</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-value" id="summaryMuscle">—</div>
+            <div class="summary-label">Улюблена група</div>
+        </div>
+    </div>
+
     <div class="tabs" id="tabs">
         <button class="tab-btn active" data-tab="volume">Об'єм</button>
         <button class="tab-btn" data-tab="progress">Прогрес по вправі</button>
@@ -426,9 +473,10 @@
             });
         });
 
-        // Tabs. "volume" is wired to real data (GYM-4, below); "progress"
-        // (GYM-5a/GYM-5b) and "activity" (GYM-6) are still page-shell
-        // placeholders (GYM-3) — an empty state until their own tickets.
+        // Tabs. "volume" is wired to real data (GYM-4, below). "progress"
+        // (GYM-5a/GYM-5b) and "activity" are still page-shell placeholders
+        // (GYM-3) — GYM-6 covers overall activity via the summary strip
+        // above, not this tab's own body, which awaits a future ticket.
         const tabButtons = document.querySelectorAll('.tab-btn');
         const tabPanels = {
             volume: document.getElementById('tab-volume'),
@@ -453,6 +501,42 @@
                 }
             });
         });
+
+        // --- Summary strip (GYM-6): GET /api/statistics/summary ---
+        // Always shows "this week", independent of the tabs' own period
+        // selectors below — a stable at-a-glance header, not another
+        // filterable section.
+
+        async function loadSummaryStrip() {
+            try {
+                const params = new URLSearchParams({ period: 'week' });
+                if (PARAM_USER) {
+                    params.set('user', PARAM_USER);
+                }
+                const response = await fetch(`/api/statistics/summary?${params}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                const { data } = await response.json();
+
+                document.getElementById('summaryWorkouts').textContent =
+                    String(data.workouts_count);
+                document.getElementById('summaryDuration').textContent =
+                    data.avg_duration_minutes
+                        ? `${Math.round(data.avg_duration_minutes)} хв`
+                        : '—';
+                document.getElementById('summaryMuscle').textContent =
+                    data.most_trained_muscle || '—';
+            } catch (error) {
+                console.log('Failed to load statistics summary:', error);
+                // Leave the "—" placeholders in place; this strip is a
+                // secondary at-a-glance header, not worth its own error UI.
+            }
+        }
+
+        loadSummaryStrip();
 
         // --- "Об'єм" tab (GYM-4): GET /api/statistics/volume ---
 

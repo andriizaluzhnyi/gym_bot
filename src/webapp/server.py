@@ -129,6 +129,7 @@ async def api_update_user_settings(request: web.Request) -> web.Response:
             height=body.get('height'),
             weight=body.get('weight'),
             gender=body.get('gender'),
+            water_tracking_enabled=body.get('water_tracking_enabled'),
             daily_water_ml=body.get('daily_water_ml'),
             daily_calories=body.get('daily_calories'),
             daily_protein=body.get('daily_protein'),

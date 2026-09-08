@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_settings
 from src.database.repository import (
     DailyNutritionRepository,
+    ExerciseRepository,
     ProfileRepository,
     UserAchievementRepository,
     UserRepository,
@@ -26,6 +27,7 @@ from src.services.google_sheets import GoogleSheetsService
 from src.services.achievements import ACHIEVEMENTS, AchievementsService
 from src.services.personal_records import calculate_prs
 from src.services.streak import calculate_streak
+from src.services.workout_program_parsing import MUSCLE_GROUPS, is_valid_sets_reps
 from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
 from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
@@ -952,6 +954,122 @@ async def api_get_workout_program(request: web.Request) -> web.Response:
         'data': {
             'exercises': programs,
         },
+    })
+
+
+@webapp_auth
+async def api_add_program_exercise(request: web.Request) -> web.Response:
+    """API endpoint (GYM-30) to add one exercise to a workout program day
+    from the Mini App — the webapp-side counterpart to the bot's
+    program-creation FSM (``src/bot/handlers/workout_program.py``).
+
+    Body: ``{user?, day, muscle_group, exercise, sets_reps, comment?}``.
+    ``sets_reps`` is validated with the same rule the bot FSM uses
+    (:func:`src.services.workout_program_parsing.is_valid_sets_reps`),
+    ``muscle_group`` must be one of ``MUSCLE_GROUPS``. DB is the primary
+    store (GYM-28); the addition is also mirrored to Sheets — non-
+    critically, logged on failure only — when the owner has
+    ``sync_workout_to_sheets`` enabled, same convention as
+    ``api_delete_workout_day``/the bot's ``program:finish``.
+
+    Response: the newly added row, in the same shape as one entry of
+    ``GET /api/workout/program``'s ``data.exercises``.
+    Expects Authorization header with Telegram initData.
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    day_raw = body.get('day')
+    muscle_group = (body.get('muscle_group') or '').strip()
+    exercise_name = (body.get('exercise') or '').strip()
+    sets_reps = (body.get('sets_reps') or '').strip()
+    comment = (body.get('comment') or '').strip()
+    param_user = body.get('user') or None
+
+    if not isinstance(day_raw, int) or isinstance(day_raw, bool) or day_raw < 1:
+        return web.json_response(
+            {'error': 'Missing or invalid required field: day'}, status=400
+        )
+    if muscle_group not in MUSCLE_GROUPS:
+        return web.json_response(
+            {'error': 'Missing or invalid required field: muscle_group'}, status=400
+        )
+    if not exercise_name:
+        return web.json_response(
+            {'error': 'Missing required field: exercise'}, status=400
+        )
+    if not sets_reps or not is_valid_sets_reps(sets_reps):
+        return web.json_response(
+            {'error': 'Missing or invalid required field: sets_reps'}, status=400
+        )
+
+    item = {
+        'exercise': exercise_name,
+        'muscle_group': muscle_group,
+        'sets_reps': sets_reps,
+        'comment': comment,
+    }
+
+    async with async_session_maker() as session:
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
+
+        created_rows = await WorkoutProgramRepository(session).add_exercises(
+            owner.id, day_raw, [item]
+        )
+        await session.commit()
+        row = created_rows[0]
+        response_row = {
+            'day': str(row.day),
+            'muscle_group': row.muscle_group,
+            'exercise': row.exercise_name,
+            'sets_reps': row.sets_reps,
+            'comment': row.comment or '',
+            'created_at': row.created_at.strftime('%d.%m.%Y %H:%M'),
+        }
+
+        sync_enabled = owner.sync_workout_to_sheets
+        owner_username = owner.username
+
+    if sync_enabled and owner_username:
+        try:
+            sheets_service = GoogleSheetsService()
+            await sheets_service.add_workout_program(
+                [{**item, 'day': day_raw}], user_name=owner_username
+            )
+        except Exception as e:
+            logger.warning(f'Failed to mirror new exercise to Sheets: {e}')
+
+    return web.json_response({'success': True, 'data': response_row})
+
+
+@webapp_auth
+async def api_search_exercises(request: web.Request) -> web.Response:
+    """API endpoint (GYM-30): autocomplete search over the shared
+    ``Exercise`` catalog (GYM-27), for the "add exercise" form's name
+    field — so a user typing "жим лёжа" gets prompted with the existing
+    "Жим лежачи" entry instead of creating a near-duplicate.
+
+    Query params: `q` (search text; blank returns an empty list — see
+    ``ExerciseRepository.search``). No `user`/ownership check — the
+    catalog is shared across every user, same as GYM-31's planned
+    ``GET /api/exercises/{id}``.
+    Expects Authorization header with Telegram initData.
+    """
+    q = request.query.get('q', '')
+
+    async with async_session_maker() as session:
+        exercises = await ExerciseRepository(session).search(q, limit=10)
+
+    return web.json_response({
+        'success': True,
+        'data': [
+            {'id': ex.id, 'name': ex.name, 'muscle_group': ex.muscle_group}
+            for ex in exercises
+        ],
     })
 
 
@@ -1954,6 +2072,8 @@ def create_webapp() -> web.Application:
     app.router.add_delete('/api/nutrition/meal/{id}', api_delete_meal)
     app.router.add_get('/api/nutrition/statistics', api_get_nutrition_statistics)
     app.router.add_get('/api/workout/program', api_get_workout_program)
+    app.router.add_post('/api/workout/program/exercise', api_add_program_exercise)
+    app.router.add_get('/api/exercises', api_search_exercises)
     app.router.add_get('/api/workout/last-log', api_get_last_workout_log)
     app.router.add_post('/api/workout/session/start', api_start_workout_session)
     app.router.add_post(

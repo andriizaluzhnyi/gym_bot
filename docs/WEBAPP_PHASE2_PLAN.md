@@ -811,7 +811,7 @@ usernames()` (парсить назви вкладок `"Програми (<user
 
 **SP:** 2
 
-### GYM-30: WebApp — додавання днів і вправ у програму
+### ✅ GYM-30: WebApp — додавання днів і вправ у програму — **виконано**
 
 **User story:** Як користувач (або тренер у режимі `?user=`), я хочу додати
 вправу в день програми прямо в Mini App, щоб не ходити в бота.
@@ -848,6 +848,83 @@ usernames()` (парсить назви вкладок `"Програми (<user
   (bottom-sheet, стилі за зразком `showAddSetModal`).
 - Bot: `process_sets_text`/`process_reps_text` використовують спільний
   парсер (поведінка не змінюється).
+
+**Примітка щодо реалізації:** спільний парсер створено як новий файл
+**`src/services/workout_program_parsing.py`** (не в `exercise_names.py` —
+той про нормалізацію *назв*, це про формат *sets_reps*): `is_valid_sets_reps`
+(валідація для API), `looks_like_combined_sets_reps`/`combine_sets_reps`
+(та сама логіка, яку раніше містив тільки `process_sets_text`/
+`process_comment`, тепер розділена на дві чисті функції й
+використовується звідти ж — поведінка бота не змінилась, підтверджено
+всім наявним `test_bot_handlers_workout_program.py`). `MUSCLE_GROUPS`
+довелося **перенести** з `src/bot/keyboards.py` в цей самий файл: AC
+хотів валідацію `muscle_group` проти єдиного списку і в боті, і в
+webapp, а `src/webapp/server.py` імпортувати з `src.bot.keyboards`
+небажано (напрямок залежності бот→webapp ніде в проєкті не
+використовується, і навпаки теж не було). `src/bot/keyboards.py` тепер
+робить `from src.services.workout_program_parsing import MUSCLE_GROUPS`
+(з `# noqa: F401`, бо саме значення в файлі не використовується — лише
+реекспортується), тож `keyboards.MUSCLE_GROUPS` (як і використовує
+наявний `tests/test_bot_keyboards.py`) продовжує працювати без змін.
+
+`process_reps_text` сам по собі парсер **не використовує** — з AC це
+можна прочитати як вимогу, але в реальному коді комбінування `sets` +
+`reps` в один рядок завжди відбувалося в `process_comment` (наступний
+крок стану), не в `process_reps_text` (який лише зберігає `current_reps`
+і переходить далі) — тому спільний парсер підключено саме туди;
+`process_reps_text` не чіпали, бо там нічого дублювати.
+
+`ExerciseRepository.search(q, limit=10)` — `contains`-пошук по
+`normalized_name` (той самий `normalize_exercise_name`, що й
+`get_or_create_by_name`), тож пошук нечутливий до регістру/пробілів/
+апострофа так само, як дедуплікація каталогу. Порожній/пробільний `q`
+повертає `[]` — це поле «почати вводити», не список усього каталогу.
+
+`api_add_program_exercise` за зразком `api_delete_workout_day`
+(GYM-28): резолвить власника через `_resolve_program_owner` (той самий
+`403`/`404`), пише через `WorkoutProgramRepository.add_exercises`,
+дзеркалить у Sheets лише якщо `owner.sync_workout_to_sheets` — і
+некритично (падіння Sheets логується, запит все одно повертає `200`).
+Валідація тіла: `day` — `int >= 1` (явна перевірка на `bool`, бо в
+Python `bool` — підклас `int`, і без цього `day: true` пройшло б як
+`day=1`), `muscle_group` — рядок зі списку `MUSCLE_GROUPS`, `exercise`
+— непорожній рядок після `strip()`, `sets_reps` — `is_valid_sets_reps`.
+
+Фронтенд (`workout.html`, `nutrition.html`): обидва додали bottom-sheet
+модалку за зразком `showAddSetModal` — назва вправи з debounce-пошуком
+(250мс, `AbortController` скасовує застарілий запит), чипи `sets_reps`
+(`3/10 3/12 3/15 4/8 4/10 4/12 4/15 5/5 5/10` — повний набір
+`get_sets_reps_keyboard`, а не скорочений приклад з AC, бо AC явно каже
+«той самий набір, що `get_sets_reps_keyboard`»), коментар. У
+`workout.html` модалка **не питає групу м'язів** — сторінка вже
+скопована на один `day`+`muscle` (з `PARAM_MUSCLE`), і нова вправа
+додається саме туди; у `nutrition.html` («➕ Новий день»/«➕ Вправа» на
+картці дня) групу питає завжди чипами, бо один день може містити кілька
+груп м'язів. Додана вправа в `workout.html` кладеться в `exercises[]` з
+`_sets: []`/`_completed: false` і рендериться без перезавантаження —
+`saveWorkoutSession()` пише лише в `localStorage` (офлайн-кеш), а
+серверну чернетку сесії (`syncExerciseToServer`) чіпає лише логування
+сета, тож AC "чернетка не ламається" виконується без додаткового коду.
+У `nutrition.html` немає локального стану програми — після успішного
+додавання просто викликається `loadWorkoutPrograms()` заново.
+
+**Наявна (до цього тікета) особливість, не виправлена:**
+`nutrition.html`'s day-card клік передає в `/workout` лише
+`muscleGroups[0]` як `?muscle=` — якщо день містить вправи з кількох
+груп м'язів, `/workout` показує тільки першу. Раніше це було
+малоймовірним (день зазвичай = одна група), але GYM-30 робить
+багатогрупові дні реальнішими (нова вправа в `nutrition.html` завжди
+питає групу окремо). Виправлення (мультивибір груп при переході або
+показ усіх груп дня на `/workout`) — поза скоупом цього тікета;
+занотовано тут, щоб не загубилось.
+
+Перевірено: весь набір тестів (юніт, `test_webapp_add_program_exercise.py`
+та `test_workout_program_parsing.py`) зелений; наскрізна перевірка через
+`aiohttp.TestClient` реальним HTTP-запитом
+(`POST /api/workout/program/exercise` → `GET /api/exercises?q=` →
+`GET /api/workout/program`, весь ланцюжок без моків); JS обох шаблонів
+перевірено `esprima`-парсером (той самий прийом, що в GYM-22/25/26/37 —
+без браузера в цьому середовищі, візуальний вигляд не перевірявся).
 
 **SP:** 5
 

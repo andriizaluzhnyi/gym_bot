@@ -20,7 +20,8 @@ from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
 from src.services.personal_records import calculate_prs
-from src.utils.datetime_utils import period_bounds_utc, to_local_date
+from src.services.streak import calculate_streak
+from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
 from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,6 @@ async def api_save_daily_nutrition(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Save daily nutrition record (increment only)
-        from src.utils.datetime_utils import utcnow
         record = await daily_nutrition_repo.create(
             user_id=user.id,
             date=utcnow(),
@@ -222,7 +222,6 @@ async def api_get_daily_nutrition(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Get today's total (sum of all records)
-        from src.utils.datetime_utils import utcnow
         totals = await daily_nutrition_repo.get_today_total(
             user.id, utcnow()
         )
@@ -263,7 +262,6 @@ async def api_add_meal(request: web.Request) -> web.Response:
             return web.json_response({'error': 'User not found'}, status=404)
 
         # Create meal record
-        from src.utils.datetime_utils import utcnow
         record = await daily_nutrition_repo.create(
             user_id=user.id,
             date=utcnow(),
@@ -316,7 +314,6 @@ async def api_get_today_meals(request: web.Request) -> web.Response:
         # Get today's meals (all records for today where water_ml is 0)
         from sqlalchemy import and_, select
         from src.database.models import DailyNutrition
-        from src.utils.datetime_utils import utcnow
 
         start_of_day = utcnow().replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -683,6 +680,37 @@ async def api_get_records(request: web.Request) -> web.Response:
     return web.json_response({'success': True, 'data': records})
 
 
+@webapp_auth
+async def api_get_streak(request: web.Request) -> web.Response:
+    """API endpoint (GYM-12): how many consecutive ISO weeks (Monday-Sunday,
+    `settings.timezone`) had at least one completed workout, ending at the
+    current week — see `calculate_streak` for exactly how the current,
+    still-incomplete week is handled so it doesn't falsely break a streak.
+
+    Query params: `user` (optional username, trainer viewing a client's
+    streak — same convention as `/api/statistics/volume`).
+    Expects Authorization header with Telegram initData.
+    """
+    param_user = request.query.get('user') or None
+
+    async with async_session_maker() as session:
+        owner = await _resolve_statistics_owner(session, request, param_user)
+        if not owner:
+            return web.json_response({'error': 'User not found'}, status=404)
+
+        sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
+            owner.id
+        )
+
+    session_dates = [
+        to_local_date(s.performed_at, settings.timezone) for s in sessions
+    ]
+    today = to_local_date(utcnow(), settings.timezone)
+    data = calculate_streak(session_dates, today)
+
+    return web.json_response({'success': True, 'data': data})
+
+
 async def api_get_workout_program(request: web.Request) -> web.Response:
     """API endpoint to get workout program exercises for a session.
 
@@ -1012,8 +1040,6 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
         return web.json_response(
             {'error': 'Missing required fields: user, exercises'}, status=400
         )
-
-    from src.utils.datetime_utils import utcnow
 
     # `now` drives the Sheets row / calendar event, same as before
     # (server-local time). `performed_at` is the UTC timestamp stored on
@@ -1663,6 +1689,7 @@ def create_webapp() -> web.Application:
     app.router.add_get('/api/statistics/exercises', api_get_exercises)
     app.router.add_get('/api/statistics/exercise-progress', api_get_exercise_progress)
     app.router.add_get('/api/statistics/records', api_get_records)
+    app.router.add_get('/api/statistics/streak', api_get_streak)
     app.router.add_get('/api/statistics/history', api_get_history)
     app.router.add_get(
         '/api/statistics/history/{session_id}', api_get_history_session

@@ -9,6 +9,7 @@ from src.bot.handlers.user_profile import router as profile_router
 from src.bot.handlers.schedule import router as schedule_router
 from src.bot.handlers.start import router as start_router
 from src.bot.handlers.workout_program import router as workout_program_router
+from src.bot.handlers.workout_statistics import router as statistics_router
 
 
 def setup_routers() -> Router:
@@ -22,5 +23,6 @@ def setup_routers() -> Router:
     main_router.include_router(admin_router)
     main_router.include_router(workout_program_router)
     main_router.include_router(nutrition_router)
+    main_router.include_router(statistics_router)
 
     return main_router

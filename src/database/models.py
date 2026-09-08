@@ -438,3 +438,89 @@ class UserAchievement(Base):
             f"<UserAchievement(user_id={self.user_id}, "
             f"code={self.achievement_code})>"
         )
+
+
+class Exercise(Base):
+    """Catalog entry for one exercise (GYM-27).
+
+    Shared across every user's programs, de-duplicated by
+    ``normalized_name`` (``src/services/exercise_names.py``) so "Жим
+    лежачи" and "жим лежачи " land on the same row instead of two. Media
+    fields (``description``/``image_url``/``video_url``) are optional and
+    filled in later (GYM-31) — this task only adds the schema, nothing
+    populates them yet.
+    """
+
+    __tablename__ = "exercises"
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )
+    muscle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    video_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<Exercise(id={self.id}, name={self.name})>"
+
+
+class WorkoutProgramExercise(Base):
+    """One exercise entry within a user's workout program for a given day
+    (GYM-27) — the DB-backed replacement for a row in the "Програми
+    (<user>)" Google Sheet; GYM-28 wires the bot/WebApp to write here
+    instead of (or in addition to) Sheets.
+
+    ``muscle_group`` is a plain snapshot string (the emoji-prefixed labels
+    from ``MUSCLE_GROUPS``, e.g. "🏋️ Груди"), not a foreign key — there's
+    no muscle-group catalog table, same as ``WorkoutSession``/
+    ``WorkoutSet``. ``exercise_name`` is likewise a snapshot of
+    ``Exercise.name`` at the time this row was added (alongside the real
+    ``exercise_id`` FK), so a later rename of the catalog entry doesn't
+    silently rewrite what a program said on the day it was created —
+    matches how ``WorkoutSet.exercise_name`` already works relative to
+    logged sets.
+    """
+
+    __tablename__ = "workout_program_exercises"
+    __table_args__ = (
+        Index(
+            "ix_workout_program_exercises_user_id_day_position",
+            "user_id", "day", "position",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id"), nullable=False, index=True
+    )
+    day: Mapped[int] = mapped_column(Integer, nullable=False)
+    muscle_group: Mapped[str] = mapped_column(String(255), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("exercises.id"), nullable=False, index=True
+    )
+    exercise_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sets_reps: Mapped[str] = mapped_column(String(50), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    exercise: Mapped["Exercise"] = relationship("Exercise")
+
+    def __repr__(self) -> str:
+        return (
+            f"<WorkoutProgramExercise(id={self.id}, user_id={self.user_id}, "
+            f"day={self.day}, exercise_name={self.exercise_name})>"
+        )

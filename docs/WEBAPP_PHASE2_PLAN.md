@@ -1015,7 +1015,7 @@ WHERE id ==`. `api_get_exercise` (`GET /api/exercises/{id}`) без
 
 ## Epic 4 — Бот у групі: нагадування
 
-### GYM-32: Реєстрація групи (`my_chat_member`) і модель `GroupChat`
+### ✅ GYM-32: Реєстрація групи (`my_chat_member`) і модель `GroupChat` — **виконано**
 
 **User story:** Як тренер, я хочу додати бота в групу клієнтів, щоб він
 зареєструвався там і був готовий нагадувати.
@@ -1049,6 +1049,66 @@ WHERE id ==`. `api_get_exercise` (`GET /api/exercises/{id}`) без
 - DB: модель + міграція; `GroupChatRepository` (`upsert_active`,
   `deactivate`, `get_active`, `update_settings`, `mark_sent`).
 - Bot: `src/bot/handlers/group_reminders.py` (router у `setup_routers`).
+
+**Примітка щодо реалізації:** `id` — звичайний автоінкрементний `Integer`
+(як `Exercise`/`WorkoutProgramExercise` з GYM-27), не UUID як `User` —
+AC явно перелічує поля й не каже про UUID, а `group_chats` ні з чим не
+пов'язана через FK в інший бік (нічого не посилається на `GroupChat.id`
+— усе шукає по `chat_id`), тож найновіша конвенція проєкту (прості
+таблиці — простий PK) підійшла більше. `last_*_sent_on`/часові поля —
+перший `Date`-стовпець у проєкті (досі всюди був або `DateTime`, або
+рядки `"HH:MM"`) — довелося додати імпорт `Date`/`date` в
+`src/database/models.py`.
+
+`GroupChatRepository.upsert_active` на повторному приєднанні **не**
+чіпає `added_by_telegram_id` (лишає того, хто додав бота вперше) і не
+скидає жодного налаштування/`last_*_sent_on` — лише `is_active=True` й
+оновлює `title` (сама назва групи могла змінитися, поки бота не було).
+`update_settings` — явний список іменованих `| None`-параметрів (а не
+`**kwargs`), щоб не приймати довільні поля моделі й лишатись
+типобезпечним для mypy; `None` означає «не чіпати», не «очистити».
+`mark_sent` мапить `reminder_type` ("nutrition"/"measurements"/"photos")
+на відповідний стовпець через невеликий словник і кидає `ValueError` на
+невідомий тип — жоден із них ще не викликається продакшн-кодом (GYM-33/
+34 ще не реалізовані), але їх наявність і повне покриття тестами —
+пряма вимога AC-технічних підзадач цього тікета.
+
+Привітальне повідомлення шле через `event.answer(...)` (у
+`ChatMemberUpdated` є той самий зручний метод, що й у `Message`/
+`CallbackQuery` — `event.bot.send_message` не знадобився і мав
+проблему: `event.bot` типізований як `Bot | None`, mypy справедливо
+скаржився). Невдача відправки привітання (бот одразу заглушили в групі,
+мережева помилка тощо) **не** відкочує реєстрацію в БД — той самий
+принцип "запис у БД критичний, дзеркало/повідомлення — ні", що й у
+Sheets-дзеркалі (GYM-2/28): `try/except` навколо лише `event.answer`,
+`upsert_active` + `commit()` вже виконані до цього.
+
+Тестування `my_chat_member` без реального `Update` виявилось
+нетривіальним: `aiogram.types.Update` — pydantic-модель, що вимагає
+рівно одне поле-подію заповненим через валідацію, незручно збирати з
+мока. Замість повного `Dispatcher.feed_update()` тести гонять подію
+через `group_reminders.router.my_chat_member.trigger(event)` —
+той самий метод, який `feed_update()` викликає всередині, тож фільтри
+(`ChatMemberUpdatedFilter` + `F.chat.type`) все ще реально
+відпрацьовують, просто без обгортки в `Update`. Окремий тест
+(`test_my_chat_member_is_a_used_update_type`) все ж будує справжній
+`Dispatcher` — саме це й вимагає AC.
+
+Під час написання тестів знайшов і виправив дрібний, але блокуючий
+недолік наявного `tests/bot_mocks.py::make_chat`: воно робить
+`MagicMock(spec=Chat)`, а `spec=` враховує лише атрибути, присутні в
+`dir(Chat)` — а `title` (як і більшість pydantic-полів) там немає,
+доступний лише на інстансі. Звернення до `chat.title` (яке додав цей
+хендлер) падало з `AttributeError`, хоча раніше цей мок ніколи не
+використовувався там, де `.title` читають. Виправлено додаванням
+явного `title` параметра до `make_chat` (за замовчуванням `None`,
+зворотно сумісно).
+
+Перевірено: весь набір тестів (юніт, `test_group_chat_repository.py`,
+`test_bot_handlers_group_reminders.py`, `test_migration_group_chats.py`)
+зелений; міграція перевірена тим самим hand-wired-`Operations`-прийомом,
+що й попередні (`create_table`/`drop_table` в обидва боки, унікальний
+індекс на `chat_id` — тест на `IntegrityError` при дублі).
 
 **SP:** 3
 

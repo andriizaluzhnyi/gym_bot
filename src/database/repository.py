@@ -12,6 +12,7 @@ from src.database.models import (
     BookingStatus,
     DailyNutrition,
     Exercise,
+    GroupChat,
     NutritionEntryType,
     Profile,
     Training,
@@ -1544,3 +1545,133 @@ class WorkoutProgramRepository:
             bucket["exercises_count"] += 1
 
         return [by_day[day] for day in sorted(by_day)]
+
+
+# Reminder types GroupChat.mark_sent() accepts — maps each to the
+# corresponding "last sent" date column (GYM-32/34).
+_GROUP_CHAT_SENT_FIELD_BY_TYPE = {
+    "nutrition": "last_nutrition_sent_on",
+    "measurements": "last_measurements_sent_on",
+    "photos": "last_photos_sent_on",
+}
+
+
+class GroupChatRepository:
+    """Repository for ``GroupChat`` (GYM-32) — group registration plus the
+    per-group reminder settings GYM-33's ``/reminders`` command edits and
+    GYM-34's scheduled jobs read.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_chat_id(self, chat_id: int) -> GroupChat | None:
+        result = await self.session.execute(
+            select(GroupChat).where(GroupChat.chat_id == chat_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_active(
+        self, chat_id: int, title: str | None, added_by_telegram_id: int
+    ) -> GroupChat:
+        """Called on ``my_chat_member`` JOIN — insert a fresh row (default
+        reminder settings) or, if the bot was here before and left,
+        reactivate the existing one (``is_active=True``, refresh
+        ``title``) without touching its settings or ``last_*_sent_on``
+        markers. ``added_by_telegram_id`` is only set on first insert — a
+        re-add doesn't change who originally added the bot.
+        """
+        existing = await self.get_by_chat_id(chat_id)
+        if existing is not None:
+            existing.is_active = True
+            existing.title = title
+            return existing
+
+        group = GroupChat(
+            chat_id=chat_id,
+            title=title,
+            is_active=True,
+            added_by_telegram_id=added_by_telegram_id,
+        )
+        self.session.add(group)
+        await self.session.flush()
+        return group
+
+    async def deactivate(self, chat_id: int) -> bool:
+        """Called on ``my_chat_member`` LEAVE (kicked or left) — flips
+        ``is_active`` off; the row and its settings are kept. Returns
+        ``False`` if no row exists for ``chat_id`` (nothing to do).
+        """
+        group = await self.get_by_chat_id(chat_id)
+        if group is None:
+            return False
+        group.is_active = False
+        return True
+
+    async def get_active(self) -> list[GroupChat]:
+        """Every group the bot is currently in — GYM-34's reminder jobs
+        iterate this instead of every row ever registered.
+        """
+        result = await self.session.execute(
+            select(GroupChat).where(GroupChat.is_active == True)  # noqa: E712
+        )
+        return list(result.scalars().all())
+
+    async def update_settings(
+        self,
+        chat_id: int,
+        *,
+        remind_nutrition: bool | None = None,
+        nutrition_time: str | None = None,
+        remind_measurements: bool | None = None,
+        measurements_weekday: int | None = None,
+        measurements_time: str | None = None,
+        remind_photos: bool | None = None,
+        photos_day_of_month: int | None = None,
+        photos_time: str | None = None,
+    ) -> GroupChat | None:
+        """Update one or more reminder-setting fields for GYM-33's
+        ``/reminders`` command — every parameter is optional and only
+        provided fields are changed (``None`` means "leave as-is", not
+        "clear"). Returns ``None`` if no ``GroupChat`` exists for
+        ``chat_id``.
+        """
+        group = await self.get_by_chat_id(chat_id)
+        if group is None:
+            return None
+
+        if remind_nutrition is not None:
+            group.remind_nutrition = remind_nutrition
+        if nutrition_time is not None:
+            group.nutrition_time = nutrition_time
+        if remind_measurements is not None:
+            group.remind_measurements = remind_measurements
+        if measurements_weekday is not None:
+            group.measurements_weekday = measurements_weekday
+        if measurements_time is not None:
+            group.measurements_time = measurements_time
+        if remind_photos is not None:
+            group.remind_photos = remind_photos
+        if photos_day_of_month is not None:
+            group.photos_day_of_month = photos_day_of_month
+        if photos_time is not None:
+            group.photos_time = photos_time
+
+        return group
+
+    async def mark_sent(self, chat_id: int, reminder_type: str, sent_on: date) -> None:
+        """Record that ``reminder_type`` ("nutrition"/"measurements"/
+        "photos") was sent to ``chat_id`` on the local date ``sent_on`` —
+        GYM-34's scheduled job calls this right after sending, so a
+        restart mid-day doesn't cause a duplicate send. No-op if the
+        group doesn't exist (e.g. the bot was removed between the job
+        listing active groups and sending).
+        """
+        if reminder_type not in _GROUP_CHAT_SENT_FIELD_BY_TYPE:
+            raise ValueError(f"Unknown reminder_type: {reminder_type!r}")
+
+        group = await self.get_by_chat_id(chat_id)
+        if group is None:
+            return
+
+        setattr(group, _GROUP_CHAT_SENT_FIELD_BY_TYPE[reminder_type], sent_on)

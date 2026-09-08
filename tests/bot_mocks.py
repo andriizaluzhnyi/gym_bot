@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, Chat, Contact, Message, User
+from aiogram.types import CallbackQuery, Chat, ChatMemberUpdated, Contact, Message, User
 
 # Distinguishes "caller didn't pass this" (use the default) from an
 # explicit `None` (e.g. simulating `message.from_user is None`), which a
@@ -37,10 +37,16 @@ def make_telegram_user(
     return user
 
 
-def make_chat(*, chat_id: int = 1, chat_type: str = "private") -> Chat:
+def make_chat(
+    *, chat_id: int = 1, chat_type: str = "private", title: str | None = None
+) -> Chat:
     chat = MagicMock(spec=Chat)
     chat.id = chat_id
     chat.type = chat_type
+    # `spec=Chat` only exposes attributes present in `dir(Chat)` — pydantic
+    # fields like `title` aren't class attributes, so they must be set
+    # explicitly here or accessing `.title` raises AttributeError (GYM-32).
+    chat.title = title
     return chat
 
 
@@ -96,3 +102,35 @@ def make_callback(
     callback.message = make_message() if message is _UNSET else message
     callback.answer = AsyncMock()
     return callback
+
+
+def _make_chat_member(*, status: str):
+    """A bare stand-in for aiogram's `ChatMember*` union — GYM-32's
+    `ChatMemberUpdatedFilter` (via `JOIN_TRANSITION`/`LEAVE_TRANSITION`)
+    only ever reads `.status` off these (``getattr(member, "status",
+    None)``, see aiogram.filters.chat_member_updated), so a bare
+    ``MagicMock`` with that one attribute set is enough — no need for a
+    real ``ChatMemberMember``/``ChatMemberLeft`` instance.
+    """
+    member = MagicMock()
+    member.status = status
+    return member
+
+
+def make_chat_member_updated(
+    *, chat=_UNSET, from_user=_UNSET, old_status: str = "left",
+    new_status: str = "member",
+) -> ChatMemberUpdated:
+    """A `my_chat_member` update (GYM-32). Defaults to a "bot joined a
+    group" transition (``left`` -> ``member``, i.e. `JOIN_TRANSITION`) —
+    pass ``old_status="member", new_status="left"`` (or ``"kicked"``) for
+    a "bot removed" transition (`LEAVE_TRANSITION`). ``chat`` defaults to
+    a group chat (not private — GYM-32's handlers ignore private chats).
+    """
+    event = MagicMock(spec=ChatMemberUpdated)
+    event.chat = make_chat(chat_type="group") if chat is _UNSET else chat
+    event.from_user = make_telegram_user() if from_user is _UNSET else from_user
+    event.old_chat_member = _make_chat_member(status=old_status)
+    event.new_chat_member = _make_chat_member(status=new_status)
+    event.answer = AsyncMock()
+    return event

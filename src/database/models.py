@@ -1,10 +1,10 @@
 """Database models for the gym bot."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator, CHAR
@@ -523,4 +523,77 @@ class WorkoutProgramExercise(Base):
         return (
             f"<WorkoutProgramExercise(id={self.id}, user_id={self.user_id}, "
             f"day={self.day}, exercise_name={self.exercise_name})>"
+        )
+
+
+class GroupChat(Base):
+    """A Telegram group/supergroup the bot has been added to (GYM-32) —
+    tracks membership plus per-group reminder settings, for GYM-33's
+    ``/reminders`` command and GYM-34's scheduled reminder jobs.
+
+    Not deleted when the bot leaves — ``is_active`` flips to ``False``
+    instead, so settings survive a remove-and-re-add (AC: "рядок і
+    налаштування лишаються — при поверненні бота відновлюються").
+
+    All configured times (``nutrition_time``, ``measurements_time``,
+    ``photos_time``) are ``"HH:MM"`` strings interpreted in
+    ``settings.timezone`` — one timezone for the whole app (same
+    convention as ``to_local_date``/``period_bounds_utc``), not
+    per-group. The three ``last_*_sent_on`` columns are *local* dates
+    (via that same timezone), used by GYM-34 to avoid re-sending a
+    reminder already sent today/this week/this month after a restart.
+    """
+
+    __tablename__ = "group_chats"
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger, unique=True, nullable=False, index=True
+    )
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    added_by_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    remind_nutrition: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
+    nutrition_time: Mapped[str] = mapped_column(
+        String(5), default="20:00", nullable=False
+    )
+    remind_measurements: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
+    measurements_weekday: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    measurements_time: Mapped[str] = mapped_column(
+        String(5), default="09:00", nullable=False
+    )
+    remind_photos: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    photos_day_of_month: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False
+    )
+    photos_time: Mapped[str] = mapped_column(
+        String(5), default="09:00", nullable=False
+    )
+
+    last_nutrition_sent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_measurements_sent_on: Mapped[date | None] = mapped_column(
+        Date, nullable=True
+    )
+    last_photos_sent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utcnow, onupdate=utcnow
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<GroupChat(id={self.id}, chat_id={self.chat_id}, "
+            f"title={self.title!r}, is_active={self.is_active})>"
         )

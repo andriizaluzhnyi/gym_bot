@@ -61,20 +61,14 @@ class TestCmdStart:
             db_user = await UserRepository(session).get_by_telegram_id(telegram_id)
             assert db_user.is_admin is True
 
-    async def test_sets_chat_menu_button_when_webapp_url_configured(self, monkeypatch):
+    async def test_does_not_set_per_chat_menu_button(self, monkeypatch):
+        """GYM-35: the chat-menu button is now set once, globally, at bot
+        startup (``src.bot.bot.configure_default_menu_button``) — not on
+        every ``/start``, which used to reach only chats where the user ran
+        ``/start`` again after a rename.
+        """
         monkeypatch.setattr(start.settings, "admin_user_id", 0)
         monkeypatch.setattr(start.settings, "webapp_url", "https://example.com")
-        message = make_message(from_user=make_telegram_user(user_id=_unique_telegram_id()))
-
-        await start.cmd_start(message)
-
-        message.bot.set_chat_menu_button.assert_awaited_once()
-        _, kwargs = message.bot.set_chat_menu_button.call_args
-        assert kwargs["menu_button"].web_app.url == "https://example.com/nutrition"
-
-    async def test_skips_chat_menu_button_when_webapp_url_missing(self, monkeypatch):
-        monkeypatch.setattr(start.settings, "admin_user_id", 0)
-        monkeypatch.setattr(start.settings, "webapp_url", "")
         message = make_message(from_user=make_telegram_user(user_id=_unique_telegram_id()))
 
         await start.cmd_start(message)

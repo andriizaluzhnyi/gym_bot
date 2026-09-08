@@ -33,7 +33,7 @@ async def cmd_nutrition(message: Message) -> None:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text='🍎 Відкрити трекер харчування',
+                    text='📱 Відкрити щоденник',
                     web_app=WebAppInfo(url=f'{webapp_url}/nutrition')
                 )
             ]
@@ -41,7 +41,8 @@ async def cmd_nutrition(message: Message) -> None:
     )
 
     await message.answer(
-        '📊 *Трекер харчування*\n\n'
-        'Відстежуйте калорії, БЖУ та воду.',
+        '🍎 *Харчування*\n\n'
+        'Відстежуйте прийоми їжі, воду та калорії за сьогодні, '
+        'дивіться тренди за тиждень/місяць у вкладці «Статистика».',
         reply_markup=keyboard
     )

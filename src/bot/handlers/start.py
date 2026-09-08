@@ -2,7 +2,7 @@
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import MenuButtonWebApp, Message, WebAppInfo
+from aiogram.types import Message
 
 from src.bot.keyboards import get_admin_menu_keyboard, get_main_menu_keyboard
 from src.config import get_settings
@@ -48,15 +48,6 @@ async def cmd_start(message: Message) -> None:
     )
 
     await message.answer(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
-
-    if settings.webapp_url and message.bot is not None:
-        await message.bot.set_chat_menu_button(
-            chat_id=message.chat.id,
-            menu_button=MenuButtonWebApp(
-                text="🍎 БЖУ",
-                web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition")
-            )
-        )
 
 
 @router.message(Command("help"))

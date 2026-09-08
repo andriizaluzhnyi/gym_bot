@@ -56,7 +56,7 @@ def _mock_request(method: str, path: str, *, telegram_id: int, body: dict) -> we
     async def fake_json():
         return body
 
-    request.json = fake_json
+    setattr(request, "json", fake_json)
     return request
 
 

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 from src.bot import keyboards
+from src.config import get_settings
 
 
 def _flat_buttons(markup: InlineKeyboardMarkup) -> list:
@@ -41,6 +42,20 @@ class TestMainMenuKeyboards:
         texts = [btn.text for row in keyboard.keyboard for btn in row]
         assert "👤 Профіль" in texts
         assert "ℹ️ Допомога" in texts
+
+    def test_main_menu_omits_statistics_button_without_webapp_url(self, monkeypatch):
+        monkeypatch.setattr(get_settings(), "webapp_url", "")
+        keyboard = keyboards.get_main_menu_keyboard()
+        texts = [btn.text for row in keyboard.keyboard for btn in row]
+        assert "📊 Статистика" not in texts
+
+    def test_main_menu_adds_statistics_webapp_button(self, monkeypatch):
+        monkeypatch.setattr(get_settings(), "webapp_url", "https://example.com")
+        keyboard = keyboards.get_main_menu_keyboard()
+
+        buttons = [btn for row in keyboard.keyboard for btn in row]
+        stats_button = next(btn for btn in buttons if btn.text == "📊 Статистика")
+        assert stats_button.web_app.url == "https://example.com/statistics"
 
     def test_admin_menu_adds_program_buttons(self):
         keyboard = keyboards.get_admin_menu_keyboard()

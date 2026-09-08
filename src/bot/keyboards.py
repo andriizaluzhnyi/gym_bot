@@ -8,17 +8,34 @@ from aiogram.types import (
     WebAppInfo,
 )
 
+from src.config import get_settings
 from src.database.models import Training
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Get main menu keyboard."""
-    buttons = [
-        [
-            KeyboardButton(text="👤 Профіль"),
-            KeyboardButton(text="ℹ️ Допомога"),
-        ],
-    ]
+    """Get main menu keyboard.
+
+    Includes a "📊 Статистика" WebApp button (GYM-18) opening
+    ``/statistics`` when ``WEBAPP_URL`` is configured; omitted otherwise so
+    the keyboard still builds in environments without it (tests, local dev
+    without a public URL) — same guard as the chat menu button set in
+    ``src/bot/handlers/start.py``.
+    """
+    settings = get_settings()
+    buttons = []
+
+    if settings.webapp_url:
+        buttons.append([
+            KeyboardButton(
+                text="📊 Статистика",
+                web_app=WebAppInfo(url=f"{settings.webapp_url}/statistics"),
+            ),
+        ])
+
+    buttons.append([
+        KeyboardButton(text="👤 Профіль"),
+        KeyboardButton(text="ℹ️ Допомога"),
+    ])
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=buttons,

@@ -572,9 +572,11 @@ Stat-картки зверху завжди показують поточний 
   (`GET /static/chart.umd.min.js`, підтверджено тестом
   `tests/test_webapp_static_assets.py`). GYM-3 підключає його тегом
   `<script src="/static/chart.umd.min.js">`. **SP: 2**
-- **GYM-18** — Навігація: кнопка `📊 Статистика` у `get_main_menu_keyboard`
-  (`src/bot/keyboards.py`) і команда `/statistics`, що відкривають
-  `WebAppInfo(url=f"{webapp_url}/statistics")`. **SP: 2**
+- ✅ **GYM-18** — **виконано.** Навігація: кнопка `📊 Статистика` у
+  `get_main_menu_keyboard` (`src/bot/keyboards.py`, показується лише коли
+  `WEBAPP_URL` задано — так само, як chat-menu-кнопка у `start.py`) і команда
+  `/statistics` (`src/bot/handlers/statistics.py`, за зразком `/nutrition`),
+  що відкривають `WebAppInfo(url=f"{webapp_url}/statistics")`. **SP: 2**
 - **GYM-19** — Інтеграційні тести ендпоінтів `/api/statistics/*` через
   `aiohttp` test client (unit-тести логіки — в DoD кожного таска). **SP: 3**
 - **GYM-20** — Оновити `README.md` (розділ «Функціонал», структура проєкту,

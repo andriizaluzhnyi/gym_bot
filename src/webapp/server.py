@@ -15,10 +15,11 @@ from src.database.repository import (
     ProfileRepository,
     UserAchievementRepository,
     UserRepository,
+    WorkoutProgramRepository,
     WorkoutSessionRepository,
     WorkoutSetRepository,
 )
-from src.database.models import NutritionEntryType
+from src.database.models import NutritionEntryType, User
 from src.database.session import async_session_maker
 from src.services.google_calendar import GoogleCalendarService
 from src.services.google_sheets import GoogleSheetsService
@@ -514,20 +515,45 @@ async def statistics_handler(request: web.Request) -> web.StreamResponse:
 _VALID_STATISTICS_PERIODS = ('week', 'month', 'all')
 
 
-async def _resolve_statistics_owner(
+async def _resolve_program_owner(
     session: AsyncSession, request: web.Request, param_user: str | None
-):
-    """Resolve whose statistics a `/api/statistics/*` request is for.
+) -> User | web.Response:
+    """Resolve whose workout data a `/api/statistics/*` or program request
+    (`/api/workout/program`, `/api/workout/day`, `/api/workout/exercise`)
+    is for — and enforce that only an admin may look at anyone else's
+    (GYM-28: closes the "`is_admin()` stubbed out" risk carried over from
+    phase 1 — every one of these endpoints previously trusted `?user=`
+    from *any* authenticated caller with no ownership check at all).
 
     Defaults to the caller's own `telegram_id` (from `initData`, via
-    `@webapp_auth`); an explicit `user` query param lets a trainer view a
-    client's stats instead — same convention as `/workout?user=<name>`.
+    `@webapp_auth`) when `param_user` is absent — same convention as
+    before. Returns the resolved ``User`` on success, or a ready-to-return
+    error ``web.Response`` otherwise: `403` if `param_user` names someone
+    other than the caller and the caller isn't in
+    `settings.admin_user_ids`, `404` if the resolved user doesn't exist.
+    Callers do::
+
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
     """
-    user_repo = UserRepository(session)
-    if param_user:
-        return await user_repo.get_by_username(param_user)
     telegram_id = request[TELEGRAM_USER_KEY].get('id')
-    return await user_repo.get_by_telegram_id(telegram_id) if telegram_id else None
+    user_repo = UserRepository(session)
+    caller = await user_repo.get_by_telegram_id(telegram_id) if telegram_id else None
+
+    if not param_user:
+        if not caller:
+            return web.json_response({'error': 'User not found'}, status=404)
+        return caller
+
+    is_self = bool(caller and caller.username == param_user)
+    if not is_self and telegram_id not in settings.admin_user_ids:
+        return web.json_response({'error': 'Forbidden'}, status=403)
+
+    owner = await user_repo.get_by_username(param_user)
+    if not owner:
+        return web.json_response({'error': 'User not found'}, status=404)
+    return owner
 
 
 def _aggregate_volume(
@@ -604,9 +630,9 @@ async def api_get_volume_statistics(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         start, end = period_bounds_utc(period, settings.timezone)
         sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
@@ -645,9 +671,9 @@ async def api_get_statistics_summary(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         start, end = period_bounds_utc(period, settings.timezone)
         sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
@@ -687,9 +713,9 @@ async def api_get_exercises(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         exercises = await WorkoutSetRepository(session).get_distinct_exercises(
             owner.id
@@ -717,9 +743,9 @@ async def api_get_exercise_progress(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         sets = await WorkoutSetRepository(session).get_sets_by_user_and_exercise(
             owner.id, exercise_name
@@ -783,9 +809,9 @@ async def api_get_records(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
             owner.id
@@ -833,9 +859,9 @@ async def api_get_streak(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
             owner.id
@@ -866,9 +892,9 @@ async def api_get_achievements(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         unlocked_at_by_code = await UserAchievementRepository(
             session
@@ -893,57 +919,40 @@ async def api_get_achievements(request: web.Request) -> web.Response:
     return web.json_response({'success': True, 'data': data})
 
 
+@webapp_auth
 async def api_get_workout_program(request: web.Request) -> web.Response:
     """API endpoint to get workout program exercises for a session.
 
-    Query params: user, day (optional), muscle (optional).
+    DB is the primary store (GYM-28) — Sheets is no longer read here.
+    Response shape is unchanged (`{"data": {"exercises": [...]}}`, each
+    row in `WorkoutProgramRepository.get_program`'s Sheets-compatible
+    form), so `workout.html`/`nutrition.html` needed no changes.
+
+    Query params: `user` (optional — defaults to the caller; a trainer
+    passing someone else's requires `settings.admin_user_ids`, GYM-28),
+    `day` (optional), `muscle` (optional).
     Expects Authorization header with Telegram initData.
     """
-    init_data = request.headers.get('Authorization', '')
-    user_data = validate_telegram_webapp_data(init_data)
+    param_user = request.query.get('user') or None
+    day_str = request.query.get('day', '')
+    muscle = request.query.get('muscle') or None
+    day = int(day_str) if day_str and day_str.isdigit() else None
 
-    if not user_data:
-        return web.json_response({'error': 'Unauthorized'}, status=401)
+    async with async_session_maker() as session:
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
-    user_name = request.query.get('user', '')
-    day = request.query.get('day', '')
-    muscle = request.query.get('muscle', '')
-
-    if not user_name:
-        return web.json_response(
-            {'error': 'Missing required param: user'}, status=400
+        programs = await WorkoutProgramRepository(session).get_program(
+            owner.id, day=day, muscle=muscle
         )
 
-    try:
-        sheets_service = GoogleSheetsService()
-        programs = await sheets_service.get_workout_programs(
-            limit=100, user_name=user_name
-        )
-
-        # Filter by day if provided
-        if day:
-            programs = [
-                p for p in programs if str(p.get('day', '')) == str(day)
-            ]
-
-        # Filter by muscle group if provided
-        if muscle:
-            programs = [
-                p for p in programs if p.get('muscle_group') == muscle
-            ]
-
-        return web.json_response({
-            'success': True,
-            'data': {
-                'exercises': programs,
-            },
-        })
-
-    except Exception as e:
-        logger.error(f'Error loading workout program: {e}')
-        return web.json_response(
-            {'error': 'Failed to load program'}, status=500
-        )
+    return web.json_response({
+        'success': True,
+        'data': {
+            'exercises': programs,
+        },
+    })
 
 
 async def api_get_last_workout_log(request: web.Request) -> web.Response:
@@ -1490,84 +1499,97 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
         )
 
 
+@webapp_auth
 async def api_delete_workout_day(request: web.Request) -> web.Response:
-    """API endpoint to delete entire workout day.
+    """API endpoint to delete an entire workout program day.
 
-    Query params: user, day.
+    DB is the primary store (GYM-28); the deletion is also mirrored to
+    Sheets — non-critically, logged on failure only — when the owner has
+    `sync_workout_to_sheets` enabled.
+
+    Query params: `user` (optional — defaults to the caller; someone
+    else's requires `settings.admin_user_ids`, GYM-28), `day` (required).
     Expects Authorization header with Telegram initData.
     """
-    init_data = request.headers.get('Authorization', '')
-    user_data = validate_telegram_webapp_data(init_data)
+    param_user = request.query.get('user') or None
+    day_str = request.query.get('day', '')
 
-    if not user_data:
-        return web.json_response({'error': 'Unauthorized'}, status=401)
-
-    user_name = request.query.get('user', '')
-    day = request.query.get('day', '')
-
-    if not user_name or not day:
+    if not day_str or not day_str.isdigit():
         return web.json_response(
-            {'error': 'Missing required params: user, day'}, status=400
+            {'error': 'Missing or invalid required param: day'}, status=400
         )
+    day = int(day_str)
 
-    try:
-        sheets_service = GoogleSheetsService()
-        success = await sheets_service.delete_workout_day(user_name, day)
+    async with async_session_maker() as session:
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
-        if success:
-            return web.json_response({'success': True})
-        else:
-            return web.json_response(
-                {'error': 'Failed to delete day'}, status=500
-            )
+        deleted = await WorkoutProgramRepository(session).delete_day(owner.id, day)
+        if not deleted:
+            return web.json_response({'error': 'Day not found'}, status=404)
+        await session.commit()
 
-    except Exception as e:
-        logger.error(f'Error deleting workout day: {e}')
-        return web.json_response(
-            {'error': 'Failed to delete day'}, status=500
-        )
+        sync_enabled = owner.sync_workout_to_sheets
+        owner_username = owner.username
+
+    if sync_enabled and owner_username:
+        try:
+            sheets_service = GoogleSheetsService()
+            await sheets_service.delete_workout_day(owner_username, str(day))
+        except Exception as e:
+            logger.warning(f'Failed to mirror day deletion to Sheets: {e}')
+
+    return web.json_response({'success': True})
 
 
+@webapp_auth
 async def api_delete_exercise(request: web.Request) -> web.Response:
-    """API endpoint to delete specific exercise from workout program.
+    """API endpoint to delete one exercise from a workout program day.
 
-    Query params: user, day, exercise.
+    DB is the primary store (GYM-28); the deletion is also mirrored to
+    Sheets — non-critically, logged on failure only — when the owner has
+    `sync_workout_to_sheets` enabled.
+
+    Query params: `user` (optional — defaults to the caller; someone
+    else's requires `settings.admin_user_ids`, GYM-28), `day`, `exercise`
+    (both required).
     Expects Authorization header with Telegram initData.
     """
-    init_data = request.headers.get('Authorization', '')
-    user_data = validate_telegram_webapp_data(init_data)
-
-    if not user_data:
-        return web.json_response({'error': 'Unauthorized'}, status=401)
-
-    user_name = request.query.get('user', '')
-    day = request.query.get('day', '')
+    param_user = request.query.get('user') or None
+    day_str = request.query.get('day', '')
     exercise = request.query.get('exercise', '')
 
-    if not user_name or not day or not exercise:
+    if not day_str or not day_str.isdigit() or not exercise:
         return web.json_response(
-            {'error': 'Missing required params: user, day, exercise'},
-            status=400
+            {'error': 'Missing or invalid required params: day, exercise'},
+            status=400,
         )
+    day = int(day_str)
 
-    try:
-        sheets_service = GoogleSheetsService()
-        success = await sheets_service.delete_exercise(
-            user_name, day, exercise
+    async with async_session_maker() as session:
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
+
+        deleted = await WorkoutProgramRepository(session).delete_exercise(
+            owner.id, day, exercise
         )
+        if not deleted:
+            return web.json_response({'error': 'Exercise not found'}, status=404)
+        await session.commit()
 
-        if success:
-            return web.json_response({'success': True})
-        else:
-            return web.json_response(
-                {'error': 'Exercise not found'}, status=404
-            )
+        sync_enabled = owner.sync_workout_to_sheets
+        owner_username = owner.username
 
-    except Exception as e:
-        logger.error(f'Error deleting exercise: {e}')
-        return web.json_response(
-            {'error': 'Failed to delete exercise'}, status=500
-        )
+    if sync_enabled and owner_username:
+        try:
+            sheets_service = GoogleSheetsService()
+            await sheets_service.delete_exercise(owner_username, str(day), exercise)
+        except Exception as e:
+            logger.warning(f'Failed to mirror exercise deletion to Sheets: {e}')
+
+    return web.json_response({'success': True})
 
 
 async def _sync_workout_to_calendar(
@@ -1793,9 +1815,9 @@ async def api_get_today_workout(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         start, end = period_bounds_utc('day', settings.timezone)
         sessions = await WorkoutSessionRepository(session).get_sessions_by_period(
@@ -1834,9 +1856,9 @@ async def api_get_history(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         sessions = await WorkoutSessionRepository(session).get_history_page(
             owner.id, limit=limit, offset=offset
@@ -1865,9 +1887,9 @@ async def api_get_history_session(request: web.Request) -> web.Response:
     param_user = request.query.get('user') or None
 
     async with async_session_maker() as session:
-        owner = await _resolve_statistics_owner(session, request, param_user)
-        if not owner:
-            return web.json_response({'error': 'User not found'}, status=404)
+        owner = await _resolve_program_owner(session, request, param_user)
+        if isinstance(owner, web.Response):
+            return owner
 
         workout_session = await WorkoutSessionRepository(
             session

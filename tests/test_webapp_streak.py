@@ -134,7 +134,10 @@ class TestStreak:
 
         assert data == {"current_streak": 0, "longest_streak": 0, "unit": "week"}
 
-    async def test_user_param_overrides_caller(self):
+    async def test_user_param_overrides_caller(self, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
         await _add_completed_session(owner.id, _weeks_ago(0))

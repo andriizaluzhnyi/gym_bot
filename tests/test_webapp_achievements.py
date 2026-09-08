@@ -26,6 +26,7 @@ from src.webapp.server import (
     api_get_achievements,
     api_save_workout_log,
     get_bot_instance,
+    settings,
     set_bot_instance,
 )
 from tests.test_webapp_auth import build_init_data
@@ -296,7 +297,10 @@ class TestApiGetAchievements:
         others = [row for row in payload if row["code"] != "FIRST_PR"]
         assert all(row["unlocked"] is False for row in others)
 
-    async def test_user_param_overrides_caller(self):
+    async def test_user_param_overrides_caller(self, monkeypatch):
+        # GYM-28: ?user= for someone else now requires the caller to be an
+        # admin — a plain "trainer" account no longer suffices on its own.
+        monkeypatch.setattr(settings, "admin_user_id", 999)
         owner = await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
         async with async_session_maker() as session:

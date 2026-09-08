@@ -76,6 +76,13 @@ class Gender(str, Enum):
     FEMALE = "female"
 
 
+class NutritionEntryType(str, Enum):
+    """What a ``DailyNutrition`` row logs (GYM-21)."""
+
+    WATER = "water"
+    MEAL = "meal"
+
+
 class Profile(Base):
     """User profile model with nutrition and body data."""
 
@@ -231,7 +238,16 @@ class Booking(Base):
 
 
 class DailyNutrition(Base):
-    """Daily nutrition tracking model."""
+    """Daily nutrition tracking model.
+
+    Each row is one logged entry — one water increment (``entry_type ==
+    "water"``) or one meal (``entry_type == "meal"``); "today"'s totals and
+    meal list are the sum/filter of every row for a user on a given day,
+    not one row per day. ``entry_type`` used to be inferred from
+    ``water_ml == 0`` at query time (GYM-21); it's now an explicit column so
+    a meal that happens to log zero macros can't be misread as a water
+    entry, and so a meal can carry a name.
+    """
 
     __tablename__ = "daily_nutrition"
 
@@ -244,6 +260,8 @@ class DailyNutrition(Base):
     date: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, index=True
     )
+    entry_type: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    meal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Water intake in milliliters
     water_ml: Mapped[int | None] = mapped_column(

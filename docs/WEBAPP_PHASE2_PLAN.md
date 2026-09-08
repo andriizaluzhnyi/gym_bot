@@ -150,7 +150,7 @@ Sheets» без уточнення «логи»). На відміну від GYM
 
 ## Epic 0 — Фундамент харчування
 
-### GYM-21: Тип запису `daily_nutrition`, назва страви, локальна доба
+### ✅ GYM-21: Тип запису `daily_nutrition`, назва страви, локальна доба — **виконано**
 
 **User story:** Як користувач, я хочу бачити в списку «Сьогодні» назви страв
 і мати змогу видалити помилковий запис, а «сьогодні» має означати мій
@@ -185,6 +185,46 @@ Sheets» без уточнення «логи»). На відміну від GYM
   локальні межі (сигнатура `+ tz_name`, як у `get_totals_by_range`, GYM-14).
 - Backend: `api_add_meal` / `api_get_today_meals` / новий
   `api_delete_meal` (через `@webapp_auth`).
+
+**Примітка щодо реалізації:** `period_bounds_utc` (GYM-4) отримав третій
+`period` — `"day"` (локальна доба, ті самі межі, що й для тижня/місяця,
+лише з іншим кроком) — замість окремого хелпера; `get_today_total` і новий
+`get_meals_for_local_day` викликають `period_bounds_utc("day", tz_name,
+now_utc=...)` і приймають опційний `now_utc` для тестів (той самий приймач,
+що вже був у `period_bounds_utc`). `entry_type`/`meal_name` — enum
+`NutritionEntryType` (`src/database/models.py`, за зразком `Gender`), не
+голі рядкові літерали. `DailyNutritionRepository.create()` тепер вимагає
+`entry_type` явно (без дефолту) — обидва продакшн-виклики
+(`api_save_daily_nutrition`, `api_add_meal`) передають його свідомо;
+непов'язаний legacy-метод `create_or_update` (dead code, викликів немає
+ніде в проєкті) лишили з дефолтом `entry_type="meal"`, щоб не падав, якщо
+колись знадобиться, а не видаляли — видалення поза скоупом цього тікета.
+`DELETE /api/nutrition/meal/{id}` не розрізняє «чужий» і «неіснує» — обидва
+`404`, як і в `/api/statistics/history/{session_id}`.
+
+Міграція (`alembic/versions/20260908_1400-19d5485f6ff1_…`) — nullable
+`ADD COLUMN` → `UPDATE … CASE WHEN water_ml > 0 THEN 'water' ELSE 'meal'
+END` → `ALTER COLUMN … NOT NULL`, той самий тришаговий патерн, що й у
+`sync_workout_to_sheets` (GYM-2), тільки без єдиного `server_default` (тут
+бекфіл рядково-залежний, не константа). Тест бекфілу
+(`tests/test_migration_nutrition_entry_type.py`) запускає `upgrade()`/
+`downgrade()` міграції напряму проти окремого sync SQLite-з'єднання через
+руками зібраний `alembic.operations.Operations`, підмінюючи ім'я `op` у
+завантаженому модулі міграції — не через `alembic.command.upgrade()`
+(та й проходить весь ланцюжок ревізій, а три старіші файли роблять
+`from src.database import models`, що імпортом тягне
+`src/database/session.py` і будує async-engine з `DATABASE_URL` ще на
+етапі імпорту — не стосується того, що перевіряє цей тест). У реальному
+розгортанні (Postgres, `docker-compose`) це не проблема:
+`settings.db_url` там валідний `asyncpg`-URL що для сесії, що для
+Alembic-обгортки. Виявлено принагідно (поза скоупом цього тікета):
+`alembic/env.py` не приводить `sqlite+aiosqlite://` до синхронного
+драйвера (на відміну від `postgresql+asyncpg://`), тому на SQLite
+`command.upgrade()` у `run_bot()` фактично завжди падає в `except` і
+відкочується на `init_db()` (`create_all` — без жодних міграцій, зокрема
+без бекфілу) — для чистої dev-бази це нешкідливо (нема даних, які
+бекфілити), але сам факт «на SQLite Alembic ніколи насправді не
+виконується» ніде не задокументовано.
 
 **SP:** 3
 

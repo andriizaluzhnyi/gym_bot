@@ -8,13 +8,23 @@ Telegram бот для управління записами на тренува
 - 📝 **Запис на тренування** — онлайн запис з перевіркою вільних місць
 - 🔔 **Нагадування** — автоматичні нагадування за 24 години та 2 години
 - 📊 **Google Calendar** — синхронізація тренувань з календарем
-- 📋 **Google Sheets** — опційне дзеркало логів тренувань (БД — основне сховище)
+- 📋 **Google Sheets** — опційне дзеркало програм і логів тренувань (БД — основне сховище)
 - 🍎 **Харчування (Mini App)** — трекінг калорій, білків, жирів, вуглеводів та води
+- 📷 **Фото → БЖВ (OpenAI Vision)** — сфотографуй страву, і бот оцінить її
+  БЖВ і калорійність; оцінку можна поправити перед збереженням. Фото ніде
+  не зберігається; вимикається, якщо не задано `OPENAI_API_KEY`
 - 🏋️ **Тренування (Mini App)** — лог підходів (вага/повтори) за програмою дня чи
   групи м'язів, з чернетками, що автозберігаються в БД під час тренування
+- 💪 **Програми тренувань у БД (Mini App)** — перегляд, додавання й видалення
+  вправ прямо з `/workout`/`/nutrition` (без бота), з підказкою вже
+  доданих раніше вправ зі спільного каталогу — Google Sheets більше не
+  потрібен для ведення програми, лише опційне дзеркало
 - 📈 **Статистика тренувань (Mini App)** — об'єм (тоннаж) за тиждень/місяць/увесь
   час у розрізі груп м'язів і загальна активність (кількість тренувань,
   середня тривалість, улюблена група)
+- 🔔 **Групові нагадування** — додай бота в групу клієнтів, і він сам
+  нагадає про харчування, заміри й фото прогресу за розкладом, який
+  налаштовується прямо в чаті командою `/reminders`
 - 👨‍💼 **Адмін-панель** — управління тренуваннями для тренера
 - 🔐 **UUID користувачів** — унікальні ідентифікатори для масштабованості
 
@@ -65,7 +75,7 @@ pip install -e .
 ```env
 # Telegram Bot
 TELEGRAM_BOT_TOKEN=your_bot_token_here
-ADMIN_USER_IDS=123456789,987654321
+ADMIN_USER_ID=123456789
 
 # Database (виберіть один варіант)
 # SQLite (за замовчуванням)
@@ -82,7 +92,15 @@ GOOGLE_SPREADSHEET_ID=your_spreadsheet_id
 # Webapp (опціонально)
 WEBAPP_URL=https://your-domain.com
 WEBAPP_PORT=8080
+
+# OpenAI — фото → БЖВ (опційно; без ключа кнопка "📷 Фото" просто не
+# з'являється в Mini App, решта бота працює як звичайно)
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
 ```
+
+> `ADMIN_USER_ID` — лише **один** ID (тренер/адмін). Порожньо або 0 —
+> адмінського акаунта немає, всі користувачі рівні.
 
 ### 5. Налаштування бази даних
 
@@ -359,14 +377,18 @@ web: python -m src.main
 
 ## Команди бота
 
-При запущеному `WEBAPP_URL` бот виставляє глобальну chat-menu-кнопку
-`📱 Щоденник` (відкриває `/nutrition`) і реєструє список команд через
-`set_my_commands` (`src/bot/bot.py: configure_bot_commands`) — обидва
-виконуються один раз при старті, а не на кожен `/start`.
+При запущеному `WEBAPP_URL` бот виставляє глобальну chat-menu-кнопку `📱`
+(відкриває `/nutrition`) і реєструє список команд через `set_my_commands`
+(`src/bot/bot.py: configure_bot_commands`) — обидва виконуються один раз
+при старті, а не на кожен `/start`.
 
 ### Для користувачів
 
-- `/start` — почати роботу з ботом
+- `/start` — почати роботу з ботом; `/start <section>` (deep-link,
+  `section` ∈ `nutrition`/`profile`/`statistics`) одразу відповідає
+  кнопкою на потрібний розділ Mini App — так на нього потрапляють з
+  кнопки в груповому нагадуванні (`web_app`-кнопки не працюють у групах,
+  тому спершу відкривається приватний чат)
 - `/help` — довідка
 - `/nutrition` — харчування (Mini App)
 - `/statistics` — статистика тренувань (Mini App)
@@ -382,6 +404,21 @@ web: python -m src.main
 - Кнопки адмінського меню (зверху над звичайними): `💪 Програма тренувань`,
   `📋 Переглянути програми`, `➕ Додати тренування`, `📈 Адмін-статистика`
 
+### У групі (нагадування)
+
+Додайте бота в групу клієнтів — він сам зареєструється (`my_chat_member`)
+і привітається дефолтним розкладом. Налаштування зберігаються, навіть
+якщо бота тимчасово прибрати з групи й додати знову.
+
+- `/reminders` — inline-панель нагадувань: увімкнути/вимкнути кожен тип
+  (харчування/заміри/фото прогресу), обрати час із чипів (для замірів —
+  ще й день тижня, для фото — 1-е чи 15-е число). Змінювати можуть лише
+  адміни/власник групи; переглянути панель може будь-хто
+- Нагадування (за розкладом, раз на 5 хв перевіряється, чи час):
+  - 🍽 харчування — щодня, з кнопкою у приватний чат (`/start nutrition`)
+  - 📏 заміри — раз на тиждень, з кнопкою в профіль (`/start profile`)
+  - 📸 фото прогресу — раз на місяць (без кнопки — бот фото не збирає)
+
 ## Структура проекту
 
 ```plaintext
@@ -393,25 +430,33 @@ gym_bot/
 ├── scripts/                     # Допоміжні скрипти
 │   ├── migrate.py                       # Helper для міграцій
 │   ├── check_daily_nutrition.py         # Діагностика даних харчування
-│   └── clean_daily_nutrition_data.py    # Очищення даних харчування
+│   ├── clean_daily_nutrition_data.py    # Очищення даних харчування
+│   └── import_workout_programs.py       # Одноразовий імпорт програм із Sheets у БД
 ├── src/
 │   ├── bot/
 │   │   ├── handlers/
-│   │   │   ├── start.py             # /start, /help
+│   │   │   ├── start.py             # /start, /help, deep-link (/start <section>)
 │   │   │   ├── schedule.py          # Розклад тренувань
 │   │   │   ├── booking.py           # Запис/скасування
 │   │   │   ├── nutrition.py         # /nutrition — трекінг харчування
-│   │   │   ├── workout_program.py   # Програми тренувань (адмін)
+│   │   │   ├── workout_program.py   # Програми тренувань (бот)
 │   │   │   ├── workout_statistics.py # /statistics — статистика тренувань
 │   │   │   ├── user_profile.py      # Профіль користувача
-│   │   │   └── admin.py             # Адмін функції
+│   │   │   ├── admin.py             # Адмін функції
+│   │   │   └── group_reminders.py   # my_chat_member, /reminders (групи)
 │   │   ├── keyboards.py         # Клавіатури
 │   │   ├── calendar_picker.py   # Календар для вибору дати
 │   │   └── bot.py               # Головний модуль бота
 │   ├── services/
 │   │   ├── google_calendar.py   # Інтеграція з Calendar
-│   │   ├── google_sheets.py     # Інтеграція з Sheets (опційне дзеркало логів)
-│   │   └── notifications.py     # Нагадування
+│   │   ├── google_sheets.py     # Інтеграція з Sheets (опційне дзеркало)
+│   │   ├── notifications.py     # Нагадування про тренування (24г/2г)
+│   │   ├── group_reminders.py   # Нагадування в групах (due_reminders + відправка)
+│   │   ├── food_recognition.py  # Фото → БЖВ через OpenAI Vision
+│   │   ├── exercise_names.py    # Нормалізація назв вправ (де-дублікація каталогу)
+│   │   ├── workout_program_parsing.py # Валідація sets_reps, MUSCLE_GROUPS
+│   │   ├── achievements.py      # Досягнення
+│   │   └── personal_records.py, streak.py # Рекорди, серія тренувань
 │   ├── webapp/
 │   │   ├── server.py            # aiohttp-додаток: Mini App сторінки + /api/*
 │   │   ├── auth.py              # Спільний auth-декоратор для /api/* (initData)
@@ -431,14 +476,18 @@ gym_bot/
 │   ├── config.py                # Конфігурація (pydantic-settings)
 │   └── main.py                  # Точка входу
 ├── tests/
-├── docs/                        # Плани реалізації фіч (напр. статистика)
+├── docs/                        # Плани реалізації фіч + допоміжна документація
+│   ├── WEBAPP_STATISTICS_PLAN.md    # План фази 1 (статистика, Mini App)
+│   ├── WEBAPP_PHASE2_PLAN.md        # План фази 2 (програми в БД, фото → БЖВ, групові нагадування)
+│   ├── ALEMBIC_QUICKSTART.md        # Швидкий старт з Alembic
+│   ├── MIGRATION_USERS_PROFILES.md  # Історія розділення таблиць
+│   └── MIGRATION_TO_UUID.md         # Історія переходу на UUID
 ├── .env                         # Конфігурація (не в git!)
 ├── credentials.json             # Google API ключ (не в git!)
 ├── alembic.ini                  # Alembic конфігурація
 ├── docker-compose.yml
 ├── Dockerfile
 ├── pyproject.toml               # Залежності проекту
-├── ALEMBIC_QUICKSTART.md        # Швидкий старт з Alembic
 └── README.md
 ```
 
@@ -509,6 +558,43 @@ gym_bot/
   - `created_at`
   - Індекс: `(user_id, exercise_name, performed_at)`
 
+- **exercises** — спільний каталог вправ (усі користувачі), для
+  де-дублікації назв («Жим лежачи» / «жим лёжа» — один запис) і картки
+  вправи
+  - `id` (Integer, PK), `name` (String), `normalized_name` (String,
+    unique, indexed) — регістр/пробіли/апостроф нормалізовані
+  - `muscle_group` (String, nullable) — з першого додавання
+  - `description`, `image_url`, `video_url` (nullable) — заповнюються
+    вручну (міграція/консоль); нема окремого UI для наповнення каталогу
+  - `created_at`, `updated_at`
+
+- **workout_program_exercises** — програма тренувань (БД — основне
+  сховище з GYM-28; Google Sheets — опційне дзеркало)
+  - `id` (Integer, PK), `user_id` (UUID, FK → users.id, indexed)
+  - `day` (Integer), `muscle_group` (String) — один день може містити
+    кілька груп м'язів
+  - `exercise_id` (Integer, FK → exercises.id, indexed), `exercise_name`
+    (String) — знімок назви на момент додавання (як і `workout_sets`)
+  - `sets_reps` (String), `comment` (Text, nullable), `position`
+    (Integer) — порядок у межах дня
+  - `created_at`
+  - Індекс: `(user_id, day, position)`
+
+- **group_chats** — групи, куди доданий бот, і їхні налаштування
+  нагадувань (Epic 4)
+  - `id` (Integer, PK), `chat_id` (BigInteger, unique, indexed)
+  - `title` (String, nullable), `is_active` (Boolean) — чи бот досі в
+    групі; рядок і налаштування не видаляються при виході бота
+  - `added_by_telegram_id` (BigInteger)
+  - `remind_nutrition`/`remind_measurements`/`remind_photos` (Boolean),
+    `nutrition_time`/`measurements_time`/`photos_time` (String `"HH:MM"`,
+    у `settings.timezone`), `measurements_weekday` (Integer 0-6,
+    0 = понеділок), `photos_day_of_month` (Integer 1-28)
+  - `last_nutrition_sent_on`/`last_measurements_sent_on`/
+    `last_photos_sent_on` (Date, nullable) — щоб не надсилати нагадування
+    двічі за один день після перезапуску бота
+  - `created_at`, `updated_at`
+
 ### Міграції
 
 Використовуйте Alembic для управління схемою:
@@ -527,15 +613,65 @@ alembic revision --autogenerate -m "опис змін"
 alembic downgrade -1
 ```
 
-Детальна документація: [ALEMBIC_QUICKSTART.md](ALEMBIC_QUICKSTART.md)
+Детальна документація: [docs/ALEMBIC_QUICKSTART.md](docs/ALEMBIC_QUICKSTART.md)
 
 ## Google Sheets структура
 
-Бот автоматично створює та оновлює аркуші:
+**База даних — основне сховище для всього** (розклад/записи, програми
+тренувань, лог тренувань); Google Sheets потрібен лише якщо хочете
+паралельно бачити ці дані в таблиці — і то опційно (`sync_workout_to_
+sheets`, вимкнено за замовчуванням для нових користувачів). Харчування
+(`daily_nutrition`) у Sheets не дзеркалиться взагалі — лише в БД.
+
+Бот сам створює й оновлює потрібні аркуші (без ручного налаштування):
 
 1. **Тренування** — список всіх тренувань з датами та кількістю місць
 2. **Записи** — записи користувачів на тренування
 3. **Відвідування** — журнал відвідувань з відмітками
+4. **Програми (`<username>`)** — програма тренувань користувача (опційне
+   дзеркало `workout_program_exercises`); спільний аркуш **Програми** —
+   для користувачів без `username`
+5. **Програми (Візуалізація)** — зведена таблиця програм для тренера
+6. **Логи (`<username>`)** — історія залогованих тренувань (опційне
+   дзеркало `workout_sessions`/`workout_sets`)
+
+**Оновлення з версії до GYM-28:** якщо в цих аркушах уже є програми
+клієнтів із часів, коли Sheets був основним сховищем, перенесіть їх у БД
+**один раз** скриптом (детальніше — крок 6.4 вище):
+
+```bash
+python scripts/import_workout_programs.py --dry-run   # перевірити
+python scripts/import_workout_programs.py              # імпортувати
+```
+
+## OpenAI (фото → БЖВ)
+
+Опційна фіча: користувач фотографує страву, бот оцінює її БЖВ і
+калорійність через OpenAI Vision. Без ключа кнопка «📷 Фото» в Mini App
+просто не показується — решта бота працює як звичайно.
+
+**Налаштування:**
+
+1. Створіть ключ на [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
+2. Додайте в `.env`:
+
+   ```env
+   OPENAI_API_KEY=sk-...
+   OPENAI_MODEL=gpt-4o-mini
+   ```
+
+**Вартість:** за замовчуванням — `gpt-4o-mini`, найдешевша модель з
+підтримкою vision, достатня для оцінки БЖВ; фото стискається на клієнті
+перед відправкою (довша сторона ≤ 1024 px), тож один запит — це, як
+правило, частки центу. Точна ціна залежить від поточних тарифів OpenAI
+(див. [openai.com/api/pricing](https://openai.com/api/pricing)) — при
+потребі точнішого/дорожчого розпізнавання підніміть `OPENAI_MODEL`
+(наприклад, до `gpt-4o`).
+
+**Приватність:** фото ніде не зберігається — ні на диску, ні в БД. Байти
+живуть у пам'яті процесу лише на час одного запиту `POST /api/nutrition
+/meal/photo`, надсилаються в OpenAI напряму (як base64 у запиті) і
+відкидаються одразу після відповіді.
 
 ## Troubleshooting
 
@@ -563,6 +699,12 @@ alembic upgrade head
 2. Перевірте що файл `credentials.json` існує
 3. Перевірте що API увімкнені у Google Cloud Console
 
+### Кнопка «📷 Фото» не показується / `photo_recognition_disabled`
+
+`OPENAI_API_KEY` не задано (або порожній) у `.env` — це очікувана
+поведінка, а не помилка: фіча просто вимкнена. Додайте ключ і
+перезапустіть бота (див. розділ [OpenAI](#openai-фото--бжв)).
+
 ## Оновлення проекту
 
 ```bash
@@ -582,9 +724,11 @@ python -m src.main
 
 ## Документація
 
-- [ALEMBIC_QUICKSTART.md](ALEMBIC_QUICKSTART.md) — Робота з міграціями
-- [MIGRATION_USERS_PROFILES.md](MIGRATION_USERS_PROFILES.md) — Історія розділення таблиць
-- [MIGRATION_TO_UUID.md](MIGRATION_TO_UUID.md) — Історія переходу на UUID
+- [docs/WEBAPP_STATISTICS_PLAN.md](docs/WEBAPP_STATISTICS_PLAN.md) — План фази 1 (статистика, Mini App)
+- [docs/WEBAPP_PHASE2_PLAN.md](docs/WEBAPP_PHASE2_PLAN.md) — План фази 2 (програми в БД, фото → БЖВ, групові нагадування)
+- [docs/ALEMBIC_QUICKSTART.md](docs/ALEMBIC_QUICKSTART.md) — Робота з міграціями
+- [docs/MIGRATION_USERS_PROFILES.md](docs/MIGRATION_USERS_PROFILES.md) — Історія розділення таблиць
+- [docs/MIGRATION_TO_UUID.md](docs/MIGRATION_TO_UUID.md) — Історія переходу на UUID
 - [alembic/README.md](alembic/README.md) — Повна документація Alembic
 
 ## Ліцензія

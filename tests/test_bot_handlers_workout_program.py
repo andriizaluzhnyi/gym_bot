@@ -286,3 +286,48 @@ class TestGetLastDayForMuscleUsesDb:
         keyboard = kwargs["reply_markup"]
         buttons = [b for row in keyboard.inline_keyboard for b in row]
         assert any(b.callback_data == "day:continue:3" for b in buttons)
+
+
+class TestProcessCommentNormalizesSetsReps:
+    """GYM-46: process_comment normalizes a parseable sets_reps value
+    (single or comma-separated blocks) before storing it, but leaves free
+    text that doesn't parse this way exactly as the user typed it.
+    """
+
+    async def _run(self, *, current_sets: str, current_reps: str = ""):
+        telegram_id = _unique_telegram_id()
+        state = make_fsm_context(user_id=telegram_id)
+        await state.update_data(
+            current_sets=current_sets,
+            current_reps=current_reps,
+            current_muscle_group="🏋️ Груди",
+            current_exercise="Жим лежачи",
+            day_number=1,
+            exercises=[],
+        )
+        message = make_message(
+            text="-", from_user=make_telegram_user(user_id=telegram_id)
+        )
+
+        await workout_program.process_comment(message, state)
+
+        data = await state.get_data()
+        return data["exercises"][-1]["sets_reps"]
+
+    async def test_untidy_combined_input_is_normalized(self):
+        stored = await self._run(current_sets="2/12,4x6")
+        assert stored == "2/12, 4/6"
+
+    async def test_already_canonical_input_is_unchanged(self):
+        stored = await self._run(current_sets="3/10")
+        assert stored == "3/10"
+
+    async def test_two_step_sets_then_reps_flow_still_combines(self):
+        # The keyboard-driven path: sets collected in one step, reps in
+        # the next, joined by `combine_sets_reps` before normalization.
+        stored = await self._run(current_sets="4", current_reps="8")
+        assert stored == "4/8"
+
+    async def test_unparsed_free_text_is_kept_as_is(self):
+        stored = await self._run(current_sets="до відмови")
+        assert stored == "до відмови"

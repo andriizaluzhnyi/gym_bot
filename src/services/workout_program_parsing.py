@@ -1,4 +1,4 @@
-"""Pure helpers for the workout-program `sets_reps` field (GYM-30).
+"""Pure helpers for the workout-program `sets_reps` field (GYM-30, GYM-46).
 
 Extracted from the bot's program-creation FSM
 (``src/bot/handlers/workout_program.py``: ``process_sets_text``,
@@ -6,6 +6,11 @@ Extracted from the bot's program-creation FSM
 by ``POST /api/workout/program/exercise`` — previously that rule only
 existed as inline control flow inside the bot handler, with no shared
 place a second caller could reuse. Behavior for the bot is unchanged.
+
+GYM-46 adds support for a *list* of "sets/reps" blocks separated by commas
+(e.g. ``"2/12, 4/6"`` — two warm-up sets of 12, then four working sets of
+6), via :func:`parse_sets_reps`/:func:`normalize_sets_reps`, and rebuilds
+:func:`is_valid_sets_reps` on top of them.
 """
 
 import re
@@ -18,16 +23,21 @@ import re
 # same list without the webapp importing from the bot package.
 MUSCLE_GROUPS = ["🦴 Спина", "💪 Руки", "🎯 Плечі", "🏋️ Груди", "🦵 Ноги"]
 
-# Combined "sets/reps" or "sets|reps" — e.g. "3/10", "4|8". Whitespace
-# around the separator is tolerated (a human might type "3 / 10").
-_COMBINED_RE = re.compile(r"^\d+\s*[/|]\s*\d+$")
+# ``WorkoutProgramExercise.sets_reps`` is a ``String(50)`` column
+# (``src/database/models.py``) — enforced here too so a too-long value is
+# rejected with a clear `400` instead of failing at the DB with a `500`.
+MAX_SETS_REPS_LENGTH = 50
+
+# One "sets/reps" block — e.g. "3/10", "4|8", "4x10", "4х10" (the last
+# with a Cyrillic "х", a common typo/IME artifact for the Latin "x" on a
+# Ukrainian keyboard). Whitespace around the separator is tolerated (a
+# human might type "3 / 10").
+_ELEMENT_RE = re.compile(r"^(\d+)\s*[/|xXхХ]\s*(\d+)$")
 # A bare number — e.g. "3" — matches what the bot's two-step flow allows:
-# sets entered alone (without "/" or "|"), then reps collected separately
-# and joined with `combine_sets_reps`. The *final* stored value from that
-# flow is never a bare number by itself (it's always joined with reps
-# first) — this pattern exists so `is_valid_sets_reps` still accepts a
-# lone number for a caller (like the webapp form) that only has a single
-# free-text field and wants to allow "just sets, no reps recorded".
+# sets entered alone (without a separator), then reps collected separately
+# and joined with `combine_sets_reps`. Only meaningful as the *sole*
+# element of a `parse_sets_reps` list — "3, 4/6" is not "3 sets (reps
+# unknown) then 4/6", it's rejected outright (see `parse_sets_reps`).
 _BARE_NUMBER_RE = re.compile(r"^\d+$")
 
 
@@ -55,15 +65,72 @@ def combine_sets_reps(sets: str, reps: str = "") -> str:
     return sets if not reps else f"{sets}/{reps}"
 
 
+def parse_sets_reps(value: str) -> list[tuple[int, int]] | None:
+    """Parse `value` into an ordered list of ``(sets, reps)`` pairs.
+
+    Accepts a comma-separated list of blocks, each ``N/M``, ``N|M``,
+    ``NxM`` or ``NхM`` (see :data:`_ELEMENT_RE`) — e.g. ``"2/12, 4/6"`` is
+    two blocks, ``[(2, 12), (4, 6)]``. A bare number (``"3"``, no
+    separator) is accepted **only** when it is the value's sole element —
+    ``"3, 4/6"`` is invalid, not "3 sets of unknown reps, then 4/6"; a
+    lone bare number parses as ``[(3, 0)]`` (``reps=0`` is this module's
+    convention for "sets recorded, reps not").
+
+    Returns ``None`` if the value is empty/blank, any block fails to
+    parse, or any parsed ``sets``/``reps`` is ``0`` (a block can't have
+    zero sets, and a non-bare block can't claim zero reps either).
+    """
+    if not value or not value.strip():
+        return None
+
+    parts = [p.strip() for p in value.split(",")]
+    if any(not p for p in parts):
+        return None
+
+    if len(parts) == 1 and _BARE_NUMBER_RE.match(parts[0]):
+        sets = int(parts[0])
+        return None if sets == 0 else [(sets, 0)]
+
+    result: list[tuple[int, int]] = []
+    for part in parts:
+        match = _ELEMENT_RE.match(part)
+        if not match:
+            return None
+        sets, reps = int(match.group(1)), int(match.group(2))
+        if sets == 0 or reps == 0:
+            return None
+        result.append((sets, reps))
+    return result
+
+
+def normalize_sets_reps(value: str) -> str | None:
+    """Canonical rendering of `value`, or ``None`` if it isn't a valid
+    ``sets_reps`` string (see :func:`parse_sets_reps`).
+
+    Each parsed block renders as ``"N/M"``; a lone bare-number block (no
+    reps recorded) renders as just ``"N"``, matching what
+    :func:`combine_sets_reps` has always stored for that case. Multiple
+    blocks join with ``", "`` (comma + space) regardless of how the
+    original separators/spacing looked — e.g. ``"2/12,4x6"`` normalizes to
+    ``"2/12, 4/6"``.
+    """
+    parsed = parse_sets_reps(value)
+    if parsed is None:
+        return None
+    return ", ".join(
+        str(sets) if reps == 0 else f"{sets}/{reps}" for sets, reps in parsed
+    )
+
+
 def is_valid_sets_reps(value: str) -> bool:
     """True if `value` is a format the workout-program flow accepts as a
-    final ``sets_reps``: combined "N/M" or "N|M" (:data:`_COMBINED_RE`),
-    or a bare number (:data:`_BARE_NUMBER_RE`).
+    final ``sets_reps`` — parses via :func:`parse_sets_reps` **and** fits
+    the ``sets_reps`` column once normalized (:data:`MAX_SETS_REPS_LENGTH`).
 
-    Used by ``POST /api/workout/program/exercise`` (GYM-30) to reject
+    Used by ``POST``/``PATCH /api/workout/program/exercise`` to reject
     obviously-malformed input from the webapp's free-text field — the bot
     FSM never needed this check because its keyboards constrain the input
     shape already; a webapp text field doesn't have that guardrail.
     """
-    value = value.strip()
-    return bool(_COMBINED_RE.match(value) or _BARE_NUMBER_RE.match(value))
+    normalized = normalize_sets_reps(value)
+    return normalized is not None and len(normalized) <= MAX_SETS_REPS_LENGTH

@@ -33,6 +33,7 @@ from src.services.google_sheets import GoogleSheetsService
 from src.services.workout_program_parsing import (
     combine_sets_reps,
     looks_like_combined_sets_reps,
+    normalize_sets_reps,
 )
 
 router = Router()
@@ -283,7 +284,8 @@ async def process_exercise_name(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"📅 *День {day_num}* | {muscle}\n"
         f"💪 Вправа: *{exercise_name}*\n\n"
-        "Оберіть кількість підходів або введіть вручну:",
+        "Оберіть кількість підходів або введіть вручну\n"
+        "(можна кілька блоків через кому, напр. `2/12, 4/6`):",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
@@ -431,6 +433,16 @@ async def process_comment(message: Message, state: FSMContext) -> None:
     # with POST /api/workout/program/exercise (GYM-30), see
     # src/services/workout_program_parsing.py.
     sets_reps = combine_sets_reps(sets, reps)
+
+    # GYM-46: normalize a recognizable "sets/reps" value (single or
+    # comma-separated blocks) to the canonical "N/M[, N/M...]" form, same
+    # as the webapp endpoint. Free text that doesn't parse this way (e.g.
+    # "до відмови") is left exactly as the user typed it — the bot's
+    # keyboards never required a structured value, and normalizing would
+    # silently discard what they wrote.
+    normalized = normalize_sets_reps(sets_reps)
+    if normalized is not None:
+        sets_reps = normalized
 
     # Create exercise record with combined sets_reps field
     exercise = {

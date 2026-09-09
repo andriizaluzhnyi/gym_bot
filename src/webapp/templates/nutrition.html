@@ -2192,6 +2192,21 @@
                     return; // stay on /nutrition — let them retry the photo
                 }
 
+                // GYM-43: daily recognition limit hit — a distinct message
+                // (not the generic "не вдалося розпізнати" below) since
+                // retrying the photo today won't help; still drop into the
+                // manual form so logging the meal isn't blocked.
+                if (response.status === 429) {
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+                    const limit = (result && result.limit) || 3;
+                    tg.showAlert(
+                        `Вичерпано денний ліміт фото-розпізнавань (${limit}). ` +
+                        'Спробуйте завтра або введіть страву вручну.'
+                    );
+                    window.location.href = '/meal-entry';
+                    return;
+                }
+
                 // 502/503 (recognition failed / feature disabled), or
                 // anything else unexpected: don't block the user on the
                 // AI — drop them straight into the manual form instead.

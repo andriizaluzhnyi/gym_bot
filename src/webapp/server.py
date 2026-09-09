@@ -13,6 +13,7 @@ from src.config import get_settings
 from src.database.repository import (
     DailyNutritionRepository,
     ExerciseRepository,
+    PhotoRecognitionLogRepository,
     ProfileRepository,
     UserAchievementRepository,
     UserRepository,
@@ -392,39 +393,76 @@ async def api_recognize_meal_photo(request: web.Request) -> web.Response:
     Body: multipart/form-data, one field `photo` (≤ 5 MB,
     image/jpeg|png|webp|heic).
     Expects Authorization header with Telegram initData.
+
+    GYM-43: capped at ``settings.openai_daily_photo_limit`` (default 5)
+    attempts per user per *local* calendar day (same boundary as
+    ``DailyNutrition``'s "today", GYM-21) — checked before any of the
+    validation below so a user who already hit it doesn't pay for a
+    multipart parse for nothing. The counter only advances for requests
+    that actually reach ``recognize_food`` (a real OpenAI call): a
+    ``400``/``413``/``503`` below never counts, but a ``422``/``502`` after
+    the call does, same as a ``200`` — the cost was already spent either
+    way.
     """
     if not settings.openai_api_key:
         return web.json_response(
             {'error': 'photo_recognition_disabled'}, status=503
         )
 
-    try:
-        image_bytes, mime, error_code = await _read_meal_photo_field(request)
-    except Exception as e:
-        logger.warning(f'Failed to read meal photo upload: {e}')
-        return web.json_response({'error': 'Invalid multipart body'}, status=400)
+    telegram_id = request[TELEGRAM_USER_KEY].get('id')
+    if not telegram_id:
+        return web.json_response({'error': 'Invalid user data'}, status=400)
 
-    if error_code == 'missing_photo':
-        return web.json_response(
-            {'error': "Missing required multipart field: photo"}, status=400
-        )
-    if error_code == 'too_large':
-        return web.json_response({'error': 'Photo exceeds 5MB limit'}, status=413)
+    async with async_session_maker() as session:
+        user = await UserRepository(session).get_by_telegram_id(telegram_id)
+        if not user:
+            return web.json_response({'error': 'User not found'}, status=404)
 
-    assert image_bytes is not None and mime is not None  # no error_code above fired
+        photo_log_repo = PhotoRecognitionLogRepository(session)
+        limit = settings.openai_daily_photo_limit
+        used = await photo_log_repo.count_for_local_day(user.id, settings.timezone)
+        if used >= limit:
+            _, reset_at = period_bounds_utc("day", settings.timezone)
+            assert reset_at is not None  # period="day" always returns bounds
+            return web.json_response({
+                'error': 'daily_photo_limit_exceeded',
+                'limit': limit,
+                'reset_at': reset_at.isoformat(),
+            }, status=429)
 
-    if mime not in _ALLOWED_MEAL_PHOTO_MIME_TYPES:
-        return web.json_response(
-            {'error': f'Unsupported photo type: {mime or "unknown"}'}, status=400
-        )
+        try:
+            image_bytes, mime, error_code = await _read_meal_photo_field(request)
+        except Exception as e:
+            logger.warning(f'Failed to read meal photo upload: {e}')
+            return web.json_response({'error': 'Invalid multipart body'}, status=400)
 
-    try:
-        estimate = await recognize_food(image_bytes, mime)
-    except NotFoodError:
-        return web.json_response({'error': 'not_food'}, status=422)
-    except FoodRecognitionError as e:
-        logger.warning(f'Food recognition failed: {e}')
-        return web.json_response({'error': 'recognition_failed'}, status=502)
+        if error_code == 'missing_photo':
+            return web.json_response(
+                {'error': "Missing required multipart field: photo"}, status=400
+            )
+        if error_code == 'too_large':
+            return web.json_response({'error': 'Photo exceeds 5MB limit'}, status=413)
+
+        assert image_bytes is not None and mime is not None  # no error_code above fired
+
+        if mime not in _ALLOWED_MEAL_PHOTO_MIME_TYPES:
+            return web.json_response(
+                {'error': f'Unsupported photo type: {mime or "unknown"}'}, status=400
+            )
+
+        # From here on, the request reaches recognize_food (an actual
+        # OpenAI call) no matter the outcome — log the attempt now so a
+        # failure/exception in recognize_food can't skip the count.
+        await photo_log_repo.create(user.id)
+        await session.commit()
+
+        try:
+            estimate = await recognize_food(image_bytes, mime)
+        except NotFoodError:
+            return web.json_response({'error': 'not_food'}, status=422)
+        except FoodRecognitionError as e:
+            logger.warning(f'Food recognition failed: {e}')
+            return web.json_response({'error': 'recognition_failed'}, status=502)
 
     return web.json_response({
         'success': True,

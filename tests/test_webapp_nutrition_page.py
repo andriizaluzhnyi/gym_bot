@@ -35,3 +35,15 @@ class TestNutritionPage:
             body = await response.text()
 
             assert 'https://telegram.org/js/telegram-web-app.js' in body
+
+    async def test_photo_flow_has_a_distinct_daily_limit_message(self):
+        """GYM-43: a 429 from POST /api/nutrition/meal/photo (daily
+        recognition limit) gets its own message, not the generic
+        "не вдалося розпізнати" shown for 502/503."""
+        app = create_webapp()
+        async with TestClient(TestServer(app)) as client:
+            response = await client.get('/nutrition')
+            body = await response.text()
+
+            assert "response.status === 429" in body
+            assert 'Вичерпано денний ліміт фото-розпізнавань' in body

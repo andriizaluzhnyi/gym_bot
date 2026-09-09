@@ -97,6 +97,7 @@ WEBAPP_PORT=8080
 # з'являється в Mini App, решта бота працює як звичайно)
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
+OPENAI_DAILY_PHOTO_LIMIT=5
 ```
 
 > `ADMIN_USER_ID` — лише **один** ID (тренер/адмін). Порожньо або 0 —
@@ -658,6 +659,7 @@ python scripts/import_workout_programs.py              # імпортувати
    ```env
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4o-mini
+   OPENAI_DAILY_PHOTO_LIMIT=5
    ```
 
 **Вартість:** за замовчуванням — `gpt-4o-mini`, найдешевша модель з
@@ -667,6 +669,13 @@ python scripts/import_workout_programs.py              # імпортувати
 (див. [openai.com/api/pricing](https://openai.com/api/pricing)) — при
 потребі точнішого/дорожчого розпізнавання підніміть `OPENAI_MODEL`
 (наприклад, до `gpt-4o`).
+
+**Денний ліміт (GYM-43):** `OPENAI_DAILY_PHOTO_LIMIT` (за замовчуванням
+`5`) обмежує кількість фото-розпізнавань на користувача на добу (за
+локальним часом користувача, `TIMEZONE`) — захист від несподіваного
+рахунку OpenAI. Понад ліміт `POST /api/nutrition/meal/photo` повертає
+`429 {"error": "daily_photo_limit_exceeded", "limit": 5, "reset_at": "..."}`
+замість запиту до OpenAI.
 
 **Приватність:** фото ніде не зберігається — ні на диску, ні в БД. Байти
 живуть у пам'яті процесу лише на час одного запиту `POST /api/nutrition

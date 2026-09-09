@@ -1,5 +1,6 @@
 """Web server for Telegram Mini App."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -32,6 +33,7 @@ from src.services.food_recognition import (
     recognize_food,
 )
 from src.services.personal_records import calculate_prs
+from src.services.rest_timer import should_send_rest_reminder
 from src.services.streak import calculate_streak
 from src.services.workout_program_parsing import MUSCLE_GROUPS, is_valid_sets_reps
 from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
@@ -69,6 +71,30 @@ def set_bot_username(username: str | None) -> None:
     """
     global _bot_username
     _bot_username = username
+
+
+# GYM-47: pending rest-timer reminder tasks, keyed by the *caller's*
+# Telegram id (not the workout's `user` — a trainer running a rest timer
+# for a client's session still gets their own reminder). One process, one
+# in-memory registry — the bot and this webapp share a process
+# (`get_bot_instance()`), so this is enough to cancel a still-pending
+# reminder from `POST /api/workout/log` or a manual stop
+# (`DELETE /api/workout/rest-timer`) without a persistent job queue. Lost
+# on process restart, which is fine: a lost reminder just doesn't fire —
+# no orphaned notification, nothing to reconcile on the way back up.
+_rest_timer_tasks: dict[int, asyncio.Task] = {}
+
+
+def _cancel_rest_timer(telegram_user_id: int) -> None:
+    """Cancel `telegram_user_id`'s pending rest-timer reminder, if any.
+
+    Used when a fresh timer replaces a still-waiting one for the same
+    user, when their workout is saved (`api_save_workout_log`), and by the
+    explicit manual-stop endpoint (`api_cancel_rest_timer`).
+    """
+    task = _rest_timer_tasks.pop(telegram_user_id, None)
+    if task is not None and not task.done():
+        task.cancel()
 
 
 def get_bot_username() -> str | None:
@@ -1681,6 +1707,16 @@ async def api_save_workout_log(request: web.Request) -> web.Response:
         owner_telegram_id = owner.telegram_id
         sync_to_sheets = owner.sync_workout_to_sheets
 
+    # (GYM-47) The workout is now durably saved in the DB — cancel any
+    # still-pending rest-timer reminder for the *caller* (not necessarily
+    # `owner`: a trainer may be saving on a client's behalf, but it's the
+    # caller's own device that started the timer and would receive the
+    # notification). Closes the common case where the last set's rest
+    # timer is still running when "Завершити тренування" is tapped.
+    caller_telegram_id = user_data.get('id')
+    if caller_telegram_id:
+        _cancel_rest_timer(caller_telegram_id)
+
     # Optional Sheets mirror, opt-in via settings. Never fails the request:
     # the workout is already durably saved in the DB above.
     synced_to_sheets = False
@@ -1733,7 +1769,17 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
     """API endpoint to start rest timer and send notification after 60 seconds.
 
     Expects Authorization header with Telegram initData.
-    Body: { duration_seconds: 60 }
+    Body: { duration_seconds: 60, session_id?, user?, day?, muscle? }
+
+    GYM-47: an optional ``session_id`` (the draft workout session this
+    timer belongs to, GYM-2c) lets the scheduled reminder check — right
+    before it would fire — whether that workout has since been completed
+    (see :func:`src.services.rest_timer.should_send_rest_reminder`) and
+    skip sending if so; omitted, the reminder still sends unconditionally
+    like before (older client, or no session to check against). Starting a
+    new timer also cancels this caller's previous still-pending one, if
+    any — the client only ever runs one at a time, so an old one left over
+    is stale.
     """
     init_data = request.headers.get('Authorization', '')
     user_data = validate_telegram_webapp_data(init_data)
@@ -1751,6 +1797,9 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
     workout_user = body.get('user', '')
     workout_day = body.get('day', '')
     workout_muscle = body.get('muscle', '')
+    session_id = body.get('session_id')
+    if not isinstance(session_id, int):
+        session_id = None
 
     if not telegram_user_id:
         return web.json_response(
@@ -1763,9 +1812,12 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
         f"day={workout_day}, muscle={workout_muscle}"
     )
 
+    # A fresh timer replaces whatever this caller's previous one was still
+    # waiting on (GYM-47).
+    _cancel_rest_timer(telegram_user_id)
+
     # Schedule notification using bot
     try:
-        import asyncio
         from aiogram.types import (
             InlineKeyboardMarkup,
             InlineKeyboardButton,
@@ -1781,6 +1833,18 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
         async def send_delayed_notification():
             await asyncio.sleep(duration_seconds)
             try:
+                if session_id is not None:
+                    async with async_session_maker() as check_session:
+                        workout_session = await WorkoutSessionRepository(
+                            check_session
+                        ).get_by_id(session_id)
+                    if not should_send_rest_reminder(workout_session):
+                        logger.debug(
+                            f'Rest timer reminder for session {session_id} '
+                            'skipped: workout already completed'
+                        )
+                        return
+
                 # Build WebApp URL with parameters (URL-encoded)
                 from urllib.parse import urlencode
 
@@ -1817,9 +1881,16 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
                 )
             except Exception as e:
                 logger.error(f'Failed to send rest timer notification: {e}')
+            finally:
+                # Self-cleanup (GYM-47): only remove this task's own
+                # registry entry — if a newer timer already replaced it
+                # (via `_cancel_rest_timer` above), leave that one alone.
+                if _rest_timer_tasks.get(telegram_user_id) is asyncio.current_task():
+                    _rest_timer_tasks.pop(telegram_user_id, None)
 
         # Start task in background
-        asyncio.create_task(send_delayed_notification())
+        task = asyncio.create_task(send_delayed_notification())
+        _rest_timer_tasks[telegram_user_id] = task
 
         return web.json_response({
             'success': True,
@@ -1831,6 +1902,22 @@ async def api_start_rest_timer(request: web.Request) -> web.Response:
         return web.json_response(
             {'error': 'Failed to schedule notification'}, status=500
         )
+
+
+@webapp_auth
+async def api_cancel_rest_timer(request: web.Request) -> web.Response:
+    """API endpoint (GYM-47) to cancel the caller's pending rest-timer
+    reminder — used when they tap the timer to stop it manually
+    (`workout.html`'s rest-timer click handler).
+
+    Idempotent: always `200`, whether or not a timer was actually pending
+    — "no timer running" is a normal outcome here, not an error.
+    Expects Authorization header with Telegram initData.
+    """
+    telegram_user_id = request[TELEGRAM_USER_KEY].get('id')
+    if telegram_user_id:
+        _cancel_rest_timer(telegram_user_id)
+    return web.json_response({'success': True})
 
 
 @webapp_auth
@@ -2324,6 +2411,7 @@ def create_webapp() -> web.Application:
     )
     app.router.add_post('/api/workout/log', api_save_workout_log)
     app.router.add_post('/api/workout/rest-timer', api_start_rest_timer)
+    app.router.add_delete('/api/workout/rest-timer', api_cancel_rest_timer)
     app.router.add_delete('/api/workout/day', api_delete_workout_day)
     app.router.add_delete('/api/workout/exercise', api_delete_exercise)
     app.router.add_get('/api/statistics/volume', api_get_volume_statistics)

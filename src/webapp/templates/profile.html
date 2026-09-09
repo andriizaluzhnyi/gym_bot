@@ -723,30 +723,71 @@
             document.getElementById('calculatedCard').style.display = 'none';
         }
 
+        // Денні цілі: калорії ↔ БЖВ. Fixed 30/25/45% (protein/fat/carbs)
+        // split used both by "Взяти розраховані" (GYM-26) and by the
+        // calories → БЖВ auto-recalculation below (GYM-42); 4/9/4 kcal per
+        // gram matches how the backend derives daily_calories from БЖВ
+        // (GYM-23's round(protein*4 + fats*9 + carbs*4)).
+        const MACRO_SPLIT = { protein: 0.30, fats: 0.25, carbs: 0.45 };
+        const caloriesInput = document.getElementById('caloriesInput');
+        const proteinInput = document.getElementById('proteinInput');
+        const fatsInput = document.getElementById('fatsInput');
+        const carbsInput = document.getElementById('carbsInput');
+
+        function applyCaloriesToMacros(calories) {
+            proteinInput.value = Math.round((calories * MACRO_SPLIT.protein) / 4);
+            fatsInput.value = Math.round((calories * MACRO_SPLIT.fats) / 9);
+            carbsInput.value = Math.round((calories * MACRO_SPLIT.carbs) / 4);
+        }
+
         // "Взяти розраховані" (GYM-26): copies the just-computed TDEE into
-        // "Калорії" and splits it into БЖВ at a fixed 30/25/45% (protein/
-        // fat/carbs) ratio, converted to grams (4/9/4 kcal per gram). Only
-        // fills the inputs — saving still goes through the normal
-        // MainButton flow, same as typing the numbers by hand.
+        // "Калорії" and splits it into БЖВ. Only fills the inputs — saving
+        // still goes through the normal MainButton flow, same as typing
+        // the numbers by hand.
         document.getElementById('useCalculatedBtn').addEventListener('click', () => {
             if (!lastComputedTdee) {
                 return;
             }
 
-            const calories = lastComputedTdee;
-            document.getElementById('caloriesInput').value = calories;
-            document.getElementById('proteinInput').value = Math.round((calories * 0.30) / 4);
-            document.getElementById('fatsInput').value = Math.round((calories * 0.25) / 9);
-            document.getElementById('carbsInput').value = Math.round((calories * 0.45) / 4);
+            caloriesInput.value = lastComputedTdee;
+            applyCaloriesToMacros(lastComputedTdee);
 
-            ['caloriesInput', 'proteinInput', 'fatsInput', 'carbsInput'].forEach(id => {
-                validateField(document.getElementById(id));
-            });
+            [caloriesInput, proteinInput, fatsInput, carbsInput].forEach(validateField);
             markChanged();
 
             if (tg.HapticFeedback) {
                 tg.HapticFeedback.notificationOccurred('success');
             }
+        });
+
+        // GYM-42: same recalculation, live — typing in "Калорії" redistributes
+        // БЖВ at the fixed split above; typing in any of the three БЖВ fields
+        // sums them back into "Калорії" (4/9/4 kcal/g). These run in addition
+        // to the generic `.form-input` listener above (which already marks
+        // the form changed, validates the field being typed into, and
+        // recomputes BMI/TDEE) — values here are set via `.value`, which
+        // doesn't fire its own 'input' event, so there's no feedback loop
+        // and no risk of a field fighting the user while they're typing it.
+        caloriesInput.addEventListener('input', () => {
+            const calories = parseFloat(caloriesInput.value);
+            if (!calories || calories <= 0) {
+                return;
+            }
+            applyCaloriesToMacros(calories);
+            [proteinInput, fatsInput, carbsInput].forEach(validateField);
+        });
+
+        [proteinInput, fatsInput, carbsInput].forEach((input) => {
+            input.addEventListener('input', () => {
+                const protein = parseFloat(proteinInput.value) || 0;
+                const fats = parseFloat(fatsInput.value) || 0;
+                const carbs = parseFloat(carbsInput.value) || 0;
+                if (!protein && !fats && !carbs) {
+                    return;
+                }
+                caloriesInput.value = Math.round(protein * 4 + fats * 9 + carbs * 4);
+                validateField(caloriesInput);
+            });
         });
 
         // Load user profile from API

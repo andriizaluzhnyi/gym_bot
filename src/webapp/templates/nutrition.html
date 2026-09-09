@@ -589,6 +589,232 @@
             white-space: nowrap;
         }
 
+        /* Program day card (GYM-44) — expandable, styled after
+           statistics.html's `.history-card*` ("Статистика → Історія").
+           Deliberately a separate class family, not a reuse of
+           `.workout-day-card*` above — that one still backs the
+           "Тренування сьогодні" card on the "Сьогодні" tab (GYM-40),
+           whose look this ticket doesn't touch. */
+        .program-day-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .program-day-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 16px 20px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .program-day-card-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .program-day-card-title-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+
+        .program-day-card-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .program-day-card-muscle {
+            flex-shrink: 0;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background-color: var(--card-border);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .program-day-card-summary {
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        .program-day-card-actions {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .program-day-card-add-btn {
+            border: none;
+            background-color: transparent;
+            color: var(--tg-theme-button-color, var(--accent-green));
+            font-size: 13px;
+            font-weight: 600;
+            padding: 4px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            white-space: nowrap;
+        }
+
+        .program-day-card-chevron {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            transition: transform 0.2s;
+        }
+
+        .program-day-card.expanded .program-day-card-chevron {
+            transform: rotate(180deg);
+        }
+
+        .program-day-card-arrow {
+            font-size: 18px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            padding: 2px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .program-day-card-details {
+            display: none;
+            padding: 0 20px 16px;
+            border-top: 1px solid var(--card-border);
+        }
+
+        .program-day-card.expanded .program-day-card-details {
+            display: block;
+            padding-top: 12px;
+        }
+
+        .program-day-section-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            margin: 12px 0 6px;
+        }
+
+        .program-day-section-title:first-child {
+            margin-top: 0;
+        }
+
+        .program-day-exercise {
+            margin-bottom: 14px;
+        }
+
+        .program-day-exercise:last-child {
+            margin-bottom: 0;
+        }
+
+        .program-day-exercise-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 2px;
+        }
+
+        .program-day-exercise-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--tg-theme-text-color, var(--text-primary));
+        }
+
+        .program-day-exercise-plan {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+        }
+
+        .program-day-exercise-comment {
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            font-style: italic;
+            margin-top: 2px;
+        }
+
+        .program-day-start-btn {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            padding: 12px 0;
+            border-radius: 12px;
+            border: none;
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* "ⓘ" exercise details modal (GYM-31, ported from workout.html
+           for GYM-44's expanded day details). */
+        .exercise-details-image {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+
+        .exercise-details-description {
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--tg-theme-text-color, var(--text-primary));
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+        }
+
+        .exercise-details-video-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background-color: var(--tg-theme-button-color, var(--accent-green));
+            color: var(--tg-theme-button-text-color, #000);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .exercise-details-empty {
+            text-align: center;
+            padding: 20px;
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+        }
+
+        /* Details icon (GYM-31, ported from workout.html) */
+        .details-icon-btn {
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            border-radius: 50%;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            color: var(--tg-theme-hint-color, var(--text-secondary));
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .details-icon-btn:active {
+            opacity: 0.7;
+        }
+
         /* Add day / add exercise modal (GYM-30) */
         .modal-overlay {
             position: fixed;
@@ -1517,6 +1743,290 @@
             });
         });
 
+        // GYM-44: day numbers currently expanded in #workoutDaysList —
+        // survives a loadWorkoutPrograms() refresh (e.g. after "➕ Вправа"
+        // adds a row) so an open card doesn't collapse under the user;
+        // resets on page reload, same as "Історія"'s cards on /statistics
+        // (no persistence intended).
+        const expandedProgramDays = new Set();
+
+        /**
+         * Parse sets/reps string into groups — same rule as
+         * src/services/workout_program_parsing.py's `parse_sets_reps`
+         * (GYM-46) and workout.html's identical copy of this function;
+         * duplicated here rather than shared, since these server-rendered
+         * templates have no JS module system. Uses `SETS_REPS_ELEMENT_RE`,
+         * declared further down alongside `isValidSetsReps` (GYM-46) —
+         * safe to reference here since this function only ever runs after
+         * the whole script has finished its first top-to-bottom pass.
+         */
+        function parseSetsReps(setsReps) {
+            if (!setsReps) return [{ reps: 0, count: 1 }];
+            const parts = setsReps.trim().split(',').map(s => s.trim()).filter(Boolean);
+            const result = [];
+
+            for (const part of parts) {
+                const match = part.match(SETS_REPS_ELEMENT_RE);
+                if (match) {
+                    const count = parseInt(match[1], 10);
+                    const reps = parseInt(match[2], 10);
+                    if (!isNaN(count) && !isNaN(reps)) {
+                        result.push({ reps, count });
+                    }
+                } else if (/^\d+$/.test(part)) {
+                    result.push({ reps: 0, count: parseInt(part, 10) });
+                }
+            }
+
+            return result.length === 0 ? [{ reps: 0, count: 1 }] : result;
+        }
+
+        /**
+         * Total sets across a day's exercises, from each row's
+         * `sets_reps` — a row whose value doesn't validate (see
+         * `isValidSetsReps`) isn't counted at all, rather than falling
+         * back to `parseSetsReps`'s 1-set placeholder (that fallback
+         * exists for *display*, not for a count meant to be accurate).
+         */
+        function countTotalSets(exerciseList) {
+            return exerciseList.reduce((sum, ex) => {
+                if (!isValidSetsReps(ex.sets_reps)) return sum;
+                const parsed = parseSetsReps(ex.sets_reps);
+                return sum + parsed.reduce((s, group) => s + group.count, 0);
+            }, 0);
+        }
+
+        /**
+         * Groups a day's flat exercise list into per-muscle-group
+         * sections, in first-seen (`position`) order — same grouping rule
+         * as workout.html's `groupExercisesByMuscleGroup` (GYM-41), minus
+         * that version's flat-index bookkeeping: nothing here addresses
+         * an exercise by index (no delete/reorder on this card), so each
+         * group just holds the exercise objects themselves.
+         */
+        function groupExercisesByMuscleGroup(exerciseList) {
+            const groups = [];
+            const sectionIndexByGroup = new Map();
+            exerciseList.forEach(ex => {
+                const key = ex.muscle_group || '';
+                if (!sectionIndexByGroup.has(key)) {
+                    sectionIndexByGroup.set(key, groups.length);
+                    groups.push({ muscleGroup: key, items: [] });
+                }
+                groups[sectionIndexByGroup.get(key)].items.push(ex);
+            });
+            return groups;
+        }
+
+        function navigateToWorkoutDay(day) {
+            const user = tg.initDataUnsafe?.user;
+            if (!user) {
+                tg.showAlert('Помилка: не вдалося отримати дані користувача');
+                return;
+            }
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+            const userName = user.username || user.first_name;
+            // No `?muscle=` filter (GYM-41) — a day can span several
+            // muscle groups (GYM-30); /workout groups the full day into
+            // per-muscle sections itself.
+            window.location.href = `/workout?user=${encodeURIComponent(userName)}&day=${day}`;
+        }
+
+        // Expanded details for one day's card (GYM-44): muscle-group
+        // sections (header shown only when a day spans more than one,
+        // same condition as workout.html's showListView, GYM-41), each
+        // exercise's name (+ "ⓘ" when it has catalog details), plan, and
+        // comment, plus a "🏋️ Почати тренування" button at the bottom.
+        function renderProgramDayDetails(exerciseList) {
+            const groups = groupExercisesByMuscleGroup(exerciseList);
+            const showSectionHeaders = groups.length > 1;
+            let html = '';
+
+            groups.forEach(group => {
+                if (showSectionHeaders) {
+                    html += `<div class="program-day-section-title">${group.muscleGroup || 'Без групи'}</div>`;
+                }
+                group.items.forEach(ex => {
+                    html += `
+                        <div class="program-day-exercise">
+                            <div class="program-day-exercise-header">
+                                <span class="program-day-exercise-name">${ex.exercise}</span>
+                                ${ex.has_details ? `<button type="button" class="details-icon-btn" onclick="showExerciseDetails(event, ${ex.exercise_id})">ⓘ</button>` : ''}
+                            </div>
+                            <div class="program-day-exercise-plan">${ex.sets_reps || ''}</div>
+                            ${ex.comment ? `<div class="program-day-exercise-comment">${ex.comment}</div>` : ''}
+                        </div>
+                    `;
+                });
+            });
+
+            html += `<button type="button" class="program-day-start-btn">🏋️ Почати тренування</button>`;
+            return html;
+        }
+
+        // One day's expandable card (GYM-44), styled after "Історія"'s
+        // session cards on /statistics. Tapping the header toggles
+        // expand/collapse; the arrow and "➕ Вправа" are separate
+        // click targets within it (stopPropagation) so they act
+        // immediately instead of also toggling the card.
+        function renderProgramDayCard(day, exerciseList) {
+            const card = document.createElement('div');
+            card.className = 'program-day-card';
+            if (expandedProgramDays.has(day)) card.classList.add('expanded');
+
+            const muscleGroups = [...new Set(exerciseList.map(ex => ex.muscle_group).filter(Boolean))];
+            const badgesHtml = muscleGroups
+                .map(g => `<span class="program-day-card-muscle">${g}</span>`)
+                .join('');
+            const totalSets = countTotalSets(exerciseList);
+
+            const header = document.createElement('div');
+            header.className = 'program-day-card-header';
+            header.innerHTML = `
+                <div class="program-day-card-main">
+                    <div class="program-day-card-title-row">
+                        <span class="program-day-card-title">День ${day}</span>
+                        ${badgesHtml}
+                    </div>
+                    <div class="program-day-card-summary">${exerciseList.length} вправ · ${totalSets} підходів</div>
+                </div>
+                <div class="program-day-card-actions">
+                    <button type="button" class="program-day-card-add-btn">➕ Вправа</button>
+                    <span class="program-day-card-chevron">▾</span>
+                    <span class="program-day-card-arrow">→</span>
+                </div>
+            `;
+
+            header.addEventListener('click', () => {
+                const expanding = !card.classList.contains('expanded');
+                card.classList.toggle('expanded', expanding);
+                if (expanding) {
+                    expandedProgramDays.add(day);
+                } else {
+                    expandedProgramDays.delete(day);
+                }
+                if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+            });
+            header.querySelector('.program-day-card-add-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+                onAddExercise(day);
+            });
+            header.querySelector('.program-day-card-arrow').addEventListener('click', (e) => {
+                e.stopPropagation();
+                navigateToWorkoutDay(day);
+            });
+
+            const details = document.createElement('div');
+            details.className = 'program-day-card-details';
+            details.innerHTML = renderProgramDayDetails(exerciseList);
+            const startBtn = details.querySelector('.program-day-start-btn');
+            if (startBtn) {
+                startBtn.addEventListener('click', () => navigateToWorkoutDay(day));
+            }
+
+            card.appendChild(header);
+            card.appendChild(details);
+            return card;
+        }
+
+        async function fetchWorkoutProgram(userName) {
+            const response = await fetch(`/api/workout/program?user=${encodeURIComponent(userName)}`, {
+                headers: { 'Authorization': tg.initData }
+            });
+            if (!response.ok) {
+                throw new Error(`Failed to load programs: HTTP ${response.status}`);
+            }
+            const result = await response.json();
+            return (result.success && result.data && result.data.exercises) || [];
+        }
+
+        // "ⓘ" exercise details (GYM-31/GYM-44, ported from workout.html):
+        // GET /api/exercises/{id} — image, description, and a "▶️ Відео"
+        // button that hands the URL to tg.openLink rather than embedding
+        // it (Instagram/YouTube/TikTok often block embedding inside the
+        // WebView, so an external browser/app open is the reliable
+        // option here). Called from inline `onclick` in
+        // renderProgramDayDetails(), so it stays a global function.
+        async function showExerciseDetails(event, exerciseId) {
+            if (event) event.stopPropagation();
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
+            const container = document.getElementById('modalContainer');
+            container.innerHTML = `
+                <div class="modal-overlay" id="modalOverlay">
+                    <div class="modal-content">
+                        <div class="modal-title">Про вправу</div>
+                        <div class="exercise-details-empty">Завантаження...</div>
+                        <div class="modal-buttons">
+                            <button class="modal-btn modal-btn-cancel" id="modalCancel">Закрити</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            function close() {
+                container.innerHTML = '';
+            }
+            document.getElementById('modalCancel').addEventListener('click', close);
+            document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) close();
+            });
+
+            try {
+                const response = await fetch(`/api/exercises/${exerciseId}`, {
+                    headers: { 'Authorization': tg.initData },
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    container.innerHTML = '';
+                    tg.showAlert(result.error || 'Не вдалося завантажити інформацію про вправу');
+                    return;
+                }
+
+                const details = result.data;
+                let bodyHtml = '';
+                if (details.image_url) {
+                    bodyHtml += `<img class="exercise-details-image" src="${details.image_url}" loading="lazy" alt="${details.name}">`;
+                }
+                if (details.description) {
+                    bodyHtml += `<div class="exercise-details-description">${details.description}</div>`;
+                }
+                if (details.video_url) {
+                    bodyHtml += `<button type="button" class="exercise-details-video-btn" id="openVideoBtn">▶️ Відео</button>`;
+                }
+                if (!details.image_url && !details.description && !details.video_url) {
+                    bodyHtml = `<div class="exercise-details-empty">Опис ще не додано</div>`;
+                }
+
+                container.innerHTML = `
+                    <div class="modal-overlay" id="modalOverlay">
+                        <div class="modal-content">
+                            <div class="modal-title">${details.name}</div>
+                            ${bodyHtml}
+                            <div class="modal-buttons">
+                                <button class="modal-btn modal-btn-cancel" id="modalCancel">Закрити</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('modalCancel').addEventListener('click', close);
+                document.getElementById('modalOverlay').addEventListener('click', (e) => {
+                    if (e.target === e.currentTarget) close();
+                });
+                const videoBtn = document.getElementById('openVideoBtn');
+                if (videoBtn) {
+                    videoBtn.addEventListener('click', () => {
+                        tg.openLink(details.video_url);
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load exercise details:', err);
+                container.innerHTML = '';
+                tg.showAlert('Помилка мережі. Спробуйте ще раз.');
+            }
+        }
+
         // Load workout programs
         async function loadWorkoutPrograms() {
             try {
@@ -1528,92 +2038,32 @@
                 }
 
                 const userName = user.username || user.first_name;
-                console.log('Loading workout programs for user:', userName);
+                const exercises = await fetchWorkoutProgram(userName);
 
-                // Load all programs without day filter to get all days
-                const response = await fetch(`/api/workout/program?user=${encodeURIComponent(userName)}`, {
-                    headers: { 'Authorization': tg.initData }
+                // Group by day (`day` comes back as a string from the API).
+                const dayGroups = {};
+                exercises.forEach(ex => {
+                    const day = ex.day || '1';
+                    if (!dayGroups[day]) {
+                        dayGroups[day] = [];
+                    }
+                    dayGroups[day].push(ex);
                 });
 
-                if (!response.ok) {
-                    console.error('API response not ok:', response.status);
-                    throw new Error('Failed to load programs');
-                }
-
-                const result = await response.json();
-                console.log('API result:', result);
-
-                // Group by day
-                const dayGroups = {};
-                if (result.success && result.data && result.data.exercises) {
-                    result.data.exercises.forEach(ex => {
-                        const day = ex.day || '1';
-                        if (!dayGroups[day]) {
-                            dayGroups[day] = [];
-                        }
-                        dayGroups[day].push(ex);
-                    });
-                }
-
-                console.log('Day groups:', dayGroups);
-
-                // Get all unique days and sort them
-                const days = Object.keys(dayGroups).map(d => parseInt(d)).sort((a, b) => a - b);
+                const days = Object.keys(dayGroups).map(d => parseInt(d, 10)).sort((a, b) => a - b);
                 currentWorkoutDays = days;
 
+                const workoutDaysList = document.getElementById('workoutDaysList');
                 if (days.length === 0) {
-                    console.log('No days found');
-                    const workoutDaysList = document.getElementById('workoutDaysList');
                     workoutDaysList.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-muted);">Немає програм тренувань</div>';
                     return;
                 }
 
-                const workoutDaysList = document.getElementById('workoutDaysList');
                 workoutDaysList.innerHTML = '';
-
                 days.forEach(day => {
-                    const exercises = dayGroups[day.toString()] || [];
-                    const muscleGroups = [...new Set(exercises.map(ex => ex.muscle_group).filter(Boolean))];
-                    const muscleGroupsText = muscleGroups.length > 0 ? muscleGroups.join(', ') : 'Немає вправ';
-
-                    const card = document.createElement('div');
-                    card.className = 'workout-day-card';
-                    card.innerHTML = `
-                        <div class="workout-day-info">
-                            <div class="workout-day-title">День ${day}</div>
-                            <div class="workout-day-subtitle">${muscleGroupsText}</div>
-                        </div>
-                        <button type="button" class="workout-day-add-exercise-btn" data-day="${day}">➕ Вправа</button>
-                        <div class="workout-day-arrow">→</div>
-                    `;
-
-                    card.addEventListener('click', () => {
-                        if (tg.HapticFeedback) {
-                            tg.HapticFeedback.impactOccurred('medium');
-                        }
-
-                        // Navigate to the whole day (GYM-41) — no ?muscle=
-                        // filter. A day can span several muscle groups
-                        // (GYM-30); passing only muscleGroups[0] used to
-                        // hide the rest of the day on /workout. That page
-                        // now groups the full day into per-muscle sections
-                        // itself instead of relying on a server-side filter.
-                        window.location.href = `/workout?user=${encodeURIComponent(userName)}&day=${day}`;
-                    });
-
-                    // "➕ Вправа" (GYM-30) — stop the click from bubbling up
-                    // to the card's own navigate-away handler above.
-                    const addExerciseBtn = card.querySelector('.workout-day-add-exercise-btn');
-                    addExerciseBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-                        onAddExercise(day);
-                    });
-
-                    workoutDaysList.appendChild(card);
+                    const exerciseList = dayGroups[day.toString()] || [];
+                    workoutDaysList.appendChild(renderProgramDayCard(day, exerciseList));
                 });
-
-                console.log('Created', days.length, 'workout day cards');
             } catch (error) {
                 console.error('Failed to load workout programs:', error);
                 tg.showAlert('Помилка завантаження програм тренувань');

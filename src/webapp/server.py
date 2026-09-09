@@ -1244,6 +1244,7 @@ async def api_add_program_exercise(request: web.Request) -> web.Response:
             row.exercise_id
         )
         response_row = {
+            'id': row.id,
             'day': str(row.day),
             'muscle_group': row.muscle_group,
             'exercise': row.exercise_name,

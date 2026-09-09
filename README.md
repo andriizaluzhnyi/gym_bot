@@ -480,6 +480,7 @@ gym_bot/
 ├── docs/                        # Плани реалізації фіч + допоміжна документація
 │   ├── WEBAPP_STATISTICS_PLAN.md    # План фази 1 (статистика, Mini App)
 │   ├── WEBAPP_PHASE2_PLAN.md        # План фази 2 (програми в БД, фото → БЖВ, групові нагадування)
+│   ├── WEBAPP_PHASE3_PLAN.md        # План фази 3 (картка дня, редагування програми, кілька схем підходів, таймер)
 │   ├── ALEMBIC_QUICKSTART.md        # Швидкий старт з Alembic
 │   ├── MIGRATION_USERS_PROFILES.md  # Історія розділення таблиць
 │   └── MIGRATION_TO_UUID.md         # Історія переходу на UUID
@@ -735,6 +736,7 @@ python -m src.main
 
 - [docs/WEBAPP_STATISTICS_PLAN.md](docs/WEBAPP_STATISTICS_PLAN.md) — План фази 1 (статистика, Mini App)
 - [docs/WEBAPP_PHASE2_PLAN.md](docs/WEBAPP_PHASE2_PLAN.md) — План фази 2 (програми в БД, фото → БЖВ, групові нагадування)
+- [docs/WEBAPP_PHASE3_PLAN.md](docs/WEBAPP_PHASE3_PLAN.md) — План фази 3 (картка дня, редагування програми, кілька схем підходів, тихий таймер відпочинку)
 - [docs/ALEMBIC_QUICKSTART.md](docs/ALEMBIC_QUICKSTART.md) — Робота з міграціями
 - [docs/MIGRATION_USERS_PROFILES.md](docs/MIGRATION_USERS_PROFILES.md) — Історія розділення таблиць
 - [docs/MIGRATION_TO_UUID.md](docs/MIGRATION_TO_UUID.md) — Історія переходу на UUID

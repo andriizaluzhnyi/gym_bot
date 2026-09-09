@@ -378,7 +378,7 @@ web: python -m src.main
 
 ## Команди бота
 
-При запущеному `WEBAPP_URL` бот виставляє глобальну chat-menu-кнопку `📱`
+При запущеному `WEBAPP_URL` бот виставляє глобальну chat-menu-кнопку `🌐`
 (відкриває `/nutrition`) і реєструє список команд через `set_my_commands`
 (`src/bot/bot.py: configure_bot_commands`) — обидва виконуються один раз
 при старті, а не на кожен `/start`.

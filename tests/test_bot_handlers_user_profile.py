@@ -33,7 +33,7 @@ class TestProfileSettingsKeyboard:
 
         goals_btn, webapp_btn = (row[0] for row in keyboard.inline_keyboard)
         assert goals_btn.text == "🎯 Цілі харчування"
-        assert webapp_btn.text == "📱 Відкрити щоденник"
+        assert webapp_btn.text == "🌐 Відкрити щоденник"
         assert webapp_btn.web_app.url == "https://example.com/nutrition"
         assert webapp_btn.callback_data is None
 

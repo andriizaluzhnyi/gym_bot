@@ -27,5 +27,5 @@ class TestCmdNutrition:
         assert "Харчування" in text
         keyboard = kwargs["reply_markup"]
         button = keyboard.inline_keyboard[0][0]
-        assert button.text == "📱 Відкрити щоденник"
+        assert button.text == "🌐 Відкрити щоденник"
         assert button.web_app.url == "https://example.com/nutrition"

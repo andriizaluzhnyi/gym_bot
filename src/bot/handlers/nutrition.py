@@ -33,7 +33,7 @@ async def cmd_nutrition(message: Message) -> None:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text='📱 Відкрити щоденник',
+                    text='🌐 Відкрити щоденник',
                     web_app=WebAppInfo(url=f'{webapp_url}/nutrition')
                 )
             ]

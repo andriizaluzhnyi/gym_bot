@@ -51,13 +51,13 @@ def get_profile_settings_keyboard() -> InlineKeyboardMarkup:
     if settings.webapp_url:
         buttons.append([
             InlineKeyboardButton(
-                text="📱 Відкрити щоденник",
+                text="🌐 Відкрити щоденник",
                 web_app=WebAppInfo(url=f"{settings.webapp_url}/nutrition"),
             )
         ])
     else:
         buttons.append([
-            InlineKeyboardButton(text="📱 Відкрити щоденник", callback_data="profile:open_webapp")
+            InlineKeyboardButton(text="🌐 Відкрити щоденник", callback_data="profile:open_webapp")
         ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

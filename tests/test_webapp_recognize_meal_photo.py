@@ -9,15 +9,16 @@ itself is mocked; its own OpenAI-calling behavior is covered by
 `tests/test_food_recognition.py`.
 """
 
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from src.database.models import Base, DailyNutrition
-from src.database.repository import UserRepository
+from src.database.models import Base, DailyNutrition, PhotoRecognitionLog
+from src.database.repository import PhotoRecognitionLogRepository, UserRepository
 from src.database.session import async_session_maker, engine
 from src.services.food_recognition import FoodEstimate, FoodRecognitionError, NotFoodError
 from src.webapp.server import create_webapp, settings
@@ -252,3 +253,194 @@ class TestRecognitionOutcomes:
         async with async_session_maker() as session:
             result = await session.execute(select(DailyNutrition))
             assert result.scalars().all() == []
+
+
+class TestDailyLimit:
+    """GYM-43: `settings.openai_daily_photo_limit` recognition attempts
+    per user per local calendar day. Reads the limit off `settings`
+    rather than hardcoding it, so these stay correct whatever the
+    configured default is (currently 5).
+    """
+
+    LIMIT = settings.openai_daily_photo_limit
+
+    async def test_up_to_the_limit_is_accepted(self, client):
+        await _make_user()
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ):
+            for _ in range(self.LIMIT):
+                resp = await client.post(
+                    "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+                )
+                assert resp.status == 200
+
+    async def test_one_past_the_limit_returns_429(self, client):
+        await _make_user()
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ):
+            for _ in range(self.LIMIT):
+                resp = await client.post(
+                    "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+                )
+                assert resp.status == 200
+
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+
+        assert resp.status == 429
+        payload = await resp.json()
+        assert payload["error"] == "daily_photo_limit_exceeded"
+        assert payload["limit"] == self.LIMIT
+        assert "reset_at" in payload
+
+    async def test_over_the_limit_never_calls_openai(self, client):
+        await _make_user()
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ) as mock_recognize:
+            for _ in range(self.LIMIT):
+                await client.post(
+                    "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+                )
+            mock_recognize.reset_mock()
+
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+            assert resp.status == 429
+            mock_recognize.assert_not_awaited()
+
+    async def test_limit_is_per_user(self, client):
+        """A second user's attempts don't count against the first's."""
+        await _make_user(telegram_id=1)
+        await _make_user(telegram_id=2)
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ):
+            for _ in range(self.LIMIT):
+                resp = await client.post(
+                    "/api/nutrition/meal/photo",
+                    data=_photo_form(), headers=_auth_headers(telegram_id=1),
+                )
+                assert resp.status == 200
+
+            resp = await client.post(
+                "/api/nutrition/meal/photo",
+                data=_photo_form(), headers=_auth_headers(telegram_id=2),
+            )
+            assert resp.status == 200
+
+    async def test_failed_recognition_attempts_still_count(self, client):
+        """AC: a 422 ("not food") or 502 (recognition failure) still
+        reached the actual OpenAI call, so it counts the same as a 200."""
+        await _make_user()
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, side_effect=NotFoodError("no food here"),
+        ):
+            for _ in range(self.LIMIT):
+                resp = await client.post(
+                    "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+                )
+                assert resp.status == 422
+
+        resp = await client.post(
+            "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+        )
+        assert resp.status == 429
+
+    async def test_rejected_uploads_do_not_count(self, client):
+        """AC: 400/413 before recognize_food don't spend the daily
+        allowance."""
+        await _make_user()
+        oversized = b"x" * (5 * 1024 * 1024 + 1)
+
+        for _ in range(self.LIMIT + 2):
+            resp = await client.post(
+                "/api/nutrition/meal/photo",
+                data=_photo_form(content=oversized),
+                headers=_auth_headers(),
+            )
+            assert resp.status == 413
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ):
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+        assert resp.status == 200
+
+    async def test_disabled_feature_check_does_not_count(self, client, monkeypatch):
+        """AC: the 503 "feature disabled" short-circuit (checked before
+        the daily-limit check) never touches the counter."""
+        await _make_user()
+        monkeypatch.setattr(settings, "openai_api_key", "")
+
+        for _ in range(self.LIMIT + 2):
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+            assert resp.status == 503
+
+        monkeypatch.setattr(settings, "openai_api_key", "test-key")
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ):
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+        assert resp.status == 200
+
+    async def test_resets_on_a_new_local_day(self, client, monkeypatch):
+        """The counter is scoped to the local calendar day
+        (`settings.timezone`, same boundary as GYM-21's "today"), not a
+        rolling 24h window."""
+        monkeypatch.setattr(settings, "timezone", "Europe/Kyiv")
+        user = await _make_user()
+
+        # Enough attempts to exhaust the limit.
+        async with async_session_maker() as session:
+            repo = PhotoRecognitionLogRepository(session)
+            for _ in range(self.LIMIT):
+                await repo.create(user.id)
+            await session.commit()
+
+        with patch(
+            "src.webapp.server.recognize_food",
+            new_callable=AsyncMock, return_value=VALID_ESTIMATE,
+        ):
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+            assert resp.status == 429
+
+            # A fresh local day (period_bounds_utc is anchored on real
+            # "now" inside the handler, so simulate it by moving the
+            # logged attempts far enough into the past instead).
+            async with async_session_maker() as session:
+                await session.execute(
+                    update(PhotoRecognitionLog).values(
+                        created_at=datetime(2020, 1, 1, 0, 0, 0)
+                    )
+                )
+                await session.commit()
+
+            resp = await client.post(
+                "/api/nutrition/meal/photo", data=_photo_form(), headers=_auth_headers()
+            )
+            assert resp.status == 200

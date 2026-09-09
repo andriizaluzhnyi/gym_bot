@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # OpenAI (photo -> macros recognition, GYM-23)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    # GYM-43: per-user daily cap on POST /api/nutrition/meal/photo calls
+    # that actually reach OpenAI, to bound cost/abuse risk without a
+    # code deploy if it needs tuning.
+    openai_daily_photo_limit: int = 5
 
     @property
     def admin_user_ids(self) -> list[int]:

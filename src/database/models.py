@@ -305,6 +305,35 @@ class DailyNutrition(Base):
         )
 
 
+class PhotoRecognitionLog(Base):
+    """One row per meal-photo recognition attempt that actually reached
+    OpenAI (GYM-43) — counted regardless of outcome (success, "not food",
+    or a recognition failure), since the OpenAI request itself already
+    happened either way. Used only to enforce
+    ``settings.openai_daily_photo_limit`` in
+    ``api_recognize_meal_photo``; unrelated to ``DailyNutrition`` — a
+    photo's *result* is a draft the user reviews and saves separately
+    (GYM-21/24), never derived from this log, and this log is never shown
+    to the user.
+    """
+
+    __tablename__ = "photo_recognition_log"
+
+    id: Mapped[int] = mapped_column(                        # noqa: A003
+        Integer, primary_key=True, autoincrement=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<PhotoRecognitionLog(id={self.id}, "
+            f"user_id={self.user_id}, created_at={self.created_at})>"
+        )
+
+
 class WorkoutSession(Base):
     """A single workout session (one visit to the gym).
 

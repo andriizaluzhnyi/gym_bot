@@ -14,6 +14,7 @@ from src.database.models import (
     Exercise,
     GroupChat,
     NutritionEntryType,
+    PhotoRecognitionLog,
     Profile,
     Training,
     User,
@@ -832,6 +833,48 @@ class DailyNutritionRepository:
             bucket['water_ml'] += record.water_ml or 0
 
         return totals
+
+
+class PhotoRecognitionLogRepository:
+    """Repository for ``PhotoRecognitionLog`` (GYM-43) — one row per
+    meal-photo recognition attempt that reached OpenAI, used only to
+    enforce ``settings.openai_daily_photo_limit`` in
+    ``api_recognize_meal_photo``.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def count_for_local_day(
+        self, user_id: uuid.UUID, tz_name: str, *, now_utc: datetime | None = None
+    ) -> int:
+        """How many recognition attempts ``user_id`` has made on the
+        current *local calendar day* (same local-day boundary as
+        ``DailyNutritionRepository.get_today_total``, GYM-21) — the count
+        the daily limit is checked against.
+        """
+        from sqlalchemy import func
+
+        start, end = period_bounds_utc("day", tz_name, now_utc=now_utc)
+
+        result = await self.session.execute(
+            select(func.count(PhotoRecognitionLog.id)).where(
+                and_(
+                    PhotoRecognitionLog.user_id == user_id,
+                    PhotoRecognitionLog.created_at >= start,
+                    PhotoRecognitionLog.created_at < end,
+                )
+            )
+        )
+        return result.scalar_one()
+
+    async def create(self, user_id: uuid.UUID) -> PhotoRecognitionLog:
+        """Record one recognition attempt (called right before the actual
+        OpenAI request, regardless of what it ends up returning)."""
+        record = PhotoRecognitionLog(user_id=user_id)
+        self.session.add(record)
+        await self.session.flush()
+        return record
 
 
 class WorkoutSessionRepository:

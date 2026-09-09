@@ -1628,6 +1628,30 @@
         const MUSCLE_GROUPS = ['🦴 Спина', '💪 Руки', '🎯 Плечі', '🏋️ Груди', '🦵 Ноги'];
         const SETS_REPS_CHIPS = ['3/10', '3/12', '3/15', '4/8', '4/10', '4/12', '4/15', '5/5', '5/10'];
 
+        // GYM-46: client-side mirror of `is_valid_sets_reps`
+        // (src/services/workout_program_parsing.py) — same rule as
+        // workout.html's copy, duplicated here since these server-rendered
+        // templates have no shared JS module. Accepts "N/M", "N|M", "NxM"/
+        // "NхM" (Cyrillic х), or several such blocks joined by commas
+        // (e.g. "2/12, 4/6"); a bare number is valid only alone.
+        const SETS_REPS_ELEMENT_RE = /^(\d+)\s*[/|xXхХ]\s*(\d+)$/;
+
+        function isValidSetsReps(value) {
+            if (!value) return false;
+            const parts = value.trim().split(',').map(s => s.trim());
+            if (parts.some(p => p === '')) return false;
+
+            if (parts.length === 1 && /^\d+$/.test(parts[0])) {
+                return parseInt(parts[0], 10) > 0;
+            }
+
+            return parts.every(part => {
+                const match = part.match(SETS_REPS_ELEMENT_RE);
+                if (!match) return false;
+                return parseInt(match[1], 10) > 0 && parseInt(match[2], 10) > 0;
+            });
+        }
+
         function showAddExerciseModal(day, onConfirm) {
             const container = document.getElementById('modalContainer');
 
@@ -1656,7 +1680,7 @@
                                 ${SETS_REPS_CHIPS.map(c => `<button type="button" class="chip" data-value="${c}">${c}</button>`).join('')}
                             </div>
                             <input type="text" class="form-text-input" id="setsRepsInput"
-                                   placeholder="або введіть вручну, напр. 3/10" style="margin-top:8px;">
+                                   placeholder="або введіть вручну, напр. 3/10 чи 2/12, 4/6" style="margin-top:8px;">
                         </div>
 
                         <div class="form-field">
@@ -1784,6 +1808,11 @@
                 }
                 if (!setsReps) {
                     errorBox.textContent = 'Вкажіть підходи/повторення';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                if (!isValidSetsReps(setsReps)) {
+                    errorBox.textContent = 'Невірний формат. Приклад: 3/10 або 2/12, 4/6';
                     errorBox.style.display = 'block';
                     return;
                 }

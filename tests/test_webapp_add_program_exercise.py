@@ -159,6 +159,32 @@ class TestApiAddProgramExerciseAuthAndValidation:
         response = await api_add_program_exercise(request)
         assert response.status == 200
 
+    async def test_bare_number_mixed_with_a_combined_block_returns_400(self):
+        # GYM-46: a bare number is only meaningful as the sole block —
+        # "3, 4/6" isn't "3 sets (reps unknown), then 4/6".
+        await _make_user("lifter", telegram_id=1)
+        request = _mock_request(
+            "POST", "/api/workout/program/exercise", telegram_id=1,
+            body={**VALID_BODY, "sets_reps": "3, 4/6"},
+        )
+        response = await api_add_program_exercise(request)
+        assert response.status == 400
+
+    async def test_sets_reps_too_long_returns_400_with_length_message(self):
+        # GYM-46: normalizes to 68 chars, over the 50-char column limit —
+        # a distinct message from the generic "invalid format" one.
+        await _make_user("lifter", telegram_id=1)
+        too_long = ", ".join(["11/11"] * 10)
+        request = _mock_request(
+            "POST", "/api/workout/program/exercise", telegram_id=1,
+            body={**VALID_BODY, "sets_reps": too_long},
+        )
+        response = await api_add_program_exercise(request)
+        payload = json.loads(response.body)
+
+        assert response.status == 400
+        assert "too long" in payload["error"]
+
     async def test_non_admin_requesting_another_user_gets_403(self):
         await _make_user("lifter", telegram_id=1)
         await _make_user("trainer", telegram_id=999)
@@ -193,6 +219,20 @@ class TestApiAddProgramExercise:
             "exercise_id": payload["data"]["exercise_id"],
             "has_details": False,
         }
+
+    async def test_untidy_multi_block_sets_reps_is_stored_normalized(self):
+        # GYM-46: "2/12,4x6" (no spaces, "x" separator) is stored as the
+        # canonical "2/12, 4/6".
+        await _make_user("lifter", telegram_id=1)
+        request = _mock_request(
+            "POST", "/api/workout/program/exercise", telegram_id=1,
+            body={**VALID_BODY, "sets_reps": "2/12,4x6"},
+        )
+        response = await api_add_program_exercise(request)
+        payload = json.loads(response.body)
+
+        assert response.status == 200
+        assert payload["data"]["sets_reps"] == "2/12, 4/6"
 
     async def test_appends_after_existing_exercises_in_the_day(self):
         user = await _make_user("lifter", telegram_id=1)

@@ -35,7 +35,11 @@ from src.services.food_recognition import (
 from src.services.personal_records import calculate_prs
 from src.services.rest_timer import should_send_rest_reminder
 from src.services.streak import calculate_streak
-from src.services.workout_program_parsing import MUSCLE_GROUPS, is_valid_sets_reps
+from src.services.workout_program_parsing import (
+    MAX_SETS_REPS_LENGTH,
+    MUSCLE_GROUPS,
+    normalize_sets_reps,
+)
 from src.utils.datetime_utils import period_bounds_utc, to_local_date, utcnow
 from src.webapp.auth import TELEGRAM_USER_KEY, validate_telegram_webapp_data, webapp_auth
 
@@ -1158,9 +1162,11 @@ async def api_add_program_exercise(request: web.Request) -> web.Response:
     program-creation FSM (``src/bot/handlers/workout_program.py``).
 
     Body: ``{user?, day, muscle_group, exercise, sets_reps, comment?}``.
-    ``sets_reps`` is validated with the same rule the bot FSM uses
-    (:func:`src.services.workout_program_parsing.is_valid_sets_reps`),
-    ``muscle_group`` must be one of ``MUSCLE_GROUPS``. DB is the primary
+    ``sets_reps`` (GYM-46: one block "N/M" or a comma-separated list of
+    several, e.g. "2/12, 4/6") is parsed and stored **normalized** — see
+    :func:`src.services.workout_program_parsing.normalize_sets_reps`, the
+    same rule the bot FSM's ``process_comment`` uses. ``muscle_group``
+    must be one of ``MUSCLE_GROUPS``. DB is the primary
     store (GYM-28); the addition is also mirrored to Sheets — non-
     critically, logged on failure only — when the owner has
     ``sync_workout_to_sheets`` enabled, same convention as
@@ -1178,7 +1184,7 @@ async def api_add_program_exercise(request: web.Request) -> web.Response:
     day_raw = body.get('day')
     muscle_group = (body.get('muscle_group') or '').strip()
     exercise_name = (body.get('exercise') or '').strip()
-    sets_reps = (body.get('sets_reps') or '').strip()
+    sets_reps_raw = (body.get('sets_reps') or '').strip()
     comment = (body.get('comment') or '').strip()
     param_user = body.get('user') or None
 
@@ -1194,9 +1200,24 @@ async def api_add_program_exercise(request: web.Request) -> web.Response:
         return web.json_response(
             {'error': 'Missing required field: exercise'}, status=400
         )
-    if not sets_reps or not is_valid_sets_reps(sets_reps):
+
+    # GYM-46: normalize (and, along the way, validate) `sets_reps` —
+    # `None` covers both "missing" and "doesn't parse", kept as one `400`
+    # like before this ticket; a value that parses but is too long for the
+    # `sets_reps` column gets its own message instead of a `500` from the
+    # DB truncating/rejecting it.
+    sets_reps = normalize_sets_reps(sets_reps_raw) if sets_reps_raw else None
+    if sets_reps is None:
         return web.json_response(
             {'error': 'Missing or invalid required field: sets_reps'}, status=400
+        )
+    if len(sets_reps) > MAX_SETS_REPS_LENGTH:
+        return web.json_response(
+            {
+                'error': 'Field sets_reps is too long '
+                         f'(max {MAX_SETS_REPS_LENGTH} characters)'
+            },
+            status=400,
         )
 
     item = {

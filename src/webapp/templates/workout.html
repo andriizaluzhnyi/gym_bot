@@ -267,6 +267,14 @@
             margin-bottom: 4px;
         }
 
+        .exercise-plan-breakdown {
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, var(--text-muted));
+            opacity: 0.8;
+            margin-top: -2px;
+            margin-bottom: 8px;
+        }
+
         .exercise-comment {
             font-size: 13px;
             color: var(--tg-theme-hint-color, var(--text-muted));
@@ -1266,7 +1274,7 @@
                                 ${SETS_REPS_CHIPS.map(c => `<button type="button" class="chip" data-value="${c}">${c}</button>`).join('')}
                             </div>
                             <input type="text" class="add-exercise-text-input" id="setsRepsInput"
-                                   placeholder="або введіть вручну, напр. 3/10" style="margin-top:8px;">
+                                   placeholder="або введіть вручну, напр. 3/10 чи 2/12, 4/6" style="margin-top:8px;">
                         </div>
 
                         <div class="add-exercise-field">
@@ -1395,6 +1403,11 @@
                 }
                 if (!setsReps) {
                     errorBox.textContent = 'Вкажіть підходи/повторення';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+                if (!isValidSetsReps(setsReps)) {
+                    errorBox.textContent = 'Невірний формат. Приклад: 3/10 або 2/12, 4/6';
                     errorBox.style.display = 'block';
                     return;
                 }
@@ -1775,34 +1788,89 @@
         // --- Parsing ---
 
         /**
-         * Parse sets/reps string into groups.
-         * Formats:
-         *   "4/20"       -> 4 sets of 20 reps (sets/reps)
+         * Parse sets/reps string into groups. Mirrors
+         * src/services/workout_program_parsing.py's `parse_sets_reps`
+         * (GYM-46) so a value the backend accepts always parses here too:
+         *   "4/20"       -> 4 sets of 20 reps ("/" or "|" or "x"/"х")
          *   "4x10"       -> 4 sets of 10 reps
-         *   "1x20, 4x12" -> 1 set of 20 + 4 sets of 12
+         *   "2/12, 4/6"  -> 2 sets of 12 + 4 sets of 6
+         *   "5"          -> 5 sets, reps unknown (bare number — only
+         *                   meaningful alone, not mixed with other blocks)
+         * Unlike the backend, an unparseable value here falls back to a
+         * single placeholder group rather than being rejected — this
+         * function only ever reads an already-saved `sets_reps`, never
+         * validates one (see `isValidSetsReps` for that).
          */
+        const SETS_REPS_ELEMENT_RE = /^(\d+)\s*[/|xXхХ]\s*(\d+)$/;
+
         function parseSetsReps(setsReps) {
             if (!setsReps) return [{ reps: 0, count: 1 }];
-            const trimmed = setsReps.trim();
-            const parts = trimmed.split(',').map(s => s.trim());
+            const parts = setsReps.trim().split(',').map(s => s.trim()).filter(Boolean);
             const result = [];
 
             for (const part of parts) {
-                if (part.includes('x')) {
-                    const [count, reps] = part.split('x').map(Number);
+                const match = part.match(SETS_REPS_ELEMENT_RE);
+                if (match) {
+                    const count = parseInt(match[1], 10);
+                    const reps = parseInt(match[2], 10);
                     if (!isNaN(count) && !isNaN(reps)) {
                         result.push({ reps, count });
                     }
-                } else if (part.includes('/')) {
-                    // Format: sets/reps (e.g. "4/20" = 4 sets of 20 reps)
-                    const [sets, reps] = part.split('/').map(Number);
-                    if (!isNaN(sets) && !isNaN(reps)) {
-                        result.push({ reps, count: sets });
-                    }
+                } else if (/^\d+$/.test(part)) {
+                    // Bare sets, no reps recorded.
+                    result.push({ reps: 0, count: parseInt(part, 10) });
                 }
             }
 
             return result.length === 0 ? [{ reps: 0, count: 1 }] : result;
+        }
+
+        /**
+         * Client-side mirror of `is_valid_sets_reps`
+         * (src/services/workout_program_parsing.py, GYM-46) — used by the
+         * add/edit-exercise form so an obviously-malformed value gets a
+         * message immediately instead of a round trip to the server for a
+         * `400`. Doesn't replicate the server's length cap on the
+         * normalized value — that edge case is rare enough to just let
+         * the server catch it.
+         */
+        function isValidSetsReps(value) {
+            if (!value) return false;
+            const parts = value.trim().split(',').map(s => s.trim());
+            if (parts.some(p => p === '')) return false;
+
+            if (parts.length === 1 && /^\d+$/.test(parts[0])) {
+                return parseInt(parts[0], 10) > 0;
+            }
+
+            return parts.every(part => {
+                const match = part.match(SETS_REPS_ELEMENT_RE);
+                if (!match) return false;
+                return parseInt(match[1], 10) > 0 && parseInt(match[2], 10) > 0;
+            });
+        }
+
+        /**
+         * Human-readable per-block breakdown for the detail view (GYM-46)
+         * — e.g. "2/12, 4/6" -> "Підходи 1–2: 12 повт · 3–6: 6 повт".
+         * Returns '' when there's only one block (or the value doesn't
+         * parse into more than one) — `ex.sets_reps` itself already says
+         * everything there is to say in that case.
+         */
+        function formatSetsRepsBreakdown(setsReps) {
+            const parsed = parseSetsReps(setsReps);
+            if (parsed.length <= 1) return '';
+
+            const segments = [];
+            let setIndex = 1;
+            parsed.forEach((group, i) => {
+                const from = setIndex;
+                const to = setIndex + group.count - 1;
+                const range = from === to ? `${from}` : `${from}–${to}`;
+                segments.push(`${i === 0 ? 'Підходи ' : ''}${range}: ${group.reps} повт`);
+                setIndex = to + 1;
+            });
+            return segments.join(' · ');
         }
 
         /**
@@ -2060,6 +2128,10 @@
                 ${ex.has_details ? `<button type="button" class="details-icon-btn" onclick="showExerciseDetails(event, ${ex.exercise_id})">ⓘ</button>` : ''}
             </div>`;
             html += `<div class="exercise-plan">${ex.sets_reps || ''}</div>`;
+            const setsRepsBreakdown = formatSetsRepsBreakdown(ex.sets_reps);
+            if (setsRepsBreakdown) {
+                html += `<div class="exercise-plan-breakdown">${setsRepsBreakdown}</div>`;
+            }
             if (ex.comment) {
                 html += `<div class="exercise-comment">${ex.comment}</div>`;
             } else {

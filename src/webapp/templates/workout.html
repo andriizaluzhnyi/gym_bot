@@ -1695,6 +1695,9 @@
                         user: PARAM_USER,
                         day: PARAM_DAY,
                         muscle: PARAM_MUSCLE,
+                        // GYM-47: lets the server skip the reminder if this
+                        // workout gets completed before it fires.
+                        session_id: currentSessionId,
                     }),
                 });
 
@@ -1704,6 +1707,19 @@
             } catch (error) {
                 console.log('Error scheduling notification:', error);
             }
+        }
+
+        // GYM-47: best-effort cancel of the pending server-side reminder
+        // when the user stops the rest timer manually (tap on the timer)
+        // — doesn't block the UI, "Час відпочинку закінчився!" for a timer
+        // the user already dismissed is the failure mode this closes.
+        function cancelRestTimerNotification() {
+            fetch('/api/workout/rest-timer', {
+                method: 'DELETE',
+                headers: { 'Authorization': tg.initData },
+            }).catch((error) => {
+                console.log('Failed to cancel rest timer notification:', error);
+            });
         }
 
         function playRestTimerSound() {
@@ -2534,6 +2550,7 @@
                     restTimerInterval = null;
                     this.classList.remove('rest-timer-active');
                     restNotificationScheduled = false;
+                    cancelRestTimerNotification();
                     if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
                 }
                 // Show modal to select new timer duration

@@ -235,13 +235,15 @@ class TestGetProgram:
             assert row["exercise"] == "Жим лежачи"
             assert row["sets_reps"] == "3/10"
             assert row["comment"] == ""
-            # GYM-31: exercise_id/has_details are additive — same Sheets-
-            # compatible core keys, plus these two for the details icon.
+            # GYM-31/GYM-44: exercise_id/has_details/id are additive — same
+            # Sheets-compatible core keys, plus these for the details icon
+            # and (id) precise addressing of this row.
             assert set(row.keys()) == {
-                "day", "muscle_group", "exercise", "sets_reps", "comment",
-                "created_at", "exercise_id", "has_details",
+                "id", "day", "muscle_group", "exercise", "sets_reps",
+                "comment", "created_at", "exercise_id", "has_details",
             }
             assert row["has_details"] is False
+            assert isinstance(row["id"], int)
 
     async def test_has_details_true_when_catalog_entry_has_any_media_field(self):
         async with async_session_maker() as session:

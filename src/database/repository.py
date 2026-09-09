@@ -1458,7 +1458,10 @@ class WorkoutProgramRepository:
         ``exercise_id`` and ``has_details`` (GYM-31: True if the catalog
         entry has a ``description``/``image_url``/``video_url``) so
         ``workout.html`` can show/hide its "ⓘ" details icon without a
-        separate request per exercise.
+        separate request per exercise, and ``id`` — the row's own primary
+        key (GYM-44/45: not derivable from the Sheets-compatible fields
+        above, needed once a client wants to address *this* row precisely,
+        e.g. to edit or delete it without matching by name).
 
         Filtering by ``day``/``muscle`` moves into SQL here, instead of
         the Python-side filtering ``api_get_workout_program`` currently
@@ -1482,6 +1485,7 @@ class WorkoutProgramRepository:
 
         return [
             {
+                "id": row.id,
                 "day": str(row.day),
                 "muscle_group": row.muscle_group,
                 "exercise": row.exercise_name,

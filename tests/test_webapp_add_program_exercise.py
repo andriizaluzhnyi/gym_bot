@@ -208,6 +208,8 @@ class TestApiAddProgramExercise:
 
         assert response.status == 200
         assert payload["data"] == {
+            # GYM-44: id, same shape GET /api/workout/program returns.
+            "id": payload["data"]["id"],
             "day": "1",
             "muscle_group": "🏋️ Груди",
             "exercise": "Жим лежачи",
@@ -219,6 +221,7 @@ class TestApiAddProgramExercise:
             "exercise_id": payload["data"]["exercise_id"],
             "has_details": False,
         }
+        assert isinstance(payload["data"]["id"], int)
 
     async def test_untidy_multi_block_sets_reps_is_stored_normalized(self):
         # GYM-46: "2/12,4x6" (no spaces, "x" separator) is stored as the

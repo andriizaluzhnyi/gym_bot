@@ -82,6 +82,8 @@ class TestApiGetWorkoutProgram:
 
         assert response.status == 200
         assert payload["data"]["exercises"] == [{
+            # GYM-44: id, the row's own primary key.
+            "id": payload["data"]["exercises"][0]["id"],
             "day": "1",
             "muscle_group": "🏋️ Груди",
             "exercise": "Жим лежачи",
@@ -92,6 +94,7 @@ class TestApiGetWorkoutProgram:
             "exercise_id": payload["data"]["exercises"][0]["exercise_id"],
             "has_details": False,
         }]
+        assert isinstance(payload["data"]["exercises"][0]["id"], int)
 
     async def test_empty_program_returns_empty_list(self):
         await _make_user("lifter", telegram_id=1)

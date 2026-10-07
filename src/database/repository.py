@@ -1615,6 +1615,12 @@ class WorkoutProgramRepository:
 
 # Reminder types GroupChat.mark_sent() accepts — maps each to the
 # corresponding "last sent" date column (GYM-32/34).
+_GROUP_CHAT_TIME_FIELD_BY_TYPE = {
+    "nutrition": "nutrition_time",
+    "measurements": "measurements_time",
+    "photos": "photos_time",
+}
+
 _GROUP_CHAT_SENT_FIELD_BY_TYPE = {
     "nutrition": "last_nutrition_sent_at",
     "measurements": "last_measurements_sent_at",
@@ -1723,6 +1729,23 @@ class GroupChatRepository:
         if photos_time is not None:
             group.photos_time = photos_time
 
+        return group
+
+    async def set_times(
+        self, chat_id: int, reminder_type: str, times: str
+    ) -> GroupChat | None:
+        """Set one reminder type's comma-separated ``"HH:MM"`` slot list
+        (see :mod:`src.utils.reminder_times`). Returns ``None`` if no
+        ``GroupChat`` exists for ``chat_id``.
+        """
+        if reminder_type not in _GROUP_CHAT_TIME_FIELD_BY_TYPE:
+            raise ValueError(f"Unknown reminder_type: {reminder_type!r}")
+
+        group = await self.get_by_chat_id(chat_id)
+        if group is None:
+            return None
+
+        setattr(group, _GROUP_CHAT_TIME_FIELD_BY_TYPE[reminder_type], times)
         return group
 
     async def mark_sent(

@@ -268,9 +268,7 @@ async def process_reminders_times_input(message: Message, state: FSMContext) -> 
             )
             return
 
-        await repo.update_settings(
-            message.chat.id, **{_TIME_FIELD_BY_TYPE[reminder_type]: join_times(merged)}
-        )
+        await repo.set_times(message.chat.id, reminder_type, join_times(merged))
         await _skip_past_slots(repo, message.chat.id, reminder_type)
         await session.commit()
         group = await repo.get_by_chat_id(message.chat.id)
@@ -393,9 +391,7 @@ async def process_reminders_callback(callback: CallbackQuery) -> None:
                     new_times = [t for t in current if t != time_str]
                     submenu_type = reminder_type
 
-                await repo.update_settings(
-                    chat.id, **{_TIME_FIELD_BY_TYPE[reminder_type]: join_times(new_times)}
-                )
+                await repo.set_times(chat.id, reminder_type, join_times(new_times))
                 await _skip_past_slots(repo, chat.id, reminder_type)
 
             elif action == "setweekday":

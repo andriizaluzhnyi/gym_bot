@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Статистика</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        // Light/dark switch for the CSS above: follows Telegram's own
+        // colorScheme and updates live when the user changes it.
+        (function () {
+            var tg = window.Telegram && window.Telegram.WebApp;
+            function applyTheme() {
+                var scheme = tg && tg.colorScheme === 'light' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', scheme);
+            }
+            applyTheme();
+            if (tg && tg.onEvent) tg.onEvent('themeChanged', applyTheme);
+        })();
+    </script>
     <!-- Vendored, not loaded from a CDN — see GYM-17 in
          docs/WEBAPP_STATISTICS_PLAN.md for why. -->
     <script src="/static/chart.umd.min.js"></script>
@@ -26,6 +39,35 @@
             --accent-light: rgba(94, 156, 255, 0.1);
             --accent-green: #4ade80;
             --input-bg: #111111;
+            --surface: #2a2a2a;
+            --chip-bg: #2a2a2a;
+            --hover-bg: rgba(255, 255, 255, 0.05);
+            --chart-grid: rgba(255, 255, 255, 0.08);
+            --tooltip-bg: #1a1a1a;
+            --tooltip-border: #2a2a2a;
+            --tooltip-text: #ffffff;
+        }
+
+        /* Light theme (Telegram colorScheme === 'light', set as
+           html[data-theme] by the inline script in <head>). The dark
+           values above stay the default; only the surfaces/text that
+           don't come from --tg-theme-* need light counterparts. */
+        html[data-theme="light"] {
+            --bg-color: #ffffff;
+            --card-bg: var(--tg-theme-secondary-bg-color, #efeff4);
+            --card-border: #d1d1d6;
+            --surface: #ffffff;
+            --chip-bg: var(--tg-theme-secondary-bg-color, #efeff4);
+            --text-primary: #000000;
+            --text-secondary: #6d6d72;
+            --text-muted: #8e8e93;
+            --input-bg: #ffffff;
+            --hover-bg: rgba(0, 0, 0, 0.05);
+            --accent-green: #16a34a;
+            --chart-grid: rgba(0, 0, 0, 0.08);
+            --tooltip-bg: #ffffff;
+            --tooltip-border: #d1d1d6;
+            --tooltip-text: #000000;
         }
 
         body {
@@ -269,7 +311,7 @@
         .muscle-bar-track {
             height: 10px;
             border-radius: 5px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             overflow: hidden;
         }
 
@@ -334,7 +376,7 @@
             font-size: 11px;
             padding: 2px 8px;
             border-radius: 10px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
@@ -423,7 +465,7 @@
             font-size: 11px;
             padding: 2px 8px;
             border-radius: 10px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
@@ -822,6 +864,13 @@
     </nav>
 
     <script>
+        // Theme-aware chart colours, read from the page's CSS variables so
+        // charts match the light/dark theme (see html[data-theme]).
+        function cssVar(name, fallback) {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            return v || fallback;
+        }
+
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
@@ -1042,11 +1091,11 @@
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: '#1a1a1a',
-                            borderColor: '#2a2a2a',
+                            backgroundColor: cssVar('--tooltip-bg', '#1a1a1a'),
+                            borderColor: cssVar('--tooltip-border', '#2a2a2a'),
                             borderWidth: 1,
-                            titleColor: '#ffffff',
-                            bodyColor: '#ffffff',
+                            titleColor: cssVar('--tooltip-text', '#ffffff'),
+                            bodyColor: cssVar('--tooltip-text', '#ffffff'),
                             displayColors: false,
                             padding: 10,
                             callbacks: {
@@ -1061,7 +1110,7 @@
                         },
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            grid: { color: cssVar('--chart-grid', 'rgba(255, 255, 255, 0.08)') },
                             ticks: { color: hint, font: { size: 11 } },
                         },
                     },
@@ -1269,7 +1318,7 @@
                         borderWidth: 2,
                         pointRadius: 4,
                         pointBackgroundColor: accent,
-                        pointBorderColor: '#1a1a1a',
+                        pointBorderColor: cssVar('--tooltip-bg', '#1a1a1a'),
                         pointBorderWidth: 2,
                         tension: 0.15,
                     }],
@@ -1280,11 +1329,11 @@
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: '#1a1a1a',
-                            borderColor: '#2a2a2a',
+                            backgroundColor: cssVar('--tooltip-bg', '#1a1a1a'),
+                            borderColor: cssVar('--tooltip-border', '#2a2a2a'),
                             borderWidth: 1,
-                            titleColor: '#ffffff',
-                            bodyColor: '#ffffff',
+                            titleColor: cssVar('--tooltip-text', '#ffffff'),
+                            bodyColor: cssVar('--tooltip-text', '#ffffff'),
                             displayColors: false,
                             padding: 10,
                             callbacks: {
@@ -1299,7 +1348,7 @@
                         },
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            grid: { color: cssVar('--chart-grid', 'rgba(255, 255, 255, 0.08)') },
                             ticks: { color: hint, font: { size: 11 } },
                         },
                     },

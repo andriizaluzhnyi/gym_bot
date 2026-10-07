@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Профіль</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        // Light/dark switch for the CSS above: follows Telegram's own
+        // colorScheme and updates live when the user changes it.
+        (function () {
+            var tg = window.Telegram && window.Telegram.WebApp;
+            function applyTheme() {
+                var scheme = tg && tg.colorScheme === 'light' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', scheme);
+            }
+            applyTheme();
+            if (tg && tg.onEvent) tg.onEvent('themeChanged', applyTheme);
+        })();
+    </script>
     <style>
         * {
             margin: 0;
@@ -21,6 +34,35 @@
             --text-muted: #666666;
             --accent-green: #4ade80;
             --accent-red: #ef4444;
+            --surface: #2a2a2a;
+            --chip-bg: #2a2a2a;
+            --hover-bg: rgba(255, 255, 255, 0.05);
+            --chart-grid: rgba(255, 255, 255, 0.08);
+            --tooltip-bg: #1a1a1a;
+            --tooltip-border: #2a2a2a;
+            --tooltip-text: #ffffff;
+        }
+
+        /* Light theme (Telegram colorScheme === 'light', set as
+           html[data-theme] by the inline script in <head>). The dark
+           values above stay the default; only the surfaces/text that
+           don't come from --tg-theme-* need light counterparts. */
+        html[data-theme="light"] {
+            --bg-color: #ffffff;
+            --card-bg: var(--tg-theme-secondary-bg-color, #efeff4);
+            --card-border: #d1d1d6;
+            --surface: #ffffff;
+            --chip-bg: var(--tg-theme-secondary-bg-color, #efeff4);
+            --text-primary: #000000;
+            --text-secondary: #6d6d72;
+            --text-muted: #8e8e93;
+            --input-bg: #ffffff;
+            --hover-bg: rgba(0, 0, 0, 0.05);
+            --accent-green: #16a34a;
+            --chart-grid: rgba(0, 0, 0, 0.08);
+            --tooltip-bg: #ffffff;
+            --tooltip-border: #d1d1d6;
+            --tooltip-text: #000000;
         }
 
         body {
@@ -114,7 +156,7 @@
         .form-input {
             width: 100%;
             padding: 12px 16px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             border: 1px solid var(--card-border);
             border-radius: 12px;
             color: var(--tg-theme-text-color, var(--text-primary));
@@ -150,7 +192,7 @@
         .gender-btn {
             flex: 1;
             padding: 12px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             border: 2px solid var(--card-border);
             border-radius: 12px;
             color: var(--tg-theme-text-color, var(--text-primary));
@@ -193,7 +235,7 @@
             width: 100%;
             margin-top: 16px;
             padding: 12px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             border: none;
             border-radius: 12px;
             color: var(--tg-theme-text-color, var(--text-primary));

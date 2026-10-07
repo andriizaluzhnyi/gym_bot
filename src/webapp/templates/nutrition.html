@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>БЖУ Монітор</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        // Light/dark switch for the CSS above: follows Telegram's own
+        // colorScheme and updates live when the user changes it.
+        (function () {
+            var tg = window.Telegram && window.Telegram.WebApp;
+            function applyTheme() {
+                var scheme = tg && tg.colorScheme === 'light' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', scheme);
+            }
+            applyTheme();
+            if (tg && tg.onEvent) tg.onEvent('themeChanged', applyTheme);
+        })();
+    </script>
     <!-- Vendored, not loaded from a CDN — see GYM-17 in
          docs/WEBAPP_STATISTICS_PLAN.md for why. -->
     <script src="/static/chart.umd.min.js"></script>
@@ -23,6 +36,35 @@
             --text-secondary: #888888;
             --text-muted: #666666;
             --accent-green: #4ade80;
+            --surface: #2a2a2a;
+            --chip-bg: #2a2a2a;
+            --hover-bg: rgba(255, 255, 255, 0.05);
+            --chart-grid: rgba(255, 255, 255, 0.08);
+            --tooltip-bg: #1a1a1a;
+            --tooltip-border: #2a2a2a;
+            --tooltip-text: #ffffff;
+        }
+
+        /* Light theme (Telegram colorScheme === 'light', set as
+           html[data-theme] by the inline script in <head>). The dark
+           values above stay the default; only the surfaces/text that
+           don't come from --tg-theme-* need light counterparts. */
+        html[data-theme="light"] {
+            --bg-color: #ffffff;
+            --card-bg: var(--tg-theme-secondary-bg-color, #efeff4);
+            --card-border: #d1d1d6;
+            --surface: #ffffff;
+            --chip-bg: var(--tg-theme-secondary-bg-color, #efeff4);
+            --text-primary: #000000;
+            --text-secondary: #6d6d72;
+            --text-muted: #8e8e93;
+            --input-bg: #ffffff;
+            --hover-bg: rgba(0, 0, 0, 0.05);
+            --accent-green: #16a34a;
+            --chart-grid: rgba(0, 0, 0, 0.08);
+            --tooltip-bg: #ffffff;
+            --tooltip-border: #d1d1d6;
+            --tooltip-text: #000000;
         }
 
         body {
@@ -293,7 +335,7 @@
         .water-progress-bar {
             width: 100%;
             height: 8px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             border-radius: 4px;
             overflow: hidden;
             margin-bottom: 16px;
@@ -318,7 +360,7 @@
         }
 
         .water-btn {
-            background-color: var(--card-border);
+            background-color: var(--surface);
             border: none;
             border-radius: 20px;
             padding: 10px 16px;
@@ -331,11 +373,11 @@
 
         .water-btn.undo-water {
             /* background-color: #ff6b6b; */
-            color: #ffffff;
+            color: var(--tg-theme-text-color, var(--text-primary));
         }
 
         .water-btn.undo-water:disabled {
-            background-color: var(--card-border);
+            background-color: var(--surface);
             color: var(--text-muted);
             opacity: 0.5;
             cursor: not-allowed;
@@ -382,7 +424,7 @@
         }
 
         .add-btn {
-            background-color: var(--card-border);
+            background-color: var(--surface);
             color: var(--tg-theme-text-color, var(--text-primary));
             padding: 10px 16px;
             border-radius: 20px;
@@ -539,7 +581,7 @@
 
         /* Workout Section */
         .workout-day-card {
-            background-color: var(--card-border);
+            background-color: var(--surface);
             border-radius: 12px;
             padding: 16px;
             cursor: pointer;
@@ -636,7 +678,7 @@
             font-size: 11px;
             padding: 2px 8px;
             border-radius: 10px;
-            background-color: var(--card-border);
+            background-color: var(--surface);
             color: var(--tg-theme-hint-color, var(--text-secondary));
         }
 
@@ -863,7 +905,7 @@
         }
 
         .modal-btn-cancel {
-            background-color: var(--card-border);
+            background-color: var(--chip-bg);
             color: var(--tg-theme-text-color, var(--text-primary));
         }
 
@@ -919,7 +961,7 @@
         }
 
         .exercise-search-result-item:active {
-            background-color: var(--card-border);
+            background-color: var(--chip-bg);
         }
 
         .chip-row {
@@ -1120,6 +1162,13 @@
     </nav>
 
     <script>
+        // Theme-aware chart colours, read from the page's CSS variables so
+        // charts match the light/dark theme (see html[data-theme]).
+        function cssVar(name, fallback) {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            return v || fallback;
+        }
+
         // Initialize Telegram Web App
         const tg = window.Telegram.WebApp;
         tg.ready();
@@ -2344,11 +2393,11 @@
 
         function chartTooltipStyle() {
             return {
-                backgroundColor: '#1a1a1a',
-                borderColor: '#2a2a2a',
+                backgroundColor: cssVar('--tooltip-bg', '#1a1a1a'),
+                borderColor: cssVar('--tooltip-border', '#2a2a2a'),
                 borderWidth: 1,
-                titleColor: '#ffffff',
-                bodyColor: '#ffffff',
+                titleColor: cssVar('--tooltip-text', '#ffffff'),
+                bodyColor: cssVar('--tooltip-text', '#ffffff'),
                 padding: 10,
             };
         }
@@ -2407,7 +2456,7 @@
                         },
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            grid: { color: cssVar('--chart-grid', 'rgba(255, 255, 255, 0.08)') },
                             ticks: { color: hint, font: { size: 11 } },
                         },
                     },
@@ -2458,7 +2507,7 @@
                         y: {
                             stacked: true,
                             beginAtZero: true,
-                            grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                            grid: { color: cssVar('--chart-grid', 'rgba(255, 255, 255, 0.08)') },
                             ticks: { color: hint, font: { size: 11 } },
                         },
                     },

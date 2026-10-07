@@ -267,6 +267,21 @@ class TestSetTime:
         group = await _get_group(-100)
         assert group.nutrition_time == "03:33"
 
+    async def test_inactive_group_is_reactivated(self):
+        # Changing settings from the panel proves the bot is in the group —
+        # a stale is_active=False must not keep the scheduler skipping it.
+        await _register_group(chat_id=-100)
+        async with async_session_maker() as session:
+            await GroupChatRepository(session).deactivate(-100)
+            await session.commit()
+
+        callback = _admin_callback("grem:addtime:nutrition:23:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert group.is_active is True
+        assert group.nutrition_time == "20:00,23:00"
+
     async def test_invalid_time_is_rejected(self):
         await _register_group(chat_id=-100)
         callback = _admin_callback("grem:settime:nutrition:25:99")
@@ -386,6 +401,24 @@ class TestCustomTimeInput:
         assert await state.get_state() is None
         (text,), _ = message.answer.call_args
         assert "08:15" in text
+
+    async def test_reply_reactivates_inactive_group(self):
+        await _register_group(chat_id=-100)
+        async with async_session_maker() as session:
+            await GroupChatRepository(session).deactivate(-100)
+            await session.commit()
+        state = make_fsm_context(chat_id=-100)
+        await self._start(state)
+
+        message = self._reply("23:00")
+        message.bot.get_chat_member = AsyncMock(
+            return_value=make_chat_member(status="administrator")
+        )
+        await group_reminders.process_reminders_times_input(message, state)
+
+        group = await _get_group(-100)
+        assert group.is_active is True
+        assert group.nutrition_time == "20:00,23:00"
 
     async def test_invalid_reply_keeps_waiting(self):
         await _register_group(chat_id=-100)

@@ -28,6 +28,7 @@ from src.bot.keyboards import (
     get_group_reminders_time_keyboard,
 )
 from src.config import get_settings
+from src.database.models import GroupChat
 from src.database.repository import GroupChatRepository
 from src.database.session import async_session_maker
 from src.utils.datetime_utils import to_local_now
@@ -129,6 +130,26 @@ async def _can_manage_reminders(bot, chat_id: int, user_id: int) -> bool:
     return await _is_group_admin(bot, chat_id, user_id)
 
 
+async def _reactivate_if_needed(
+    repo: GroupChatRepository, group: GroupChat | None, title: str | None
+) -> None:
+    """An update just reached us from this group, so the bot is in it — a
+    deactivated row means a missed/failed JOIN update (or a stale
+    deactivation), and would silently stop every reminder since the
+    scheduler only iterates active groups. Commits right away so even a
+    read-only action (opening the panel) restores reminders.
+    """
+    if group is None or group.is_active:
+        return
+    await repo.upsert_active(
+        chat_id=group.chat_id,
+        title=title,
+        added_by_telegram_id=group.added_by_telegram_id,
+    )
+    await repo.session.commit()
+    logger.info(f"Reactivated group {group.chat_id}")
+
+
 @router.message(Command("reminders"))
 async def cmd_reminders(message: Message) -> None:
     """`/reminders` — show the settings panel (GYM-33). Group/supergroup
@@ -142,18 +163,7 @@ async def cmd_reminders(message: Message) -> None:
     async with async_session_maker() as session:
         repo = GroupChatRepository(session)
         group = await repo.get_by_chat_id(message.chat.id)
-        if group is not None and not group.is_active:
-            # This message reached us from the group, so the bot is in it
-            # — a deactivated row means a missed/failed JOIN update (or a
-            # stale deactivation), and would silently stop every reminder
-            # since the scheduler only iterates active groups.
-            group = await repo.upsert_active(
-                chat_id=message.chat.id,
-                title=message.chat.title,
-                added_by_telegram_id=group.added_by_telegram_id,
-            )
-            await session.commit()
-            logger.info(f"Reactivated group {message.chat.id} on /reminders")
+        await _reactivate_if_needed(repo, group, message.chat.title)
 
     if group is None:
         # Shouldn't normally happen — on_bot_added_to_group registers a
@@ -272,6 +282,7 @@ async def process_reminders_times_input(message: Message, state: FSMContext) -> 
         if group is None:
             await state.clear()
             return
+        await _reactivate_if_needed(repo, group, message.chat.title)
 
         merged = sorted(set(get_group_reminder_times(reminder_type, group)) | set(new_times))
         if len(merged) > MAX_REMINDER_TIMES_PER_DAY:
@@ -336,6 +347,7 @@ async def process_reminders_callback(callback: CallbackQuery) -> None:
             if group is None:
                 await callback.answer()
                 return
+            await _reactivate_if_needed(repo, group, chat.title)
 
             if action == "time":
                 reminder_type = parts[2]

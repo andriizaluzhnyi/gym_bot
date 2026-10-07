@@ -140,7 +140,20 @@ async def cmd_reminders(message: Message) -> None:
         return
 
     async with async_session_maker() as session:
-        group = await GroupChatRepository(session).get_by_chat_id(message.chat.id)
+        repo = GroupChatRepository(session)
+        group = await repo.get_by_chat_id(message.chat.id)
+        if group is not None and not group.is_active:
+            # This message reached us from the group, so the bot is in it
+            # — a deactivated row means a missed/failed JOIN update (or a
+            # stale deactivation), and would silently stop every reminder
+            # since the scheduler only iterates active groups.
+            group = await repo.upsert_active(
+                chat_id=message.chat.id,
+                title=message.chat.title,
+                added_by_telegram_id=group.added_by_telegram_id,
+            )
+            await session.commit()
+            logger.info(f"Reactivated group {message.chat.id} on /reminders")
 
     if group is None:
         # Shouldn't normally happen — on_bot_added_to_group registers a

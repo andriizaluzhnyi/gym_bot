@@ -94,6 +94,21 @@ class TestCmdReminders:
             assert row[0].callback_data.startswith("grem:toggle:")
             assert row[1].callback_data.startswith("grem:time:")
 
+    async def test_inactive_group_is_reactivated(self):
+        # The bot is evidently in the group (it received the command), so
+        # a stale is_active=False must not keep the scheduler skipping it.
+        await _register_group(chat_id=-100)
+        async with async_session_maker() as session:
+            await GroupChatRepository(session).deactivate(-100)
+            await session.commit()
+
+        message = make_message(chat=make_chat(chat_id=-100, chat_type="group"))
+        await group_reminders.cmd_reminders(message)
+
+        assert (await _get_group(-100)).is_active is True
+        _, kwargs = message.answer.call_args
+        assert "reply_markup" in kwargs
+
     async def test_panel_reflects_current_state(self):
         await _register_group(chat_id=-100)
         async with async_session_maker() as session:

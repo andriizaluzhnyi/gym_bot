@@ -231,6 +231,10 @@ class GroupReminderService:
                         continue
 
                     await repo.mark_sent(group.chat_id, kind.value, now_local)
+                    logger.info(
+                        f"Sent {kind.value} reminder to group {group.chat_id} "
+                        f"at {now_local:%Y-%m-%d %H:%M} ({settings.timezone})"
+                    )
                     sent_count += 1
 
             await session.commit()

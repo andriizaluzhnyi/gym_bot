@@ -361,6 +361,23 @@ class TestAddAndDeleteTimes:
         assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 20, 0))
 
 
+class TestTimeInTheCurrentMinute:
+    async def test_adding_the_current_minute_fires_on_the_next_tick(self, monkeypatch):
+        """Trainer adds 15:00 at 15:00:20 — must fire now, not tomorrow."""
+        from datetime import datetime
+
+        from src.services.group_reminders import ReminderKind, due_reminders
+
+        now = datetime(2026, 6, 15, 15, 0, 20)
+        monkeypatch.setattr(group_reminders, "to_local_now", lambda tz_name: now)
+        await _register_group(chat_id=-100)
+        callback = _admin_callback("grem:addtime:nutrition:15:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 15, 1))
+
+
 class TestCustomTimeInput:
     async def _start(self, state, reminder_type="nutrition"):
         callback = _admin_callback(f"grem:custom:{reminder_type}")

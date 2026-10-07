@@ -202,16 +202,17 @@ class TestSkipPastSlots:
             await repo.upsert_active(chat_id=-100, title=None, added_by_telegram_id=1)
             await session.commit()
 
-            await repo.skip_past_slots(-100, "nutrition", datetime(2026, 1, 15, 12, 0))
+            await repo.skip_past_slots(-100, "nutrition", datetime(2026, 1, 15, 12, 0, 30))
             await session.commit()
             group = await repo.get_by_chat_id(-100)
-            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 12, 0)
+            # Just before the current minute, so a 12:00 slot still fires.
+            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 11, 59, 59, 999999)
 
             # An earlier moment never moves it back.
             await repo.skip_past_slots(-100, "nutrition", datetime(2026, 1, 15, 8, 0))
             await session.commit()
             group = await repo.get_by_chat_id(-100)
-            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 12, 0)
+            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 11, 59, 59, 999999)
 
     async def test_unknown_reminder_type_raises(self):
         async with async_session_maker() as session:

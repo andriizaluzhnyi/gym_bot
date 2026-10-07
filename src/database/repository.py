@@ -1783,7 +1783,11 @@ class GroupChatRepository:
         if group is None:
             return
 
+        # Slots are whole minutes: a slot in the *current* minute (e.g.
+        # "18:30" added at 18:30:20) still counts as upcoming, so it fires
+        # on the next tick instead of being pushed to tomorrow.
+        marker = now_local.replace(second=0, microsecond=0) - timedelta(microseconds=1)
         field = _GROUP_CHAT_SENT_FIELD_BY_TYPE[reminder_type]
         current = getattr(group, field)
-        if current is None or current < now_local:
-            setattr(group, field, now_local)
+        if current is None or current < marker:
+            setattr(group, field, marker)

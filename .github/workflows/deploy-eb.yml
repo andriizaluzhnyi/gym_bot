@@ -24,6 +24,14 @@ jobs:
           script: |
             set -e
             cd /home/ubuntu/project/gymbro
-            git pull origin master
+            # Manual edits to tracked files on the server would block the
+            # pull — set them aside (recoverable via `git stash list`)
+            # instead of failing the deploy. Untracked files (.env) are
+            # not touched.
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              git stash push -m "deploy-autostash $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            git fetch origin master
+            git reset --hard origin/master
             docker compose up -d --build
             docker image prune -f

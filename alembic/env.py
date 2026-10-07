@@ -34,21 +34,21 @@ try:
     # Convert async URL to sync for Alembic
     if database_url.startswith("postgresql+asyncpg://"):
         database_url = database_url.replace(
-            "postgresql+asyncpg://", "postgresql://"
+            "postgresql+asyncpg://", "postgresql+psycopg2://"
         )
 except Exception:
     # Use default SQLite if config fails
     import os
     db_url = os.getenv("DATABASE_URL")
     if db_url:
-        database_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        database_url = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
     else:
         db_user = os.getenv("POSTGRES_USER", "gym")
         db_pass = os.getenv("POSTGRES_PASSWORD", "password")
         db_host = os.getenv("POSTGRES_HOST", "localhost")
         db_port = os.getenv("POSTGRES_PORT", "5432")
         db_name = os.getenv("POSTGRES_DB", "gymdb")
-        database_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        database_url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
 # this is the Alembic Config object
 config = context.config

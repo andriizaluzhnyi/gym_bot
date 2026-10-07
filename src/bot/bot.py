@@ -138,13 +138,14 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     )
 
     # GYM-34: group nutrition/measurements/photo-progress reminders —
-    # checked every 5 minutes so a scheduled time is never missed by more
-    # than that, without the DB churn of a finer interval.
+    # checked every minute: trainers can pick any HH:MM (and several per
+    # day), so a coarser tick would visibly delay them. The check itself
+    # is one small query over active groups.
     group_reminder_service = GroupReminderService(bot)
     scheduler.add_job(
         group_reminder_service.send_due_reminders,
         "interval",
-        minutes=5,
+        minutes=1,
         id="group_reminders",
         replace_existing=True,
     )

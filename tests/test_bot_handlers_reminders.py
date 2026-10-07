@@ -2,7 +2,7 @@
 the group's reminder-settings panel and its `grem:*` callback buttons.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -10,7 +10,14 @@ from src.bot.handlers import group_reminders
 from src.database.models import Base
 from src.database.repository import GroupChatRepository
 from src.database.session import async_session_maker, engine
-from tests.bot_mocks import make_callback, make_chat, make_chat_member, make_message
+from tests.bot_mocks import (
+    make_callback,
+    make_chat,
+    make_chat_member,
+    make_fsm_context,
+    make_message,
+    make_telegram_user,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -189,7 +196,9 @@ class TestTimeSubmenu:
         _, kwargs = callback.message.edit_reply_markup.call_args
         keyboard = kwargs["reply_markup"]
         all_callback_data = [b.callback_data for row in keyboard.inline_keyboard for b in row]
-        assert any(cd.startswith("grem:settime:nutrition:") for cd in all_callback_data)
+        assert any(cd.startswith("grem:addtime:nutrition:") for cd in all_callback_data)
+        assert "grem:deltime:nutrition:20:00" in all_callback_data
+        assert "grem:custom:nutrition" in all_callback_data
         assert "grem:back" in all_callback_data
 
         group = await _get_group(-100)
@@ -235,9 +244,17 @@ class TestSetTime:
         assert group.measurements_time == "18:00"
         assert group.nutrition_time == "20:00"  # untouched
 
-    async def test_time_outside_the_allowed_chips_is_rejected(self):
+    async def test_any_valid_time_is_accepted(self):
         await _register_group(chat_id=-100)
         callback = _admin_callback("grem:settime:nutrition:03:33")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "03:33"
+
+    async def test_invalid_time_is_rejected(self):
+        await _register_group(chat_id=-100)
+        callback = _admin_callback("grem:settime:nutrition:25:99")
 
         await group_reminders.process_reminders_callback(callback)
 
@@ -247,6 +264,181 @@ class TestSetTime:
 
         group = await _get_group(-100)
         assert group.nutrition_time == "20:00"  # unchanged
+
+
+class TestAddAndDeleteTimes:
+    async def test_addtime_appends_a_slot_and_stays_in_the_submenu(self):
+        await _register_group(chat_id=-100)
+        callback = _admin_callback("grem:addtime:nutrition:12:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "12:00,20:00"
+        _, kwargs = callback.message.edit_reply_markup.call_args
+        all_callback_data = [
+            b.callback_data for row in kwargs["reply_markup"].inline_keyboard for b in row
+        ]
+        assert "grem:deltime:nutrition:12:00" in all_callback_data
+        assert "grem:back" in all_callback_data  # still the submenu
+
+    async def test_addtime_is_idempotent(self):
+        await _register_group(chat_id=-100)
+        callback = _admin_callback("grem:addtime:nutrition:20:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "20:00"
+
+    async def test_deltime_removes_a_slot(self):
+        await _register_group(chat_id=-100)
+        async with async_session_maker() as session:
+            await GroupChatRepository(session).update_settings(
+                -100, nutrition_time="08:00,20:00"
+            )
+            await session.commit()
+
+        callback = _admin_callback("grem:deltime:nutrition:08:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "20:00"
+
+    async def test_last_slot_cannot_be_deleted(self):
+        await _register_group(chat_id=-100)
+        callback = _admin_callback("grem:deltime:nutrition:20:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        _, kwargs = callback.answer.call_args
+        assert kwargs.get("show_alert") is True
+        group = await _get_group(-100)
+        assert group.nutrition_time == "20:00"
+
+    async def test_adding_a_past_time_does_not_fire_it_today(self, monkeypatch):
+        """Adding 10:00 at 15:00 must not send a "late" 10:00 reminder on
+        the next tick — the schedule change applies from now on."""
+        from datetime import datetime
+
+        from src.services.group_reminders import ReminderKind, due_reminders
+
+        now = datetime(2026, 6, 15, 15, 0)
+        monkeypatch.setattr(group_reminders, "to_local_now", lambda tz_name: now)
+        await _register_group(chat_id=-100)
+        callback = _admin_callback("grem:addtime:nutrition:10:00")
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert ReminderKind.NUTRITION not in due_reminders(group, now)
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 20, 0))
+
+
+class TestCustomTimeInput:
+    async def _start(self, state, reminder_type="nutrition"):
+        callback = _admin_callback(f"grem:custom:{reminder_type}")
+        callback.from_user.mention_html.return_value = "<a>Trainer</a>"
+        await group_reminders.process_reminders_custom_time(callback, state)
+        return callback
+
+    def _reply(self, text, user_id=1):
+        return make_message(
+            text=text,
+            chat=make_chat(chat_id=-100, chat_type="group"),
+            from_user=make_telegram_user(user_id=user_id),
+        )
+
+    async def test_prompt_uses_force_reply_and_sets_state(self):
+        await _register_group(chat_id=-100)
+        state = make_fsm_context(chat_id=-100)
+        callback = await self._start(state)
+
+        callback.message.answer.assert_awaited_once()
+        _, kwargs = callback.message.answer.call_args
+        assert kwargs["reply_markup"].force_reply is True
+        assert await state.get_state() == group_reminders.GroupReminderStates.waiting_times.state
+
+    async def test_reply_adds_several_custom_times(self):
+        await _register_group(chat_id=-100)
+        state = make_fsm_context(chat_id=-100)
+        await self._start(state)
+
+        message = self._reply("8:15, 13:00 21.45")
+        message.bot.get_chat_member = AsyncMock(
+            return_value=make_chat_member(status="administrator")
+        )
+        await group_reminders.process_reminders_times_input(message, state)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "08:15,13:00,20:00,21:45"
+        assert await state.get_state() is None
+        (text,), _ = message.answer.call_args
+        assert "08:15" in text
+
+    async def test_invalid_reply_keeps_waiting(self):
+        await _register_group(chat_id=-100)
+        state = make_fsm_context(chat_id=-100)
+        await self._start(state)
+
+        message = self._reply("about eight")
+        message.bot.get_chat_member = AsyncMock(
+            return_value=make_chat_member(status="administrator")
+        )
+        await group_reminders.process_reminders_times_input(message, state)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "20:00"
+        assert await state.get_state() is not None
+
+    async def test_dash_cancels(self):
+        await _register_group(chat_id=-100)
+        state = make_fsm_context(chat_id=-100)
+        await self._start(state)
+
+        message = self._reply("-")
+        await group_reminders.process_reminders_times_input(message, state)
+
+        assert await state.get_state() is None
+        group = await _get_group(-100)
+        assert group.nutrition_time == "20:00"
+
+    async def test_too_many_times_is_rejected(self):
+        await _register_group(chat_id=-100)
+        state = make_fsm_context(chat_id=-100)
+        await self._start(state)
+
+        many = ", ".join(f"{h:02d}:30" for h in range(24))  # 24 + existing 20:00
+        message = self._reply(many)
+        message.bot.get_chat_member = AsyncMock(
+            return_value=make_chat_member(status="administrator")
+        )
+        await group_reminders.process_reminders_times_input(message, state)
+
+        group = await _get_group(-100)
+        assert group.nutrition_time == "20:00"
+
+    async def test_non_admin_cannot_open_custom_input(self):
+        await _register_group(chat_id=-100)
+        state = make_fsm_context(chat_id=-100)
+        callback = _member_callback("grem:custom:nutrition")
+
+        await group_reminders.process_reminders_custom_time(callback, state)
+
+        _, kwargs = callback.answer.call_args
+        assert kwargs.get("show_alert") is True
+        assert await state.get_state() is None
+
+
+class TestTrainerAccess:
+    async def test_bot_admin_can_change_settings_without_being_group_admin(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(group_reminders.settings, "admin_user_id", 1)
+        await _register_group(chat_id=-100)
+        callback = _member_callback("grem:toggle:nutrition")  # from_user.id == 1
+
+        await group_reminders.process_reminders_callback(callback)
+
+        group = await _get_group(-100)
+        assert group.remind_nutrition is False
+        callback.bot.get_chat_member.assert_not_awaited()
 
 
 class TestSetWeekday:

@@ -10,7 +10,7 @@ mocking a clock and a bot at the same time.
 """
 
 import logging
-from datetime import date, datetime, time
+from datetime import datetime
 from enum import Enum
 
 from aiogram import Bot
@@ -22,6 +22,7 @@ from src.database.models import GroupChat
 from src.database.repository import GroupChatRepository
 from src.database.session import async_session_maker
 from src.utils.datetime_utils import to_local_now
+from src.utils.reminder_times import split_times, to_time
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -33,7 +34,7 @@ _WEEKDAY_FULL_NAMES = [
 
 class ReminderKind(str, Enum):
     """One of the three reminder types a `GroupChat` can send (GYM-32's
-    schema: `remind_*`/`*_time`/`last_*_sent_on` triplets), returned by
+    schema: `remind_*`/`*_time`/`last_*_sent_at` triplets), returned by
     `due_reminders()` for the scheduler job to act on.
     """
 
@@ -42,31 +43,42 @@ class ReminderKind(str, Enum):
     PHOTOS = "photos"
 
 
-def _parse_hhmm(value: str) -> time:
-    hour_str, minute_str = value.split(":")
-    return time(int(hour_str), int(minute_str))
+def _latest_passed_slot(scheduled_times: str, now_local: datetime) -> datetime | None:
+    """The latest of today's configured slots that is at/before
+    ``now_local`` (as a full local ``datetime``), or ``None`` if none has
+    been reached yet today.
+    """
+    passed = [
+        slot for slot in split_times(scheduled_times)
+        if to_time(slot) <= now_local.time()
+    ]
+    if not passed:
+        return None
+    return datetime.combine(now_local.date(), to_time(passed[-1]))
 
 
 def _is_due(
-    *, enabled: bool, scheduled_time: str, day_matches: bool,
-    last_sent_on: date | None, now_local: datetime,
+    *, enabled: bool, scheduled_times: str, day_matches: bool,
+    last_sent_at: datetime | None, now_local: datetime,
 ) -> bool:
     """One reminder type's "should this fire right now" rule: enabled,
-    today is the right day, we're at/after the scheduled time, and it
-    hasn't already gone out today.
+    today is the right day, at least one of today's slots has been
+    reached, and nothing has been sent since the latest such slot.
 
-    Using ``>=`` (not ``==``) on the time comparison is what makes a late
-    restart still send (AC: "бот перезапущений після 20:00 — надсилає з
-    запізненням, але один раз") — the "один раз" half comes from the
-    ``last_sent_on`` check below, updated by
-    :meth:`GroupReminderService.send_due_reminders` right after a
-    successful send.
+    Several slots per day are supported (``"08:00,13:00,20:00"``): each
+    fires once, because ``last_sent_at`` (set right after a successful
+    send by :meth:`GroupReminderService.send_due_reminders`) moves past
+    it. A late restart still sends (AC: "бот перезапущений після 20:00 —
+    надсилає з запізненням, але один раз") — if several slots were
+    missed while the bot was down, they collapse into a single catch-up
+    message rather than a burst.
     """
     if not enabled or not day_matches:
         return False
-    if now_local.time() < _parse_hhmm(scheduled_time):
+    slot = _latest_passed_slot(scheduled_times, now_local)
+    if slot is None:
         return False
-    return last_sent_on is None or last_sent_on < now_local.date()
+    return last_sent_at is None or last_sent_at < slot
 
 
 def due_reminders(group: GroupChat, now_local: datetime) -> list[ReminderKind]:
@@ -74,14 +86,14 @@ def due_reminders(group: GroupChat, now_local: datetime) -> list[ReminderKind]:
     moment (`now_local` — a local wall-clock ``datetime``, see
     :func:`src.utils.datetime_utils.to_local_now`).
 
-    - Nutrition: every day, once ``now_local`` is at/after
-      ``nutrition_time`` and today's date is past ``last_nutrition_sent_on``.
+    - Nutrition: every day, at each of ``nutrition_time``'s slots.
     - Measurements: only on ``measurements_weekday`` (0 = Monday, matching
-      ``datetime.weekday()``), same time/last-sent rule.
+      ``datetime.weekday()``), at each of ``measurements_time``'s slots.
     - Photos: only on ``photos_day_of_month`` (an exact day-of-month
       match — the field is capped at 1-28 in the UI specifically so every
       month has that day; the 29th-31st of a longer month never matches
-      a lower ``photos_day_of_month``, they're just not that day).
+      a lower ``photos_day_of_month``, they're just not that day), at
+      each of ``photos_time``'s slots.
 
     Pure — no DB/network access, so every calendar edge case is a plain
     unit test against a constructed ``GroupChat`` and an arbitrary
@@ -91,27 +103,27 @@ def due_reminders(group: GroupChat, now_local: datetime) -> list[ReminderKind]:
 
     if _is_due(
         enabled=group.remind_nutrition,
-        scheduled_time=group.nutrition_time,
+        scheduled_times=group.nutrition_time,
         day_matches=True,
-        last_sent_on=group.last_nutrition_sent_on,
+        last_sent_at=group.last_nutrition_sent_at,
         now_local=now_local,
     ):
         due.append(ReminderKind.NUTRITION)
 
     if _is_due(
         enabled=group.remind_measurements,
-        scheduled_time=group.measurements_time,
+        scheduled_times=group.measurements_time,
         day_matches=now_local.weekday() == group.measurements_weekday,
-        last_sent_on=group.last_measurements_sent_on,
+        last_sent_at=group.last_measurements_sent_at,
         now_local=now_local,
     ):
         due.append(ReminderKind.MEASUREMENTS)
 
     if _is_due(
         enabled=group.remind_photos,
-        scheduled_time=group.photos_time,
+        scheduled_times=group.photos_time,
         day_matches=now_local.day == group.photos_day_of_month,
-        last_sent_on=group.last_photos_sent_on,
+        last_sent_at=group.last_photos_sent_at,
         now_local=now_local,
     ):
         due.append(ReminderKind.PHOTOS)
@@ -184,7 +196,7 @@ class GroupReminderService:
         reaching us — happens if the group itself was deleted, or Telegram
         dropped the update) deactivates that group, mirroring
         ``on_bot_removed_from_group``. Any other send failure is logged
-        and ``last_*_sent_on`` is left untouched, so the next tick (5 min
+        and ``last_*_sent_at`` is left untouched, so the next tick (1 min
         later) retries it.
         """
         from src.webapp.server import get_bot_username
@@ -218,7 +230,7 @@ class GroupReminderService:
                         )
                         continue
 
-                    await repo.mark_sent(group.chat_id, kind.value, now_local.date())
+                    await repo.mark_sent(group.chat_id, kind.value, now_local)
                     sent_count += 1
 
             await session.commit()

@@ -11,6 +11,7 @@ from aiogram.types import (
 from src.config import get_settings
 from src.database.models import GroupChat, Training
 from src.services.workout_program_parsing import MUSCLE_GROUPS  # noqa: F401
+from src.utils.reminder_times import MAX_REMINDER_TIMES_PER_DAY, split_times
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -453,30 +454,50 @@ def get_confirm_cancel_keyboard(training_id: int) -> InlineKeyboardMarkup:
 
 # --- Group reminders (`/reminders`, GYM-33) ---
 
+# Quick-add presets in the time submenu — any other HH:MM can be typed in
+# via "✏️ Свій час" (see `grem:custom:<type>` in handlers/group_reminders).
 GROUP_REMINDER_TIME_CHOICES = ["07:00", "09:00", "12:00", "18:00", "20:00", "21:00"]
 # Index == GroupChat.measurements_weekday (0 = Monday, matches Python's
 # own date.weekday()).
 GROUP_REMINDER_WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 GROUP_REMINDER_DAY_OF_MONTH_CHOICES = [1, 15]
 
-_GROUP_REMINDER_LABELS = {
+GROUP_REMINDER_LABELS = {
     "nutrition": "🍽 Харчування",
     "measurements": "📏 Заміри",
     "photos": "📸 Фото прогресу",
 }
+GROUP_REMINDER_TIME_FIELDS = {
+    "nutrition": "nutrition_time",
+    "measurements": "measurements_time",
+    "photos": "photos_time",
+}
+
+
+def get_group_reminder_times(reminder_type: str, group: GroupChat) -> list[str]:
+    """The sorted ``"HH:MM"`` slots configured for one reminder type."""
+    return split_times(getattr(group, GROUP_REMINDER_TIME_FIELDS[reminder_type]))
+
+
+def _format_times(times: list[str], max_shown: int = 4) -> str:
+    if len(times) <= max_shown:
+        return ", ".join(times)
+    return f"{', '.join(times[:max_shown])} +{len(times) - max_shown}"
 
 
 def _group_reminder_schedule_text(reminder_type: str, group: GroupChat) -> str:
     """Human-readable schedule fragment for one reminder type's toggle
-    button label, e.g. "щодня 20:00", "пн 09:00", "1-го числа 09:00".
+    button label, e.g. "щодня 08:00, 20:00", "пн 09:00",
+    "1-го числа 09:00". Long lists are shortened ("… +3").
     """
+    times = _format_times(get_group_reminder_times(reminder_type, group))
     if reminder_type == "nutrition":
-        return f"щодня {group.nutrition_time}"
+        return f"щодня {times}"
     if reminder_type == "measurements":
         weekday_label = GROUP_REMINDER_WEEKDAY_LABELS[group.measurements_weekday].lower()
-        return f"{weekday_label} {group.measurements_time}"
+        return f"{weekday_label} {times}"
     if reminder_type == "photos":
-        return f"{group.photos_day_of_month}-го числа {group.photos_time}"
+        return f"{group.photos_day_of_month}-го числа {times}"
     raise ValueError(f"Unknown reminder_type: {reminder_type!r}")
 
 
@@ -484,7 +505,7 @@ def get_group_reminders_panel_keyboard(group: GroupChat) -> InlineKeyboardMarkup
     """Main `/reminders` panel (GYM-33): one toggle + "⏰ Час…" row pair
     per reminder type. The toggle button's own text carries the current
     schedule and on/off state (`grem:toggle:<type>` flips it in place);
-    "⏰ Час…" (`grem:time:<type>`) opens that type's time-choice submenu
+    "⏰ Час…" (`grem:time:<type>`) opens that type's time submenu
     (:func:`get_group_reminders_time_keyboard`).
     """
     enabled_by_type = {
@@ -493,7 +514,7 @@ def get_group_reminders_panel_keyboard(group: GroupChat) -> InlineKeyboardMarkup
         "photos": group.remind_photos,
     }
     buttons = []
-    for reminder_type, label in _GROUP_REMINDER_LABELS.items():
+    for reminder_type, label in GROUP_REMINDER_LABELS.items():
         state_icon = "✅" if enabled_by_type[reminder_type] else "❌"
         schedule = _group_reminder_schedule_text(reminder_type, group)
         buttons.append([
@@ -508,30 +529,68 @@ def get_group_reminders_panel_keyboard(group: GroupChat) -> InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_group_reminders_time_keyboard(reminder_type: str) -> InlineKeyboardMarkup:
-    """Time-choice submenu for one reminder type (GYM-33) — a row of time
-    chips (`grem:settime:<type>:<HH:MM>`), plus, for "measurements", a
-    weekday row (`grem:setweekday:<0-6>`) and, for "photos", a
-    day-of-month row (`grem:setday:<1|15>`); always ends with "⬅️ Назад"
-    (`grem:back`) to return to the main panel.
+def _rows_of(buttons: list[InlineKeyboardButton], per_row: int) -> list[list[InlineKeyboardButton]]:
+    return [buttons[i:i + per_row] for i in range(0, len(buttons), per_row)]
+
+
+def get_group_reminders_time_keyboard(
+    reminder_type: str, group: GroupChat
+) -> InlineKeyboardMarkup:
+    """Time submenu for one reminder type — lets a trainer set any number
+    of reminders per day at any time:
+
+    - every configured slot as "🗑 HH:MM" (`grem:deltime:<type>:<HH:MM>`)
+      — tap to remove it (the last one can't be removed; switch the
+      reminder off instead);
+    - preset chips not yet in the list as "➕ HH:MM"
+      (`grem:addtime:<type>:<HH:MM>`);
+    - "✏️ Свій час" (`grem:custom:<type>`) — type any time(s) in a reply;
+    - for "measurements", a weekday row (`grem:setweekday:<0-6>`), for
+      "photos", a day-of-month row (`grem:setday:<1|15>`), the current
+      choice marked with "•";
+    - "⬅️ Назад" (`grem:back`) to return to the main panel.
     """
-    rows = []
-    time_row = [
-        InlineKeyboardButton(text=t, callback_data=f"grem:settime:{reminder_type}:{t}")
-        for t in GROUP_REMINDER_TIME_CHOICES
-    ]
-    # 3 per row keeps each button legibly wide on a phone screen.
-    for i in range(0, len(time_row), 3):
-        rows.append(time_row[i:i + 3])
+    current = get_group_reminder_times(reminder_type, group)
+    rows = _rows_of(
+        [
+            InlineKeyboardButton(
+                text=f"🗑 {t}", callback_data=f"grem:deltime:{reminder_type}:{t}",
+            )
+            for t in current
+        ],
+        4,
+    )
+    if len(current) < MAX_REMINDER_TIMES_PER_DAY:
+        rows += _rows_of(
+            [
+                InlineKeyboardButton(
+                    text=f"➕ {t}", callback_data=f"grem:addtime:{reminder_type}:{t}",
+                )
+                for t in GROUP_REMINDER_TIME_CHOICES
+                if t not in current
+            ],
+            3,
+        )
+        rows.append([
+            InlineKeyboardButton(
+                text="✏️ Свій час", callback_data=f"grem:custom:{reminder_type}",
+            )
+        ])
 
     if reminder_type == "measurements":
         rows.append([
-            InlineKeyboardButton(text=label, callback_data=f"grem:setweekday:{i}")
+            InlineKeyboardButton(
+                text=f"•{label}" if i == group.measurements_weekday else label,
+                callback_data=f"grem:setweekday:{i}",
+            )
             for i, label in enumerate(GROUP_REMINDER_WEEKDAY_LABELS)
         ])
     elif reminder_type == "photos":
         rows.append([
-            InlineKeyboardButton(text=f"{d}-го", callback_data=f"grem:setday:{d}")
+            InlineKeyboardButton(
+                text=f"•{d}-го" if d == group.photos_day_of_month else f"{d}-го",
+                callback_data=f"grem:setday:{d}",
+            )
             for d in GROUP_REMINDER_DAY_OF_MONTH_CHOICES
         ])
 

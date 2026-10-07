@@ -35,9 +35,9 @@ def _make_group(**overrides) -> GroupChat:
         "remind_photos": True,
         "photos_day_of_month": 15,
         "photos_time": "09:00",
-        "last_nutrition_sent_on": None,
-        "last_measurements_sent_on": None,
-        "last_photos_sent_on": None,
+        "last_nutrition_sent_at": None,
+        "last_measurements_sent_at": None,
+        "last_photos_sent_at": None,
     }
     defaults.update(overrides)
     return GroupChat(**defaults)
@@ -66,12 +66,12 @@ class TestNutritionReminder:
         assert ReminderKind.NUTRITION not in due_reminders(group, now)
 
     def test_not_due_again_after_already_sent_today(self):
-        group = _make_group(last_nutrition_sent_on=date(2026, 6, 15))
+        group = _make_group(last_nutrition_sent_at=datetime(2026, 6, 15, 20, 0))
         now = datetime(2026, 6, 15, 21, 0)
         assert ReminderKind.NUTRITION not in due_reminders(group, now)
 
     def test_due_again_the_next_day_after_being_sent(self):
-        group = _make_group(last_nutrition_sent_on=date(2026, 6, 15))
+        group = _make_group(last_nutrition_sent_at=datetime(2026, 6, 15, 20, 0))
         now = datetime(2026, 6, 16, 20, 0)
         assert ReminderKind.NUTRITION in due_reminders(group, now)
 
@@ -85,9 +85,9 @@ class TestNutritionReminder:
 
     def test_midnight_boundary_resets_for_the_new_day(self):
         # Sent right before midnight on the 15th; at 00:01 on the 16th
-        # it's a new calendar day (last_sent_on < today) but before
+        # it's a new calendar day (last_sent_at < today's slot) but before
         # 20:00, so not due yet.
-        group = _make_group(last_nutrition_sent_on=date(2026, 6, 15))
+        group = _make_group(last_nutrition_sent_at=datetime(2026, 6, 15, 20, 0))
         now = datetime(2026, 6, 16, 0, 1)
         assert ReminderKind.NUTRITION not in due_reminders(group, now)
 
@@ -103,7 +103,7 @@ class TestNutritionReminder:
         # Same late-restart scenario, but it was already sent earlier
         # today (e.g. by the tick right after 20:00, before a later
         # restart) — must not fire again.
-        group = _make_group(last_nutrition_sent_on=date(2026, 6, 15))
+        group = _make_group(last_nutrition_sent_at=datetime(2026, 6, 15, 20, 0))
         now = datetime(2026, 6, 15, 22, 0)
         assert ReminderKind.NUTRITION not in due_reminders(group, now)
 
@@ -126,14 +126,14 @@ class TestMeasurementsReminder:
 
     def test_not_due_again_next_week_before_time(self):
         group = _make_group(
-            measurements_weekday=0, last_measurements_sent_on=date(2026, 6, 15)
+            measurements_weekday=0, last_measurements_sent_at=datetime(2026, 6, 15, 9, 0)
         )
         now = datetime(2026, 6, 22, 8, 0)  # next Monday, before 09:00
         assert ReminderKind.MEASUREMENTS not in due_reminders(group, now)
 
     def test_due_again_next_week_at_time(self):
         group = _make_group(
-            measurements_weekday=0, last_measurements_sent_on=date(2026, 6, 15)
+            measurements_weekday=0, last_measurements_sent_at=datetime(2026, 6, 15, 9, 0)
         )
         now = datetime(2026, 6, 22, 9, 0)  # next Monday, at 09:00
         assert ReminderKind.MEASUREMENTS in due_reminders(group, now)
@@ -167,7 +167,7 @@ class TestPhotosReminder:
 
     def test_not_due_again_same_month_after_sent(self):
         group = _make_group(
-            photos_day_of_month=15, last_photos_sent_on=date(2026, 6, 15)
+            photos_day_of_month=15, last_photos_sent_at=datetime(2026, 6, 15, 9, 0)
         )
         now = datetime(2026, 6, 15, 23, 0)
         assert ReminderKind.PHOTOS not in due_reminders(group, now)
@@ -188,6 +188,53 @@ class TestMultipleTypesAtOnce:
         )
         now = datetime(2026, 6, 15, 20, 0)
         assert due_reminders(group, now) == []
+
+
+class TestSeveralTimesPerDay:
+    """Trainer-configured lists like "08:00,13:30,20:00" — each slot
+    fires once per day."""
+
+    def test_each_slot_fires_once(self):
+        group = _make_group(nutrition_time="08:00,13:30,20:00")
+        assert ReminderKind.NUTRITION not in due_reminders(group, datetime(2026, 6, 15, 7, 59))
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 8, 0))
+
+        group.last_nutrition_sent_at = datetime(2026, 6, 15, 8, 0)
+        assert ReminderKind.NUTRITION not in due_reminders(group, datetime(2026, 6, 15, 13, 29))
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 13, 30))
+
+        group.last_nutrition_sent_at = datetime(2026, 6, 15, 13, 31)
+        assert ReminderKind.NUTRITION not in due_reminders(group, datetime(2026, 6, 15, 19, 0))
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 20, 0))
+
+        group.last_nutrition_sent_at = datetime(2026, 6, 15, 20, 1)
+        assert ReminderKind.NUTRITION not in due_reminders(group, datetime(2026, 6, 15, 23, 59))
+
+    def test_arbitrary_minutes_are_supported(self):
+        group = _make_group(nutrition_time="07:17")
+        assert ReminderKind.NUTRITION not in due_reminders(group, datetime(2026, 6, 15, 7, 16))
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 7, 17))
+
+    def test_missed_slots_collapse_into_one_catch_up(self):
+        # Bot was down all day; at 21:00 there's one due reminder, and
+        # once it's sent nothing else fires today.
+        group = _make_group(nutrition_time="08:00,13:00,20:00")
+        now = datetime(2026, 6, 15, 21, 0)
+        assert due_reminders(group, now).count(ReminderKind.NUTRITION) == 1
+        group.last_nutrition_sent_at = now
+        assert ReminderKind.NUTRITION not in due_reminders(group, datetime(2026, 6, 15, 23, 0))
+
+    def test_unsorted_and_messy_stored_value_is_tolerated(self):
+        group = _make_group(nutrition_time=" 20:00, 8:00,,bad")
+        assert ReminderKind.NUTRITION in due_reminders(group, datetime(2026, 6, 15, 8, 0))
+
+    def test_several_measurement_slots_on_the_weekday(self):
+        group = _make_group(
+            measurements_time="09:00,18:00",
+            last_measurements_sent_at=datetime(2026, 6, 15, 9, 0),
+        )
+        assert ReminderKind.MEASUREMENTS in due_reminders(group, datetime(2026, 6, 15, 18, 0))
+        assert ReminderKind.MEASUREMENTS not in due_reminders(group, datetime(2026, 6, 16, 18, 0))
 
 
 @pytest.fixture(autouse=True)
@@ -233,7 +280,7 @@ class TestGroupReminderServiceSendsAndMarksSent:
         assert sent >= 1
         bot.send_message.assert_awaited()
         group = await _get_group(-100)
-        assert group.last_nutrition_sent_on is not None
+        assert group.last_nutrition_sent_at is not None
 
     async def test_only_active_groups_are_considered(self):
         await _register_group(chat_id=-200, nutrition_time="00:00")
@@ -247,7 +294,7 @@ class TestGroupReminderServiceSendsAndMarksSent:
         assert sent == 0
         bot.send_message.assert_not_awaited()
 
-    async def test_send_failure_leaves_last_sent_on_untouched_for_retry(self):
+    async def test_send_failure_leaves_last_sent_at_untouched_for_retry(self):
         await _register_group(nutrition_time="00:00")
         bot = _fake_bot()
         bot.send_message.side_effect = RuntimeError("network blip")
@@ -256,7 +303,7 @@ class TestGroupReminderServiceSendsAndMarksSent:
 
         assert sent == 0
         group = await _get_group(-100)
-        assert group.last_nutrition_sent_on is None  # retried next tick
+        assert group.last_nutrition_sent_at is None  # retried next tick
 
     async def test_forbidden_error_deactivates_the_group(self):
         await _register_group(nutrition_time="00:00")

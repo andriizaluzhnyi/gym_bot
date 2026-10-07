@@ -1616,9 +1616,9 @@ class WorkoutProgramRepository:
 # Reminder types GroupChat.mark_sent() accepts — maps each to the
 # corresponding "last sent" date column (GYM-32/34).
 _GROUP_CHAT_SENT_FIELD_BY_TYPE = {
-    "nutrition": "last_nutrition_sent_on",
-    "measurements": "last_measurements_sent_on",
-    "photos": "last_photos_sent_on",
+    "nutrition": "last_nutrition_sent_at",
+    "measurements": "last_measurements_sent_at",
+    "photos": "last_photos_sent_at",
 }
 
 
@@ -1725,13 +1725,16 @@ class GroupChatRepository:
 
         return group
 
-    async def mark_sent(self, chat_id: int, reminder_type: str, sent_on: date) -> None:
+    async def mark_sent(
+        self, chat_id: int, reminder_type: str, sent_at: datetime
+    ) -> None:
         """Record that ``reminder_type`` ("nutrition"/"measurements"/
-        "photos") was sent to ``chat_id`` on the local date ``sent_on`` —
-        GYM-34's scheduled job calls this right after sending, so a
-        restart mid-day doesn't cause a duplicate send. No-op if the
-        group doesn't exist (e.g. the bot was removed between the job
-        listing active groups and sending).
+        "photos") was sent to ``chat_id`` at the local wall-clock moment
+        ``sent_at`` — the scheduled job calls this right after sending, so
+        every daily slot at or before ``sent_at`` counts as handled and a
+        restart doesn't cause a duplicate send. No-op if the group doesn't
+        exist (e.g. the bot was removed between the job listing active
+        groups and sending).
         """
         if reminder_type not in _GROUP_CHAT_SENT_FIELD_BY_TYPE:
             raise ValueError(f"Unknown reminder_type: {reminder_type!r}")
@@ -1740,4 +1743,24 @@ class GroupChatRepository:
         if group is None:
             return
 
-        setattr(group, _GROUP_CHAT_SENT_FIELD_BY_TYPE[reminder_type], sent_on)
+        setattr(group, _GROUP_CHAT_SENT_FIELD_BY_TYPE[reminder_type], sent_at)
+
+    async def skip_past_slots(
+        self, chat_id: int, reminder_type: str, now_local: datetime
+    ) -> None:
+        """After a schedule change (times/weekday/day/enable), treat every
+        slot up to ``now_local`` as already handled, so e.g. adding 10:00
+        at 15:00 doesn't fire a "late" 10:00 reminder right away — it
+        starts tomorrow. Never moves the marker backwards.
+        """
+        if reminder_type not in _GROUP_CHAT_SENT_FIELD_BY_TYPE:
+            raise ValueError(f"Unknown reminder_type: {reminder_type!r}")
+
+        group = await self.get_by_chat_id(chat_id)
+        if group is None:
+            return
+
+        field = _GROUP_CHAT_SENT_FIELD_BY_TYPE[reminder_type]
+        current = getattr(group, field)
+        if current is None or current < now_local:
+            setattr(group, field, now_local)

@@ -1,10 +1,10 @@
 """Database models for the gym bot."""
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator, CHAR
@@ -565,12 +565,14 @@ class GroupChat(Base):
     налаштування лишаються — при поверненні бота відновлюються").
 
     All configured times (``nutrition_time``, ``measurements_time``,
-    ``photos_time``) are ``"HH:MM"`` strings interpreted in
-    ``settings.timezone`` — one timezone for the whole app (same
-    convention as ``to_local_date``/``period_bounds_utc``), not
-    per-group. The three ``last_*_sent_on`` columns are *local* dates
-    (via that same timezone), used by GYM-34 to avoid re-sending a
-    reminder already sent today/this week/this month after a restart.
+    ``photos_time``) are comma-separated lists of ``"HH:MM"`` values
+    (e.g. ``"08:00,13:30,20:00"`` — any number of reminders per day, see
+    :mod:`src.utils.reminder_times`) interpreted in ``settings.timezone``
+    — one timezone for the whole app (same convention as
+    ``to_local_date``/``period_bounds_utc``), not per-group. The three
+    ``last_*_sent_at`` columns are *local* naive datetimes (via that same
+    timezone) of the last send, used to fire each daily slot exactly once
+    — including after a restart.
     """
 
     __tablename__ = "group_chats"
@@ -589,7 +591,7 @@ class GroupChat(Base):
         Boolean, default=True, nullable=False
     )
     nutrition_time: Mapped[str] = mapped_column(
-        String(5), default="20:00", nullable=False
+        String(255), default="20:00", nullable=False
     )
     remind_measurements: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
@@ -598,7 +600,7 @@ class GroupChat(Base):
         Integer, default=0, nullable=False
     )
     measurements_time: Mapped[str] = mapped_column(
-        String(5), default="09:00", nullable=False
+        String(255), default="09:00", nullable=False
     )
     remind_photos: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
@@ -607,14 +609,18 @@ class GroupChat(Base):
         Integer, default=1, nullable=False
     )
     photos_time: Mapped[str] = mapped_column(
-        String(5), default="09:00", nullable=False
+        String(255), default="09:00", nullable=False
     )
 
-    last_nutrition_sent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
-    last_measurements_sent_on: Mapped[date | None] = mapped_column(
-        Date, nullable=True
+    last_nutrition_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
     )
-    last_photos_sent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_measurements_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    last_photos_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

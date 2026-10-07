@@ -4,7 +4,7 @@ scheduled jobs will build on; the bot handler's own join/leave wiring is
 covered in tests/test_bot_handlers_group_reminders.py.
 """
 
-from datetime import date
+from datetime import datetime
 
 import pytest
 
@@ -41,9 +41,9 @@ class TestUpsertActive:
             assert group.remind_photos is False
             assert group.photos_day_of_month == 1
             assert group.photos_time == "09:00"
-            assert group.last_nutrition_sent_on is None
-            assert group.last_measurements_sent_on is None
-            assert group.last_photos_sent_on is None
+            assert group.last_nutrition_sent_at is None
+            assert group.last_measurements_sent_at is None
+            assert group.last_photos_sent_at is None
 
     async def test_reactivating_an_existing_row_preserves_settings(self):
         async with async_session_maker() as session:
@@ -168,15 +168,15 @@ class TestMarkSent:
             await repo.upsert_active(chat_id=-100, title=None, added_by_telegram_id=1)
             await session.commit()
 
-            await repo.mark_sent(-100, "nutrition", date(2026, 1, 15))
-            await repo.mark_sent(-100, "measurements", date(2026, 1, 12))
-            await repo.mark_sent(-100, "photos", date(2026, 1, 1))
+            await repo.mark_sent(-100, "nutrition", datetime(2026, 1, 15, 9, 0))
+            await repo.mark_sent(-100, "measurements", datetime(2026, 1, 12, 9, 0))
+            await repo.mark_sent(-100, "photos", datetime(2026, 1, 1, 9, 0))
             await session.commit()
 
             group = await repo.get_by_chat_id(-100)
-            assert group.last_nutrition_sent_on == date(2026, 1, 15)
-            assert group.last_measurements_sent_on == date(2026, 1, 12)
-            assert group.last_photos_sent_on == date(2026, 1, 1)
+            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 9, 0)
+            assert group.last_measurements_sent_at == datetime(2026, 1, 12, 9, 0)
+            assert group.last_photos_sent_at == datetime(2026, 1, 1, 9, 0)
 
     async def test_unknown_reminder_type_raises(self):
         async with async_session_maker() as session:
@@ -185,11 +185,37 @@ class TestMarkSent:
             await session.commit()
 
             with pytest.raises(ValueError):
-                await repo.mark_sent(-100, "workouts", date(2026, 1, 1))
+                await repo.mark_sent(-100, "workouts", datetime(2026, 1, 1, 9, 0))
 
     async def test_no_op_for_unknown_chat(self):
         async with async_session_maker() as session:
             # Should not raise.
             await GroupChatRepository(session).mark_sent(
-                -999, "nutrition", date(2026, 1, 1)
+                -999, "nutrition", datetime(2026, 1, 1, 9, 0)
             )
+
+
+class TestSkipPastSlots:
+    async def test_moves_marker_forward_only(self):
+        async with async_session_maker() as session:
+            repo = GroupChatRepository(session)
+            await repo.upsert_active(chat_id=-100, title=None, added_by_telegram_id=1)
+            await session.commit()
+
+            await repo.skip_past_slots(-100, "nutrition", datetime(2026, 1, 15, 12, 0))
+            await session.commit()
+            group = await repo.get_by_chat_id(-100)
+            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 12, 0)
+
+            # An earlier moment never moves it back.
+            await repo.skip_past_slots(-100, "nutrition", datetime(2026, 1, 15, 8, 0))
+            await session.commit()
+            group = await repo.get_by_chat_id(-100)
+            assert group.last_nutrition_sent_at == datetime(2026, 1, 15, 12, 0)
+
+    async def test_unknown_reminder_type_raises(self):
+        async with async_session_maker() as session:
+            with pytest.raises(ValueError):
+                await GroupChatRepository(session).skip_past_slots(
+                    -100, "workouts", datetime(2026, 1, 1, 9, 0)
+                )

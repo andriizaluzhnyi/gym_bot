@@ -82,13 +82,13 @@ class TestConfigureBotCommands:
 
 
 class TestSetupScheduler:
-    def test_registers_a_group_reminders_job_every_five_minutes(self):
+    def test_registers_a_group_reminders_job_every_minute(self):
         """GYM-34: the scheduler job driving GroupReminderService."""
         scheduler = bot_module.setup_scheduler(_make_bot())
         job = scheduler.get_job("group_reminders")
 
         assert job is not None
-        assert str(job.trigger) == "interval[0:05:00]"
+        assert str(job.trigger) == "interval[0:01:00]"
 
     def test_does_not_remove_the_existing_training_reminder_jobs(self):
         scheduler = bot_module.setup_scheduler(_make_bot())
